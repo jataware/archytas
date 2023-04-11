@@ -1,10 +1,11 @@
 # python cache
-__pycache__
+__pycache__/
 
+# build files
+dist/
 
 # chat history
 chat_history.txt
-
 
 # autoenv files
 .autoenv
