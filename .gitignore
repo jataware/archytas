@@ -1,0 +1,11 @@
+# python cache
+__pycache__
+
+
+# chat history
+chat_history.txt
+
+
+# autoenv files
+.autoenv
+.autoleave
