@@ -6,7 +6,7 @@ You have access to the following tools which can help you in your job:
 
 - calculator
     - the calculator can be used to perform simple arithmetic operations
-    - _input_: a valid arithmetic expression
+    - _input_: a valid arithmetic expression with two operands and one operation (+ - * / ^ %)
     - _output_: the result of the arithmetic expression
 
 # - search
@@ -15,14 +15,19 @@ You have access to the following tools which can help you in your job:
 #     - _output_: the text of the first result from the search query (in English)
 
 
-# - datetime
-#     - the date tool can be used to get the current date
-#     - _input_: a json object with the following fields:
-#     {{
-#         "format":   # (Optional) e.g. "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS". Must be a valid format string for the python datetime.strftime function
-#         "timezone": # (Optional) e.g. "America/New_York" or "UTC". Must be a valid timezone string for the python pytz.timezone function
-#     }}
-#     - _output_: the current date and time in the format YYYY-MM-DD HH:MM:SS. Time zone is 
+- datetime
+    - the date tool can be used to get the current date
+    - _input_: a json object with the following fields:
+    {{
+        "format":   # (Optional) e.g. "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS". Must be a valid format string for the python datetime.strftime function
+        "timezone": # (Optional) e.g. "America/New_York" or "UTC". Must be a valid timezone string for the python pytz.timezone function
+    }}
+    - _output_: the current date and time in the format YYYY-MM-DD HH:MM:SS. Time zone is UTC by default.
+
+- timestamp
+    - the timestamp tool can be used to get the current unix timestamp as a floating point number of seconds since January 1, 1970
+    - _input_: None
+    - _output_: the current unix timestamp as a floating point number of seconds since January 1, 1970
     
 - ask_user
     - the ask_user tool can be used to ask the user a question. You should ask the user a question if you do not have enough information to complete the task, and there is no suitable tool to help you.
@@ -60,6 +65,7 @@ For example, if the user asked you what the square-root of 2, you would use the 
 # Notes
 - assume any time based knowledge you have is out of date, and should be looked up. Things like the current date, current world leaders, celebrities ages, etc.
 - You are not very good at arithmetic, so you should generally use tools to do arithmetic for you.
+- The user cannot see your thoughts. If you want to communicate to tell the user something, it should be via ask_user or final_answer, as the tool_input.
 """
 
 

@@ -9,7 +9,30 @@ from rich import print
 
 import pdb
 
+def ask_user(query:str) -> str:
+    """Ask the user a question. Returns the user's response"""
+    return readl(prompt=f'{query} ')
 
+from datetime import datetime
+import pytz
+#TODO: arguments need to be parsed. input should be a json with {format:str, timezone:str}
+def datetime_tool(kwargs) -> str:
+    def datetime_tool(format:str='%Y-%m-%d %H:%M:%S %Z', timezone:str='UTC') -> str:
+        """Returns the current date and time in the specified format. 
+        Defaults to YYYY-MM-DD HH:MM:SS format. 
+        TODO: See https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes for more information.
+        TODO: list of valid timezones: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        default timezone is UTC
+        """
+        tz = pytz.timezone(timezone)
+        return datetime.now(tz).strftime(format)
+
+    return datetime_tool(**kwargs)
+
+
+def timestamp(_) -> str:
+    """Returns the current unix timestamp in seconds"""
+    return str(datetime.now().timestamp())
 
 def calculator(expression:str) -> str:
     """
@@ -49,13 +72,7 @@ def calculator(expression:str) -> str:
     _a, _b = expression.split(op)
     a = float(_a)
     b = float(_b)
-    # try:
-    # except ValueError:
-    #     return f"Invalid expression. Could not convert \"{_a}\" to float"
-    # try:
-    # except ValueError:
-    #     return f"Invalid expression. Could not convert \"{_b}\" to float"
-    
+
     if op == '+':
         return str(a+b)
     elif op == '-':
@@ -110,7 +127,7 @@ def react(agent:Agent, query:str, tools:dict, max_errors:int=3, verbose:bool=Tru
         try:
             action = json.loads(action_str)
         except json.JSONDecodeError:
-            action_str = err(f"failed to parse action: ```{action_str}```. Action must be a valid json dictionary with keys 'thought', 'tool', and 'tool_input'.")
+            action_str = err(f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}')
             continue
 
         # verify that action has the correct keys
@@ -171,11 +188,17 @@ def react(agent:Agent, query:str, tools:dict, max_errors:int=3, verbose:bool=Tru
 def main():
 
     agent = Agent(prompt=prompt, model='gpt-4')
+    tools = {
+        'calculator': calculator,
+        'ask_user': ask_user,
+        'datetime': datetime_tool,
+        'timestamp': timestamp,
+    }
 
     for query in REPL(history_file=history_file):
         if not query: continue
         try:
-            answer = react(agent, query, tools={'calculator': calculator}, verbose=True)
+            answer = react(agent, query, tools=tools, verbose=True)
             print(f'[green]{answer}[/green]')
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
