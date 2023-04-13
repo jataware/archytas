@@ -37,16 +37,12 @@ class Agent:
     def query(self, message:str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
         self.messages.append({"role": Role.user, "content": message})
-        result = self.execute()
-        self.messages.append({"role": Role.assistant, "content": result})
-        return result
+        return self.execute()
     
     def observe(self, observation:str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
         self.messages.append({"role": Role.system, "content": observation})
-        result = self.execute()
-        self.messages.append({"role": Role.assistant, "content": result})
-        return result
+        return self.execute()
     
     def error(self, error:str, drop_error:bool=True) -> str:
         """
@@ -58,7 +54,6 @@ class Agent:
         """
         self.messages.append({"role": Role.system, "content": f'ERROR: {error}'})
         result = self.execute()
-        self.messages.append({"role": Role.assistant, "content": result})
 
         # Drop error + original bad input from chat history
         if drop_error:
@@ -79,5 +74,9 @@ class Agent:
                 print(self.messages)
                 import pdb;pdb.set_trace()
                 ...
-            
-        return completion.choices[0].message.content
+        
+        # grab the response and add it to the chat history
+        result = completion.choices[0].message.content
+        self.messages.append({"role": Role.assistant, "content": result})
+
+        return result
