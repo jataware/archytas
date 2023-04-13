@@ -29,7 +29,7 @@ class Message(TypedDict):
     content: str
 
 class Agent:
-    def __init__(self, model:str='gpt-4', prompt:str="You are a helpful assistant."):
+    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant."):
         self.model = model
         self.system_message: Message = {"role": Role.system, "content": prompt }
         self.messages = []

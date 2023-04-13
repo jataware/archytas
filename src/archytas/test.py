@@ -1,11 +1,12 @@
-from agent import Agent
-from prompt import prompt
+# from agent import Agent
+# from prompt import prompt
 import json
+from rich import traceback, print; traceback.install()
+from archytas.react import ReAct, FailedTaskError
 
 from easyrepl import REPL, readl
 history_file = 'chat_history.txt'
 
-from rich import print
 
 import pdb
 
@@ -86,86 +87,6 @@ def calculator(expression:str) -> str:
     elif op == '%':
         return str(a%b)
     
-def extract_action(action:dict) -> tuple[str, str, str]:
-    """Verify that action has the correct keys. Otherwise, raise an error"""
-    assert isinstance(action, dict), f"Action must be a json dictionary, got {type(action)}"
-    assert len(action) == 3, f"Action must have exactly 3 keys, got {len(action)}"
-    assert 'thought' in action, "Action is missing key 'thought'"
-    assert 'tool' in action, "Action is missing key 'tool'"
-    assert 'tool_input' in action, "Action is missing key 'tool_input'"
-
-    thought = action['thought']
-    tool = action['tool']
-    tool_input = action['tool_input']
-
-    return thought, tool, tool_input
-
-class FailedTaskError(Exception): ...
-
-def react(agent:Agent, query:str, tools:dict, max_errors:int=3, verbose:bool=True) -> str:
-
-    # error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue
-    errors = 0
-    def err(mesg) -> str:
-        nonlocal errors, max_errors, agent, verbose
-
-        errors += 1
-        if errors > max_errors:
-            raise FailedTaskError(f"Too many errors during task. Last error: {mesg}")
-        if verbose:
-            print(f"[red]error: {mesg}[/red]")
-
-        return agent.error(mesg)
-    
-    # run the initial user query
-    action_str = agent.query(query)
-
-    # ReAct loop
-    while True:
-
-        # Convert agent output to json
-        try:
-            action = json.loads(action_str)
-        except json.JSONDecodeError:
-            action_str = err(f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}')
-            continue
-
-        # verify that action has the correct keys
-        try:
-            thought, tool, tool_input = extract_action(action)
-        except AssertionError as e:
-            action_str = err(str(e))
-            continue
-
-        # print action
-        if verbose:
-            print(f"thought: {thought}\ntool: {tool}\ntool_input: {tool_input}\n")
-
-        # exit ReAct loop if agent says final_answer or fail_task
-        if tool == 'final_answer':
-            return tool_input
-        if tool == 'fail_task':
-            raise FailedTaskError(tool_input)
-        
-        # run tool
-        try:
-            tool = tools[tool]
-        except KeyError:
-            action_str = err(f"unknown tool \"{tool}\"")
-            continue
-
-        try:
-            tool_output = tool(tool_input)
-        except Exception as e:
-            action_str = err(f"error running tool \"{tool}\": {e}")
-            continue
-
-        # have the agent observe the result, and get the next action
-        if verbose:
-            print(f"observation: {tool_output}\n")
-        action_str = agent.observe(tool_output)
-
-
 
 """
 [notes]
@@ -187,7 +108,7 @@ def react(agent:Agent, query:str, tools:dict, max_errors:int=3, verbose:bool=Tru
 
 def main():
 
-    agent = Agent(prompt=prompt, model='gpt-4')
+    # agent = Agent(prompt=prompt, model='gpt-4')
     tools = {
         'calculator': calculator,
         'ask_user': ask_user,
@@ -195,16 +116,18 @@ def main():
         'timestamp': timestamp,
     }
 
+    agent = ReAct(tools=tools, verbose=True)
+
     for query in REPL(history_file=history_file):
         if not query: continue
         try:
-            answer = react(agent, query, tools=tools, verbose=True)
+            answer = agent.react(query)
             print(f'[green]{answer}[/green]')
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
 
-    pdb.set_trace()
-    1
+    # pdb.set_trace()
+    # 1
 
 
 if __name__ == '__main__':
