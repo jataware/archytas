@@ -203,6 +203,9 @@ def main():
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
 
+    pdb.set_trace()
+    1
+
 
 if __name__ == '__main__':
     main()

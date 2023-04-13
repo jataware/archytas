@@ -2,33 +2,24 @@ import logging
 import openai
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
-from enum import Enum
 from typing import TypedDict, Literal
+
+
+from rich.spinner import Spinner
+from rich.live import Live
+
+
 
 logger = logging.getLogger(__name__)
 retry = tenacity_retry(
     reraise=True,
     stop=stop_after_attempt(4),
     wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if(Timeout) | retry_if(APIError) | retry_if(APIConnectionError) | retry_if(RateLimitError) | retry_if(ServiceUnavailableError),
+    retry=retry_if((Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError)),
     before_sleep=before_sleep_log(logger, logging.WARNING),
 )
 
-# from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-# retry_decorator = retry(
-#     reraise=True,
-#     stop=stop_after_attempt(4),
-#     wait=wait_exponential(multiplier=1, min=4, max=10),
-#     retry=(
-#           retry_if_exception_type(openai.error.Timeout)
-#         | retry_if_exception_type(openai.error.APIError)
-#         | retry_if_exception_type(openai.error.APIConnectionError)
-#         | retry_if_exception_type(openai.error.RateLimitError)
-#         | retry_if_exception_type(openai.error.ServiceUnavailableError)
-#     ),
-#     before_sleep=before_sleep_log(logger, logging.WARNING),
-# )
-
+#TODO: want these to be enums, but Role.role needs to return a string, not an enum member
 class Role:
     system = 'system'
     assistant = 'assistant'
@@ -61,8 +52,9 @@ class Agent:
         """
         Send an error message to the agent. Returns the agent's response.
         
-        `error`: The error message to send to the agent.
-        `drop_error`: (optional) If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
+        Args:
+            error (str): The error message to send to the agent.
+            drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
         self.messages.append({"role": Role.system, "content": f'ERROR: {error}'})
         result = self.execute()
@@ -76,16 +68,16 @@ class Agent:
     
     @retry
     def execute(self):
-        try:
-            completion = openai.ChatCompletion.create(
-                model=self.model, 
-                messages=[self.system_message] + self.messages,
-                temperature=0,
-            )
-        except InvalidRequestError as e:
-            print(self.messages)
-            # breakpoint()
-            import pdb;pdb.set_trace()
-            1
-        
+        with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
+            try:
+                completion = openai.ChatCompletion.create(
+                    model=self.model, 
+                    messages=[self.system_message] + self.messages,
+                    temperature=0,
+                )
+            except InvalidRequestError as e:
+                print(self.messages)
+                import pdb;pdb.set_trace()
+                ...
+            
         return completion.choices[0].message.content
