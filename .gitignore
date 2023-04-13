@@ -10,3 +10,6 @@ chat_history.txt
 # autoenv files
 .autoenv
 .autoleave
+
+# old reference code
+old_react/
