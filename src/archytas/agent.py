@@ -62,7 +62,7 @@ class Agent:
         return result
     
     @retry
-    def execute(self):
+    def execute(self) -> str:
         with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
             try:
                 completion = openai.ChatCompletion.create(
