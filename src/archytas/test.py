@@ -5,7 +5,7 @@ from rich import traceback, print; traceback.install()
 from archytas.react import ReAct, FailedTaskError
 from archytas.tools import calculator, ask_user, datetime_tool, timestamp
 
-from easyrepl import REPL, readl
+from easyrepl import REPL
 history_file = 'chat_history.txt'
 
 
