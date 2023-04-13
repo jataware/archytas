@@ -12,23 +12,6 @@ history_file = 'chat_history.txt'
 import pdb
 
 
-"""
-[notes]
-- GPT-3.5 doesn't follow directions. It will add extra comment text to the beginning of its response.
-    
-    >>> can you tell me what my age squared is?
-    Sure! To calculate your age squared, I will use the calculator tool. Here's what I'm thinking:
-
-    {
-    "thought": "I need to use the calculator to find your age squared.",
-    "tool": "calculator",
-    "tool_input": "age^2"
-    }
-
-    Please replace "age" with your actual age.
-
-"""
-
 
 def main():
 
@@ -50,8 +33,7 @@ def main():
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
 
-    # pdb.set_trace()
-    # 1
+
 
 
 if __name__ == '__main__':
