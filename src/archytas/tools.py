@@ -372,7 +372,7 @@ def calculator(expression:str) -> float:
 
 
 def test():
-    for t in [ask_user, datetime, timestamp, fib_n, test_calculator, example_tool, calculator]:
+    for t in [ask_user, datetime, timestamp, fib_n, example_tool, calculator]:
         print(get_tool_prompt_description(t))
         print()
 
