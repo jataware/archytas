@@ -10,7 +10,6 @@ from typing import TypedDict, Literal
 from rich.spinner import Spinner
 from rich.live import Live
 
-add_openai_auth()
 
 logger = logging.getLogger(__name__)
 retry = tenacity_retry(
