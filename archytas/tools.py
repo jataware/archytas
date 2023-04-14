@@ -30,11 +30,6 @@ def tool(*, name:str|None=None):
             else:
                 raise TypeError(f"args must be a dict, list, str, int, bool, or None. Got {type(args)}")
 
-            #TODO: structure input args so they can be used to call the function
-            # args = validate_tool_call(func, args, args_list)
-            
-            # result = func(**args)
-
             #convert the result to a string if it is not already a string
             if not isinstance(result, str):
                 result = str(result)
