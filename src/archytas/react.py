@@ -1,18 +1,24 @@
 from archytas.agent import Agent
+from archytas.prompt import build_prompt
+from archytas.tools import make_tool_dict
 import json
 from rich import print
 
 
 class FailedTaskError(Exception): ...
 
-class ReAct:
-    def __init__(self, *, model:str='gpt-4', tools:dict=None, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
-        ...
-        #TODO: correct prompt/etc given tools
-        from archytas.prompt import prompt
+class ReActAgent:
+    def __init__(self, *, model:str='gpt-4', tools:list=None, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
+
+        # create a dictionary for looking up tools by name
+        tools = tools or []
+        self.tools = make_tool_dict(tools)
+
+        # create the prompt with the tools
+        prompt = build_prompt(tools)
         self._agent = Agent(model=model, prompt=prompt)
 
-        self.tools = tools or {}
+        # react settings
         self.max_errors = max_errors or float('inf')
         self.max_react_steps = max_react_steps or float('inf')
         self.verbose = verbose
@@ -21,7 +27,7 @@ class ReAct:
         self.errors = 0
         self.steps = 0
 
-        # keep track of the last tool used
+        # keep track of the last tool used (for error messages)
         self.last_tool_name = ''
 
     def react(self, query:str) -> str:

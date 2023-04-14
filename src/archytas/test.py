@@ -1,10 +1,9 @@
-# from agent import Agent
-# from prompt import prompt
-import json
-from rich import traceback, print; traceback.install()
-from archytas.react import ReAct, FailedTaskError
-from archytas.tools import calculator, ask_user, datetime_tool, timestamp
+from archytas.react import ReActAgent, FailedTaskError
+# from archytas.tools import calculator, ask_user, datetime, timestamp
+from archytas.tools import ask_user, datetime, timestamp, fib_n, example_tool, calculator
 
+
+from rich import traceback, print; traceback.install()
 from easyrepl import REPL
 history_file = 'chat_history.txt'
 
@@ -15,15 +14,10 @@ import pdb
 
 def main():
 
-    # agent = Agent(prompt=prompt, model='gpt-4')
-    tools = {
-        'calculator': calculator,
-        'ask_user': ask_user,
-        'datetime': datetime_tool,
-        'timestamp': timestamp,
-    }
+    # tools = [calculator, ask_user, datetime, timestamp]
+    tools = [ask_user, datetime, timestamp, fib_n, example_tool, calculator]
 
-    agent = ReAct(tools=tools, verbose=True)
+    agent = ReActAgent(tools=tools, verbose=True)
 
     for query in REPL(history_file=history_file):
         if not query: continue
