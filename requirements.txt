@@ -1,4 +1,0 @@
-openai
-tenacity
-rich
-docstring-parser

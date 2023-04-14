@@ -1,3 +1,5 @@
+from archytas.auth import add_openai_auth; add_openai_auth() # handle better
+
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import ask_user, datetime, timestamp, fib_n, example_tool, calculator
 
@@ -7,7 +9,7 @@ from easyrepl import REPL
 import pdb
 
 
-def main():
+def start_repl():
 
     # make a list of the tools to use
     # tools = [calculator, ask_user, datetime, timestamp]
@@ -31,4 +33,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    start_repl()
