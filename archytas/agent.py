@@ -1,4 +1,6 @@
 import logging
+import os
+import toml
 import openai
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
@@ -8,7 +10,7 @@ from typing import TypedDict, Literal
 from rich.spinner import Spinner
 from rich.live import Live
 
-
+add_openai_auth()
 
 logger = logging.getLogger(__name__)
 retry = tenacity_retry(

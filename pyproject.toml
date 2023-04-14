@@ -1,24 +1,29 @@
-[build-system]
-requires = ["flit_core>=3.4"]
-build-backend = "flit_core.buildapi"
-
-
-
-[project]
+[tool.poetry]
 name = "archytas"
 version = "0.1.0"
-authors = [
-  { name="David Andrew Samson", email="david.andrew.engineer@gmail.com" },
-]
 description = "A library for pairing LLM agents with tools so they perform open ended tasks"
+authors = ["David Andrew Samson <david.andrew.engineer@gmail.com>"]
 readme = "README.md"
-requires-python = ">=3.10"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: POSIX",
-]
 
 [project.urls]
 "Homepage" = "https://github.com/jataware/archytas"
 "Bug Tracker" = "https://github.com/jataware/archytas/issues"
+
+[tool.poetry.scripts]
+chat-repl = "archytas.repl:start_repl"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+openai = "^0.27.4"
+tenacity = "^8.2.2"
+rich = "^13.3.4"
+docstring-parser = "^0.15"
+pytz = "^2023.3"
+toml = "^0.10.2"
+
+[tool.poetry.group.dev.dependencies]
+easyrepl = "^0.1.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
