@@ -289,40 +289,6 @@ def fib_n(n:int) -> int:
 
 
 @tool()
-def test_calculator(expression:str='2+2') -> float:
-    """
-    just a function signature for testing the @tool decorator
-
-    Expressions must contain exactly:
-    - one left operand. Can be a float or integer
-    - one operation. Can be one of + - * / ^ %
-    - one right operand. Can be a float or integer
-
-    multiple chained operations are not currently supported.
-
-    Expressions may not contain parentheses, or multiple operations. 
-    If you want to do a complex calculation, you must do it in multiple steps.
-
-    Args:
-        expression (str, optional): A string containing a mathematical expression. Defaults to '2+2'.
-
-    Returns:
-        float: The result of the calculation
-
-    Examples:
-        >>> test_calculator()
-        4
-        >>> test_calculator('22/7')
-        3.142857142857143
-        >>> test_calculator('3.24^2')
-        10.4976
-        >>> test_calculator('3.24+2.5')
-        5.74
-    """
-    ...
-
-
-@tool()
 def example_tool(arg1:int, arg2:str='', arg3:dict=None) -> int:
     """
     Simple 1 sentence description of the tool
