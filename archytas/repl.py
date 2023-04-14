@@ -1,7 +1,7 @@
 from archytas.auth import add_openai_auth; add_openai_auth() # handle better
 
 from archytas.react import ReActAgent, FailedTaskError
-from archytas.tools import ask_user, datetime, timestamp, fib_n, example_tool, calculator
+from archytas.tools import ask_user, datetime_tool, timestamp, fib_n, example_tool, calculator
 
 from rich import traceback, print; traceback.install()
 from easyrepl import REPL
@@ -12,8 +12,8 @@ import pdb
 def start_repl():
 
     # make a list of the tools to use
-    # tools = [calculator, ask_user, datetime, timestamp]
-    tools = [ask_user, datetime, timestamp, fib_n, example_tool, calculator]
+    # tools = [calculator, ask_user, datetime_tool, timestamp]
+    tools = [ask_user, datetime_tool, timestamp, fib_n, example_tool, calculator]
 
     # create the agent
     agent = ReActAgent(tools=tools, verbose=True)

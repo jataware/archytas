@@ -245,10 +245,10 @@ def ask_user(query:str) -> str:
 
 
 
-from datetime import datetime as dt
+from datetime import datetime
 import pytz
-@tool()
-def datetime(format:str='%Y-%m-%d %H:%M:%S %Z', timezone:str='UTC') -> str:
+@tool(name='datetime')
+def datetime_tool(format:str='%Y-%m-%d %H:%M:%S %Z', timezone:str='UTC') -> str:
     """
     Get the current date and time. 
     
@@ -263,7 +263,7 @@ def datetime(format:str='%Y-%m-%d %H:%M:%S %Z', timezone:str='UTC') -> str:
     # TODO: list of valid timezones: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
     
     tz = pytz.timezone(timezone)
-    return dt.now(tz).strftime(format)
+    return datetime.now(tz).strftime(format)
 
 
 @tool()
@@ -278,7 +278,7 @@ def timestamp() -> float:
         >>> timestamp()
         1681445698.726113
     """
-    return dt.now().timestamp()
+    return datetime.now().timestamp()
 
 
 
@@ -393,7 +393,7 @@ def calculator(expression:str) -> float:
 
 
 def test():
-    for t in [ask_user, datetime, timestamp, fib_n, example_tool, calculator]:
+    for t in [ask_user, datetime_tool, timestamp, fib_n, example_tool, calculator]:
         print(get_tool_prompt_description(t))
         print()
 
