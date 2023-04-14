@@ -14,10 +14,34 @@ import pdb
 
 def tool(*, name:str|None=None):
     """
-    Converts a function into a tool for ReAct agents to use.
+    Decorator to convert a function into a tool for ReAct agents to use.
+
+    Usage:
+    ```
+        @tool()
+        def my_tool(arg:type) -> type:
+            '''
+            Short description of the tool
+
+            Long description of the tool
+
+            Args:
+                arg (type): Description of the argument
+
+            Returns:
+                type: Description of the return value
+
+            Examples:
+                optional description of the example
+                >>> my_tool(arg)
+                result
+            '''
+    ```
     """
+
     def decorator(func):
         def wrapper(args:dict|list|str|int|bool|None):
+            """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
             
             if isinstance(args, dict):
                 result = func(**args)
