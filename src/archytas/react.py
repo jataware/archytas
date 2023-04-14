@@ -15,8 +15,8 @@ class ReActAgent:
         self.tools = make_tool_dict(tools)
 
         # create the prompt with the tools
-        prompt = build_prompt(tools)
-        self._agent = Agent(model=model, prompt=prompt)
+        self.prompt = build_prompt(tools)
+        self._agent = Agent(model=model, prompt=self.prompt)
 
         # react settings
         self.max_errors = max_errors or float('inf')

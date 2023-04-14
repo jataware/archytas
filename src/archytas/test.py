@@ -16,6 +16,9 @@ def main():
     # create the agent
     agent = ReActAgent(tools=tools, verbose=True)
 
+    # print the agent's prompt
+    # print(agent.prompt)
+
     # run the REPL
     for query in REPL(history_file='chat_history.txt'):
         try:
