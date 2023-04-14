@@ -17,7 +17,6 @@ def tool(*, name:str|None=None):
     Converts a function into a tool for ReAct agents to use.
     """
     def decorator(func):
-        args_list, ret, desc = get_tool_signature(func)
         def wrapper(args:dict|list|str|int|bool|None):
             
             if isinstance(args, dict):
@@ -41,7 +40,10 @@ def tool(*, name:str|None=None):
                 result = str(result)
 
             return result
+        
         #attach usage description to the wrapper function
+        args_list, ret, desc = get_tool_signature(func)
+
         wrapper._name = name if name else func.__name__
         wrapper._is_tool = True
         wrapper._args_list = args_list
