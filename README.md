@@ -33,14 +33,15 @@ Import pre-made tools from the tools module
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import datetime_tool, fib_n, calculator
 
+from easyrepl import REPL
+
 # create the agent with the tools list
 tools = [datetime_tool, fib_n, calculator]
 agent = ReActAgent(tools=[mytool], verbose=True)
 
-# run the REPL
-while True:
+# REPL to interact with agent
+for query in REPL()
     try:
-        query = input(">>> ")
         answer = agent.react(query)
         print(answer)
     except FailedTaskError as e:
