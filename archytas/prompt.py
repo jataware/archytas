@@ -19,7 +19,7 @@ fail_task
 
 #TODO: there should be some way to give an example relevant to the environment/tools...
 #      or use a system tool for the example
-def formatting(tool_names:list[str]):
+def formatting(tool_names:list[str]) -> str:
     tool_names += ['final_answer', 'fail_task']
     tools_list = ', '.join(tool_names)
     return f"""
@@ -51,7 +51,7 @@ notes = f"""
 """.strip()
 
 
-def build_prompt(tools: list[Callable]):
+def build_prompt(tools: list[Callable]) -> str:
     """
     Build the prompt for the ReAct agent
     

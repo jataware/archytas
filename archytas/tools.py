@@ -42,19 +42,98 @@ def tool(*, name:str|None=None):
             '''
     ```
     """
-    def decorator(obj):
-        # determine if function, method, or class, and return the appropriate wrapper
-        if inspect.isfunction(obj):
-            if is_class_method(obj):
-                return make_method_tool_wrapper(obj, name)
-            else:
-                return make_func_tool_wrapper(obj, name)        
-        if inspect.isclass(obj):
-            return make_class_tool_wrapper(obj, name)
+    def decorator(func:Callable):
+        # check that the decorator is being applied to a function
+        if not inspect.isfunction(func):
+            raise TypeError(f"tool decorator can only be applied to functions or classes. Got {func} of type {type(func)}")
         
-        raise TypeError(f"tool decorator can only be applied to functions or classes. Got {obj} of type {type(obj)}")
+        # determine if function, or class method, and return the appropriate wrapper
+        if is_class_method(func):
+            return make_method_tool_wrapper(func, name)
+        else:
+            return make_func_tool_wrapper(func, name)
+
+    return decorator
+
+
+def toolset(*, name:str|None=None):
+    """
+    Decorator used to convert a class into a toolset for ReAct agents to use.
+
+    Usage:
+    ```
+        @toolset()
+        class MyToolset:
+            '''
+            description of the toolset
+            '''
+
+            def __init__(self, arg1, arg2, ...):
+                # initialize the toolset, set up state, etc.
+                # if has no required arguments, can pass class constructor to agent's list of tools
+                # if has required arguments, must pass an instance to agent's list of tools
+
+            @tool()
+            def my_tool(self, arg:type) -> type:
+                '''
+                Short description of the tool method
+
+                Long description of the tool method
+
+                Args:
+                    arg (type): Description of the argument
+
+                Returns:
+                    type: Description of the return value
+
+                Examples:
+                    optional description of the example
+                    >>> my_tool(arg)
+                    result
+                '''
+
+            @tool()
+            def my_other_tool(self, arg:type) -> type:
+                '''<tool docstring>'''
+    ```
+    """
+    def decorator(cls:type):
+        if not inspect.isclass(cls):
+            raise TypeError(f"toolset decorator can only be applied to classes. Got {cls} of type {type(cls)}")
+
+        #basically just add metadata, and return the class
+        #metadata should include a list of the class's tool methods
+
+        #get the list of @tool methods in the class
+        methods = inspect.getmembers(cls, predicate=inspect.isfunction)
+        methods = [method for name, method in methods if is_tool(method)]
+
+        # get the class docstring description
+        docstring = inspect.getdoc(cls)
+
+        @functools.wraps(cls)
+        def wrapper(*args, **kwargs):
+            # create an instance of the class
+            c = cls(*args, **kwargs)
+
+            # attach the metadata to the instance
+            c._name = name if name else cls.__name__
+            c._is_class_tool_instance = True
+            c._docstring = docstring
+            c._tool_methods = methods
+
+            return c
+
+        # attach the metadata to the class
+        wrapper._name = name if name else cls.__name__
+        wrapper._is_class_tool = True
+        wrapper._docstring = docstring
+        wrapper._tool_methods = methods
+        
+        return wrapper
     
     return decorator
+
 
 
 def make_func_tool_wrapper(func:Callable, name:str|None=None):
@@ -119,40 +198,6 @@ def make_method_tool_wrapper(func:Callable, name:str|None=None):
     wrapper._ret = ret
     wrapper._desc = desc
 
-    return wrapper
-
-
-
-def make_class_tool_wrapper(cls:type, name:str|None=None):
-    #basically just add metadata, and return the class
-    #metadata should include a list of the class's tool methods
-
-    #get the list of @tool methods in the class
-    methods = inspect.getmembers(cls, predicate=inspect.isfunction)
-    methods = [method for name, method in methods if is_tool(method)]    
-    
-    # get the class docstring description
-    docstring = inspect.getdoc(cls)
-
-    @functools.wraps(cls)
-    def wrapper(*args, **kwargs):
-        # create an instance of the class
-        c = cls(*args, **kwargs)
-
-        # attach the metadata to the instance
-        c._name = name if name else cls.__name__
-        c._is_class_tool_instance = True
-        c._docstring = docstring
-        c._tool_methods = methods
-    
-        return c
-    
-    # attach the metadata to the class
-    wrapper._name = name if name else cls.__name__
-    wrapper._is_class_tool = True
-    wrapper._docstring = docstring
-    wrapper._tool_methods = methods
-    
     return wrapper
 
 
@@ -281,6 +326,12 @@ def get_tool_class_prompt_description(cls:type):
     """
     Get the prompt description for a class tool, including all of its tool methods
     
+    class description is as follows:
+      class_name (class):
+          full unmodified class docstring
+          methods:
+              <get_tool_func_prompt_description for each method>
+
     Args:
         cls (type|Any): The class tool to get the description for, or an instance of a class tool
     
@@ -289,11 +340,6 @@ def get_tool_class_prompt_description(cls:type):
     """
     assert hasattr(cls, '_is_class_tool') or hasattr(cls, '_is_class_tool_instance'), f"class or instance {cls} does not have the @tool decorator attached"
 
-    #class description is as follows:
-    #   class_name:
-    #       full unmodified class docstring
-    #       methods:
-    #           <get_tool_func_prompt_description for each method>
 
     chunks = []
     tab = "    "
@@ -726,7 +772,7 @@ class StatefulToolExample:
 
 
 from random import random
-@tool()
+@toolset()
 class Jackpot:
     """
     A simple slot machine game
