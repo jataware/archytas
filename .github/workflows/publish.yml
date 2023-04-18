@@ -7,6 +7,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: publish
     # No strategeies needed for publish
     steps:
       - uses: actions/checkout@v1
@@ -21,6 +22,6 @@ jobs:
         run: poetry install
       - name: Publish to PyPi
       - env:
-          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_API_TOKEN }}
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.POETRY_PYPI_TOKEN_PYPI }}
       - run: poetry publish --build
      
