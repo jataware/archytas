@@ -1,5 +1,5 @@
 from typing import Callable
-from archytas.tools import get_tool_prompt_description, get_tool_names
+from archytas.tool_utils import get_tool_prompt_description, get_tool_names
 
 
 prelude = 'You are the ReAct (Reason & Action) assistant. You act as an interface between a user and the system. Your job is to help the user to complete their tasks.'

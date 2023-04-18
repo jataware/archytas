@@ -1,6 +1,7 @@
 from archytas.agent import Agent
 from archytas.prompt import build_prompt
-from archytas.tools import make_tool_dict, ask_user
+from archytas.tools import ask_user
+from archytas.tool_utils import make_tool_dict
 import json
 from rich import print
 

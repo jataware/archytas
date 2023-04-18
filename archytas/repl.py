@@ -1,5 +1,6 @@
 from archytas.react import ReActAgent, FailedTaskError
-from archytas.tools import datetime_tool, timestamp, fib_n, example_tool, calculator, Jackpot
+from archytas.tools import datetime_tool, timestamp
+from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot
 
 from rich import traceback, print; traceback.install()
 from easyrepl import REPL
@@ -27,6 +28,8 @@ def start_repl():
             print(f'[green]{answer}[/green]')
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
+        except KeyboardInterrupt:
+            print('[yellow]KeyboardInterrupt[/yellow]')
 
 
 
