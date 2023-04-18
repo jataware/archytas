@@ -8,13 +8,11 @@ import pdb
 
 
 def start_repl():
+    # make an instance of a class tool
+    jackpot = Jackpot(chips=1000)
 
     # make a list of the tools to use
-    # tools = [calculator, datetime_tool, timestamp]
-    # tools = [datetime_tool, timestamp, fib_n, example_tool, calculator, Jackpot]
-    # tools = [datetime_tool, Jackpot]
-    jackpot = Jackpot(chips=1000)
-    tools = [jackpot]
+    tools = [datetime_tool, timestamp, fib_n, example_tool, calculator, jackpot]
 
     # create the agent
     agent = ReActAgent(tools=tools, verbose=True)
