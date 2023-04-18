@@ -18,13 +18,16 @@ fail_task
 
 #TODO: there should be some way to give an example relevant to the environment/tools...
 #      or use a system tool for the example
-formatting = f"""
+def formatting(tool_names:list[str]):
+    tool_names += ['final_answer', 'fail_task']
+    tools_list = ', '.join(tool_names)
+    return f"""
 # Formatting
 Every response you generate should EXACTLY follow this JSON format:
 
 {{
   "thought"    : # you should always think about what you need to do
-  "tool"       : # the name of the tool.  This must be one of: [search, calculator, ask_user, final_answer, fail_task]
+  "tool"       : # the name of the tool. This must be one of: {{{tools_list}}}
   "tool_input" : # the input to the tool
 }}
 
@@ -48,10 +51,22 @@ notes = f"""
 
 
 def build_prompt(tools: list):
+    """
+    Build the prompt for the ReAct agent
+    
+    Args:
+        tools (list): A list of tools to use. Each tool should have the @tool decorator. applied.
+    
+    Returns:
+        str: The prompt for the ReAct agent
+    """
+    tool_names = [tool._name for tool in tools]
     chunks = [prelude, tool_intro]
     for tool in tools:
         chunks.append(get_tool_prompt_description(tool))
-    chunks.extend([system_tools+'\n', formatting+'\n', notes])
+    chunks.append(system_tools+'\n')
+    chunks.append(formatting(tool_names)+'\n')
+    chunks.append(notes)
     return '\n\n'.join(chunks)
 
         

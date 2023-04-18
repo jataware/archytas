@@ -1,6 +1,7 @@
 from archytas.agent import Agent
 from archytas.prompt import build_prompt
-from archytas.tools import make_tool_dict
+from archytas.tools import make_tool_dict, ask_user
+from archytas.auth import add_openai_auth
 import json
 from rich import print
 
@@ -8,10 +9,22 @@ from rich import print
 class FailedTaskError(Exception): ...
 
 class ReActAgent:
-    def __init__(self, *, model:str='gpt-4', tools:list=None, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
+    def __init__(self, *, model:str='gpt-4', tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
+        """
+        Create a ReAct agent
+        
+        Args:
+            model (str): The model to use. Defaults to 'gpt-4'. Recommended not to change this. gpt-3.5-turbo doesn't follow the prompt format.
+            tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
+            allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
+            """
+        # get openai key from environment or .openai.toml file
+        add_openai_auth()
 
         # create a dictionary for looking up tools by name
         tools = tools or []
+        if allow_ask_user: 
+            tools.append(ask_user)
         self.tools = make_tool_dict(tools)
 
         # create the prompt with the tools
