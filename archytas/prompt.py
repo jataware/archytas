@@ -1,4 +1,5 @@
-from archytas.tools import get_tool_prompt_description
+from typing import Callable
+from archytas.tools import get_tool_prompt_description, get_tool_names
 
 
 prelude = 'You are the ReAct (Reason & Action) assistant. You act as an interface between a user and the system. Your job is to help the user to complete their tasks.'
@@ -50,7 +51,7 @@ notes = f"""
 """.strip()
 
 
-def build_prompt(tools: list):
+def build_prompt(tools: list[Callable]):
     """
     Build the prompt for the ReAct agent
     
@@ -60,7 +61,9 @@ def build_prompt(tools: list):
     Returns:
         str: The prompt for the ReAct agent
     """
-    tool_names = [tool._name for tool in tools]
+    # collect all the tool names (including class.method names)
+    tool_names = [name for tool in tools for name in get_tool_names(tool)]
+    
     chunks = [prelude, tool_intro]
     for tool in tools:
         chunks.append(get_tool_prompt_description(tool))
