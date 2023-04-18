@@ -1,7 +1,6 @@
 from archytas.tool_utils import tool, toolset
 
 
-from easyrepl import readl
 @tool()
 def ask_user(query:str) -> str:
     """
@@ -15,7 +14,7 @@ def ask_user(query:str) -> str:
     Returns:
         str: The user's response
     """
-    return readl(prompt=f'{query} ')
+    return input(query)
 
 
 
