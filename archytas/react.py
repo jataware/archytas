@@ -1,7 +1,6 @@
 from archytas.agent import Agent
 from archytas.prompt import build_prompt
 from archytas.tools import make_tool_dict, ask_user
-from archytas.auth import add_openai_auth
 import json
 from rich import print
 
@@ -18,8 +17,6 @@ class ReActAgent:
             tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
             allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
             """
-        # get openai key from environment or .openai.toml file
-        add_openai_auth()
 
         # create a dictionary for looking up tools by name
         tools = tools or []

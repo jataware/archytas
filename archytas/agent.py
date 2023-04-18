@@ -1,10 +1,9 @@
 import logging
-import os
-import toml
 import openai
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
 from typing import TypedDict, Literal
+from archytas.auth import add_openai_auth
 
 
 from rich.spinner import Spinner
@@ -31,6 +30,9 @@ class Message(TypedDict):
 
 class Agent:
     def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant."):
+        # get openai key from environment or .openai.toml file
+        add_openai_auth()
+
         self.model = model
         self.system_message: Message = {"role": Role.system, "content": prompt }
         self.messages = []
