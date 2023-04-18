@@ -24,7 +24,7 @@ poetry install
 export OPENAI_API_KEY="sk-..."
 
 # run demo
-python -m archytas.repl
+poetry run chat-repl
 ```
 
 # Simple Usage
@@ -36,8 +36,8 @@ from archytas.tools import datetime_tool, fib_n, calculator
 from easyrepl import REPL
 
 # create the agent with the tools list
-tools = [datetime_tool, fib_n, calculator]
-agent = ReActAgent(tools=[mytool], verbose=True)
+some_tools = [datetime_tool, fib_n, calculator]
+agent = ReActAgent(tools=some_tools+[mytool], verbose=True)
 
 # REPL to interact with agent
 for query in REPL()
