@@ -1,5 +1,5 @@
+---
 name: Publish Package
-
 on:
   push:
     tags: [ "v*" ]
@@ -21,7 +21,7 @@ jobs:
       - name: Create environment
         run: poetry install
       - name: Publish to PyPi
-      - env:
+        env:
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.POETRY_PYPI_TOKEN_PYPI }}
-      - run: poetry publish --build
+        run: poetry publish --build
      
