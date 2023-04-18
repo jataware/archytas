@@ -264,7 +264,10 @@ def get_tool_func_prompt_description(func:Callable):
 
     #################### OUTPUT ####################
     chunks.append("\n    _output_: ")
-    chunks.append(f"({ret_type.__name__}) {ret_description}")
+    if ret_type is None:
+        chunks.append("None")
+    else:
+        chunks.append(f"({ret_type.__name__}) {ret_description}")
 
 
     ############### EXAMPLES ###############
@@ -357,13 +360,21 @@ def get_tool_signature(func:Callable) -> tuple[list[tuple[str, type, str|None, s
     # get the return type and description
     signature_ret_type = signature.return_annotation
 
-    docstring.returns
-    docstring_ret_type = docstring.returns.type_name
+    # # if docstring.returns:
+    # if signature_ret_type == inspect.Signature.empty and docstring.returns is None:
+    #     ...
+    try:
+        docstring_ret_type = docstring.returns.type_name
+    except AttributeError:
+        docstring_ret_type = '_empty'
     if signature_ret_type.__name__ != docstring_ret_type:
         raise ValueError(f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{signature_ret_type.__name__}' for function '{func.__name__}'")
     
     # get the return type and description
-    ret = (docstring.returns.return_name, signature_ret_type, docstring.returns.description)
+    if docstring.returns is None:
+        ret = (None, None, None)
+    else:
+        ret = (docstring.returns.return_name, signature_ret_type, docstring.returns.description)
 
     # get the docstring description and examples
     examples = [example.description for example in docstring.examples]
@@ -763,12 +774,12 @@ class Jackpot:
         """
         return self.chips
     
-    # @tool()
-    # def reset(self):
-    #     """
-    #     Reset the game back to the initial number of chips
-    #     """
-    #     self.chips = self._initial_chips
+    @tool()
+    def reset(self):
+        """
+        Reset the game back to the initial number of chips
+        """
+        self.chips = self._initial_chips
 
 
 #TODO: stateful class example
