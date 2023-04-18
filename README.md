@@ -1,4 +1,4 @@
-# Archytas: Tool Sandbox for AI Agents
+# Archytas: A Tools Interface for AI Agents
 <img src="assets/logo.png" width="150" height="150" align="left" style="padding-right:0.5em;"/>
 
 Implementation of the [ReAct (Reason & Action)](https://arxiv.org/abs/2210.03629) framework for Large Language Model (LLM) agents. Mainly targeting OpenAI's GPT-4.
