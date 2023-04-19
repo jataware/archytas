@@ -14,7 +14,7 @@ def ask_user(query:str) -> str:
     Returns:
         str: The user's response
     """
-    return input(query)
+    return input(f'{query} $ ')
 
 
 
@@ -52,3 +52,12 @@ def timestamp() -> float:
         1681445698.726113
     """
     return datetime.now().timestamp()
+
+
+
+"""
+python repl tool
+- have a oneshot and multishot version
+- should be able to import the functions to be included, and create the tool instance with the list of functions/modules/etc.
+- maybe a list of recommended modules the llm can import
+"""

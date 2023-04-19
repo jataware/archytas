@@ -1,5 +1,5 @@
 from archytas.agent import Agent
-from archytas.prompt import build_prompt
+from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import json
@@ -24,6 +24,10 @@ class ReActAgent:
         if allow_ask_user: 
             tools.append(ask_user)
         self.tools = make_tool_dict(tools)
+
+        #check that the tools dict keys match the list of generated tool names
+        names, keys = sorted(build_all_tool_names(tools)), sorted([*self.tools.keys()])
+        assert names == keys, f'Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}'
 
         # create the prompt with the tools
         self.prompt = build_prompt(tools)

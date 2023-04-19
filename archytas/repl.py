@@ -2,7 +2,7 @@ from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import datetime_tool, timestamp
 from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot
 
-from rich import traceback, print; traceback.install()
+from rich import traceback, print; traceback.install(show_locals=True)
 from easyrepl import REPL
 
 import pdb

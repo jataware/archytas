@@ -62,7 +62,7 @@ def build_prompt(tools: list[Callable]) -> str:
         str: The prompt for the ReAct agent
     """
     # collect all the tool names (including class.method names)
-    tool_names = [name for tool in tools for name in get_tool_names(tool)]
+    tool_names = build_all_tool_names(tools)
     
     chunks = [prelude, tool_intro]
     for tool in tools:
@@ -73,3 +73,15 @@ def build_prompt(tools: list[Callable]) -> str:
     return '\n\n'.join(chunks)
 
         
+def build_all_tool_names(tools: list[Callable]) -> list[str]:
+    """
+    Build a list of tool names from a list of tools
+
+    Args:
+        tools (list): A list of tools to use. Each tool should have the @tool decorator. applied.
+
+    Returns:
+        list: A list of tool names
+    """
+    tool_names = [name for tool in tools for name in get_tool_names(tool)]
+    return tool_names

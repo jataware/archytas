@@ -111,18 +111,14 @@ def toolset(*, name:str|None=None):
         # get the class docstring description
         docstring = inspect.getdoc(cls)
 
-        @functools.wraps(cls)
-        def wrapper(*args, **kwargs):
-            # create an instance of the class
-            c = cls(*args, **kwargs)
+        class wrapper:
+            def __init__(self, *args, **kwargs):
+                # create an instance of the class
+                self._instance = cls(*args, **kwargs)
 
-            # attach the metadata to the instance
-            c._name = name if name else cls.__name__
-            c._is_class_tool_instance = True
-            c._docstring = docstring
-            c._tool_methods = methods
+                # mark this as a class tool instance
+                self._is_class_tool_instance = True
 
-            return c
 
         # attach the metadata to the class
         wrapper._name = name if name else cls.__name__
@@ -237,12 +233,10 @@ def get_tool_names(obj:Callable|type) -> list[str]:
 
 
 def get_tool_prompt_description(obj:Callable|type|Any):
-    if hasattr(obj, '_is_class_tool'):
+    if hasattr(obj, '_is_class_tool') or hasattr(obj, '_is_class_tool_instance'):
         return get_tool_class_prompt_description(obj)
     if hasattr(obj, '_is_function_tool') or hasattr(obj, '_is_method_tool'):
         return get_tool_func_prompt_description(obj)
-    if hasattr(obj, '_is_class_tool_instance'):
-        return get_tool_class_prompt_description(obj)
 
     raise TypeError(f"get_tool_prompt_description can only be used on @tools. Got {obj}")
 
@@ -443,14 +437,16 @@ def make_tool_dict(tools:list[Callable|type|Any]) -> dict[str, Callable]:
             pdb.set_trace()
         
 
-        # handle if instance of class or class itself
-        if hasattr(tool, '_is_class_tool'):
-            instance = tool()
-        else:
-            assert hasattr(tool, '_is_class_tool_instance'), f"Tool {tool} is not a function, method, or class tool"
+        # collect methods from @toolset. handle if instance of class or class itself
+        assert hasattr(tool, '_is_class_tool'), f"Tool {tool} is not a function, method, or class tool"
+        if hasattr(tool, '_is_class_tool_instance'):
             instance = tool
+        else:
+            instance = tool()
 
-        for _, method in inspect.getmembers(instance, predicate=inspect.ismethod):
+        # add each method to the tool dictionary under the name 'class_name.method_name'
+        methods = inspect.getmembers(instance._instance, predicate=inspect.ismethod)
+        for _, method in methods:
             if not hasattr(method, '_name'):
                 continue
             method_name = f'{name}.{method._name}'
@@ -467,7 +463,7 @@ def make_tool_dict(tools:list[Callable|type|Any]) -> dict[str, Callable]:
 def test():
     from archytas.tools import ask_user, datetime_tool, timestamp
     from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot
-    
+
     for t in [ask_user, datetime_tool, timestamp, fib_n, example_tool, calculator, Jackpot]:
         print(get_tool_prompt_description(t))
         print()
