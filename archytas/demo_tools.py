@@ -291,3 +291,58 @@ class Jackpot:
         """
         self.chips = self._initial_chips
 
+
+
+@toolset()
+class ModelSimulation:
+    """
+    Simple example of a SIR model simulation
+    """
+    def __init__(self):
+        self.parameters = {'alpha': 0.5, 'beta': 0.25, 'gamma': 0.75, 'S': 1000, 'I': 1, 'R': 0}
+
+    @tool()
+    def get_model_parameters(self) -> dict:
+        """
+        Get the model parameters
+
+        Returns:
+            dict: The model parameters in the form {param0: value0, param1: value1, ...}
+
+        """
+        return self.parameters
+
+    @tool()
+    def set_model_parameters(self, update:dict):
+        """
+        Set some or all of the model parameters
+
+        Args:
+            update (dict): The parameters to update. Should be a dict of the form {param0: value0, param1: value1, ...}. Only the parameters specified will be updated.
+        """
+        self.parameters.update(update)
+
+    @tool()
+    def run_model(self, steps:int=100) -> dict:
+        """
+        Run the model for a number of steps
+
+        Args:
+            steps (int): The number of steps to run the model for. Defaults to 100.
+
+        Returns:
+            dict: The model results in the form {param0: value0, param1: value1, ...}
+        """
+        for i in range(steps):
+            self.parameters['S'] -= self.parameters['alpha']*self.parameters['S']*self.parameters['I']
+            self.parameters['I'] += self.parameters['alpha']*self.parameters['S']*self.parameters['I'] - self.parameters['beta']*self.parameters['I']
+            self.parameters['R'] += self.parameters['beta']*self.parameters['I']
+
+        return self.parameters
+
+    @tool()
+    def reset_model(self):
+        """
+        Reset the model to the initial parameters
+        """
+        self.parameters = {'alpha': 0.5, 'beta': 0.25, 'gamma': 0.75, 'S': 1000, 'I': 1, 'R': 0}

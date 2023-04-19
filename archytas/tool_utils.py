@@ -136,6 +136,8 @@ def make_func_tool_wrapper(func:Callable, name:str|None=None):
     def wrapper(args:dict|list|str|int|float|bool|None):
         """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
         
+        #TODO: make this look at _call_type rather than isinstance to determine what to do
+        #      single argument functions that take a dict vs mutli-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
         if isinstance(args, dict):
             result = func(**args)
         elif isinstance(args, list):
@@ -267,7 +269,8 @@ def get_tool_func_prompt_description(func:Callable):
     if len(args_list) == 0:
         chunks.append("None")
     
-    elif len(args_list) == 1:
+
+    elif len(args_list) == 1 and args_list[0][1] is not dict:
         arg_name, arg_type, arg_desc, arg_default = args_list[0]
         chunks.append(f"({arg_type.__name__}")
         if arg_default:
