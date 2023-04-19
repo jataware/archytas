@@ -4,11 +4,12 @@ from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import json
 from rich import print
+import pdb
 
 
 class FailedTaskError(Exception): ...
 
-class ReActAgent:
+class ReActAgent(Agent):
     def __init__(self, *, model:str='gpt-4', tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
         """
         Create a ReAct agent
@@ -29,9 +30,9 @@ class ReActAgent:
         names, keys = sorted(build_all_tool_names(tools)), sorted([*self.tools.keys()])
         assert names == keys, f'Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}'
 
-        # create the prompt with the tools
+        # create the prompt with the tools, and initialize the agent
         self.prompt = build_prompt(tools)
-        self._agent = Agent(model=model, prompt=self.prompt)
+        super().__init__(model=model, prompt=self.prompt)
 
         # react settings
         self.max_errors = max_errors or float('inf')
@@ -45,13 +46,14 @@ class ReActAgent:
         # keep track of the last tool used (for error messages)
         self.last_tool_name = ''
 
+
     def react(self, query:str) -> str:
         # reset error and steps counter
         self.errors = 0
         self.steps = 0
 
         # run the initial user query
-        action_str = self.agent.query(query)
+        action_str = self.query(query)
 
         # ReAct loop
         while True:
@@ -98,7 +100,7 @@ class ReActAgent:
             # have the agent observe the result, and get the next action
             if self.verbose:
                 print(f"observation: {tool_output}\n")
-            action_str = self.agent.observe(tool_output)
+            action_str = self.observe(tool_output)
 
 
     @staticmethod
@@ -117,14 +119,15 @@ class ReActAgent:
         return thought, tool, tool_input
     
 
-    @property
-    def agent(self) -> Agent:
-        """Property access for agent, so that we count all calls to agent.query, agent.observe, and agent.error, and raise an error if there are too many"""
-        #TODO: want a more concrete way to guarantee that one of query, observe, or error was called
+    def execute(self) -> str:
+        """
+        Execute the model and return the output (see `Agent.execute()`).
+        Keeps track of the number of execute calls, and raises an error if there are too many.        
+        """
         self.steps += 1
         if self.steps > self.max_react_steps:
             raise FailedTaskError(f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}")
-        return self._agent
+        return super().execute()
 
     
     def error(self, mesg) -> str:
@@ -136,5 +139,5 @@ class ReActAgent:
         if self.verbose:
             print(f"[red]error: {mesg}[/red]")
 
-        #tell the agent about the error, and get its response
-        return self.agent.error(mesg)
+        #tell the agent about the error, and get its response (call parent .error method)
+        super().error(mesg)
