@@ -298,8 +298,10 @@ class ModelSimulation:
     """
     Simple example of a SIR model simulation
     """
-    def __init__(self):
-        self.parameters = {'alpha': 0.5, 'beta': 0.25, 'gamma': 0.75, 'S': 1000, 'I': 1, 'R': 0}
+    def __init__(self, dt=0.1):
+        self._default_parameters = {'beta': 0.002, 'gamma': 0.1, 'S': 990, 'I': 10, 'R': 0}
+        self.parameters = self._default_parameters.copy()
+        self.dt = dt
 
     @tool()
     def get_model_parameters(self) -> dict:
@@ -333,16 +335,29 @@ class ModelSimulation:
         Returns:
             dict: The model results in the form {param0: value0, param1: value1, ...}
         """
-        for i in range(steps):
-            self.parameters['S'] -= self.parameters['alpha']*self.parameters['S']*self.parameters['I']
-            self.parameters['I'] += self.parameters['alpha']*self.parameters['S']*self.parameters['I'] - self.parameters['beta']*self.parameters['I']
-            self.parameters['R'] += self.parameters['beta']*self.parameters['I']
+        S_new, I_new, R_new = self.parameters['S'], self.parameters['I'], self.parameters['R']
+        beta, gamma = self.parameters['beta'], self.parameters['gamma']
+        population = S_new + I_new + R_new
 
+        for _ in range(steps):
+            S_old, I_old, R_old = S_new, I_new, R_new
+            dS = -beta * S_old * I_old
+            dI = beta * S_old * I_old - gamma * I_old
+            dR = gamma * I_old
+
+            S_new = max(0, min(S_old + self.dt*dS, population))
+            I_new = max(0, min(I_old + self.dt*dI, population))
+            R_new = max(0, min(R_old + self.dt*dR, population))
+
+            # Ensure the total population remains constant
+            total_error = population - (S_new + I_new + R_new)
+            R_new += total_error
+
+        self.parameters['S'], self.parameters['I'], self.parameters['R'] = S_new, I_new, R_new
         return self.parameters
 
-    @tool()
     def reset_model(self):
         """
         Reset the model to the initial parameters
         """
-        self.parameters = {'alpha': 0.5, 'beta': 0.25, 'gamma': 0.75, 'S': 1000, 'I': 1, 'R': 0}
+        self.parameters = self._default_parameters.copy()
