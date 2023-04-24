@@ -3,7 +3,6 @@ from docstring_parser import parse as parse_docstring
 from rich import traceback; traceback.install(show_locals=True)
 from textwrap import indent
 from typing import Callable, Any
-import functools
 
 
 import pdb
@@ -126,6 +125,7 @@ def toolset(*, name:str|None=None):
         wrapper._is_class_tool = True
         wrapper._docstring = docstring
         wrapper._tool_methods = methods
+        wrapper._cls = cls
         
         return wrapper
     
@@ -164,6 +164,7 @@ def make_func_tool_wrapper(func:Callable, name:str|None=None):
     wrapper._args_list = args_list
     wrapper._ret = ret
     wrapper._desc = desc
+    wrapper._func = func
 
     return wrapper
 
@@ -196,9 +197,22 @@ def make_method_tool_wrapper(func:Callable, name:str|None=None):
     wrapper._args_list = args_list
     wrapper._ret = ret
     wrapper._desc = desc
+    wrapper._func = func
 
     return wrapper
 
+
+def unwrap_tool(obj:Callable|type|Any) -> Callable|type|Any:
+    """Unwrap a tool, toolset, or toolset instance"""
+    assert is_tool(obj), f"unwrap can only be used on function tools, method tools, class tools, or class tool instances. Got {obj}"
+    if hasattr(obj, '_instance'):
+        return obj._instance
+    if hasattr(obj, '_cls'):
+        return obj._cls
+    if hasattr(obj, '_func'):
+        return obj._func
+
+    raise TypeError(f'unwrap could not unwrap {obj} of type {type(obj)}')
 
 
 def is_class_method(func:Callable) -> bool:

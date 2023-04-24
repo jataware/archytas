@@ -15,6 +15,14 @@ def start_repl():
     # make a list of the tools to use
     tools = [datetime_tool, timestamp, fib_n, example_tool, calculator, jackpot, ModelSimulation, PythonTool]
 
+    # # example of making a python tool with a prelude and some pre-initialized local variables
+    # import numpy as np
+    # python = PythonTool(
+    #     prelude='import numpy as np\nfrom matplotlib import pyplot as plt',
+    #     locals={'fib_n': fib_n, 'jackpot': jackpot, 'ModelSimulation': ModelSimulation},
+    # )
+    # tools = [python]
+
     # create the agent
     agent = ReActAgent(tools=tools, verbose=True)
 

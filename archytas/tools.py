@@ -1,7 +1,6 @@
 from typing import Any
-from archytas.tool_utils import tool, toolset
+from archytas.tool_utils import tool, toolset, is_tool, unwrap_tool
 from archytas.python import Python
-from archytas.utils import InstanceMethod
 
 
 @tool()
@@ -57,23 +56,55 @@ def timestamp() -> float:
     return datetime.now().timestamp()
 
 
-#TODO: there's really only a single method that is a tool in this class. look into single method being a tool 
-#      @InstanceMethod would be used to make sure the method is bound to an instance of the class
 @toolset()
 class PythonTool:
     """
-    This is not a @toolset, but rather a single tool method that maintains a state between calls
+    Tool for running python code.
     """
-    def __init__(self, locals:dict[str,Any]|None=None, prelude_code:str|None=None):
-        #TODO
+    def __init__(self, locals:dict[str,Any]|None=None, prelude:str=''):
+        """
+        Create a PythonTool instance
+
+        Args:
+            locals (dict[str,Any], optional): A dictionary of variables/classes/functions/modules/etc. to add to the python environment. Defaults to {}. @tools will be correctly extracted from their wrappers so they can be used in the environment.
+            prelude (str, optional): Code to run before any other code. Defaults to ''. This could be used to import modules, or define functions/classes/etc. that will be used in the environment.        
+        """
         # create the python env instance
-        # collect any @tools from the locals, and get their docstring?
-        # add the locals to the env
-        # run the prelude code in the env
         self.env = Python()
+        
+        if locals is None:
+            locals = {}
+
+        prompt_chunks = []
+        
+        # collect any @tools from the locals, unwrap them
+        # collect the description for each tool or function
+        # TODO: make class tools collect the docstring for all tool methods
+        env_update = {}
+        for name, obj in locals.items():
+            if is_tool(obj):
+                inner = unwrap_tool(obj)
+                env_update[name] = inner
+                prompt_chunks.append(f'{name} = {inner.__doc__}')
+            else:
+                env_update[name] = obj
+                prompt_chunks.append(f'{name} = {obj} ({type(obj)})')
+        
+        # update the env with the locals
+        self.env.update_locals(env_update)
+
+
+        # run the prelude code
+        if prelude:
+            self.env.run_script(prelude)
+            prompt_chunks.append(f'The following prelude code was run in the environment:\n```{prelude}```')
+
+
+        #based on the locals+prelude, update the docstring for the run method to include descriptions about what is available in the environment
+        #TODO: this is illegal...
+        # self.run.__doc__ += f'\n\nThe following variables are available in the environment:\n\n' + '\n'.join(prompt_chunks)
 
     @tool()
-    # @InstanceMethod
     def run(self, code:str) -> str:
         """
         Runs python code in a python environment.
