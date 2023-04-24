@@ -3,7 +3,6 @@ from docstring_parser import parse as parse_docstring
 from rich import traceback; traceback.install(show_locals=True)
 from textwrap import indent
 from typing import Callable, Any
-from decorator import decorator as preserve_signature
 import functools
 
 
@@ -44,7 +43,6 @@ def tool(*, name:str|None=None):
             '''
     ```
     """
-    @preserve_signature
     def decorator(func:Callable):
         # check that the decorator is being applied to a function
         if not inspect.isfunction(func):
