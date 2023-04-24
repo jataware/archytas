@@ -206,7 +206,7 @@ def is_class_method(func:Callable) -> bool:
     return func.__qualname__ != func.__name__
 
 def is_tool(obj:Callable|type) -> bool:
-    """checks if an object is a tool function, tool method, or tool class (may not be an instance of a class tool)"""
+    """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
     return hasattr(obj, '_is_function_tool') or hasattr(obj, '_is_method_tool') or hasattr(obj, '_is_class_tool') or hasattr(obj, '_is_class_tool_instance')
         
 
