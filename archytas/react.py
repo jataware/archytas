@@ -140,4 +140,4 @@ class ReActAgent(Agent):
             print(f"[red]error: {mesg}[/red]")
 
         #tell the agent about the error, and get its response (call parent .error method)
-        super().error(mesg)
+        return super().error(mesg)
