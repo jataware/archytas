@@ -1,5 +1,5 @@
 from archytas.react import ReActAgent, FailedTaskError
-from archytas.tools import datetime_tool, timestamp
+from archytas.tools import datetime_tool, timestamp, PythonTool
 from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot, ModelSimulation
 
 from rich import traceback, print; traceback.install(show_locals=True)
@@ -13,7 +13,7 @@ def start_repl():
     jackpot = Jackpot(chips=1000)
 
     # make a list of the tools to use
-    tools = [datetime_tool, timestamp, fib_n, example_tool, calculator, jackpot, ModelSimulation]
+    tools = [datetime_tool, timestamp, fib_n, example_tool, calculator, jackpot, ModelSimulation, PythonTool]
 
     # create the agent
     agent = ReActAgent(tools=tools, verbose=True)

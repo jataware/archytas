@@ -1,4 +1,7 @@
+from typing import Any
 from archytas.tool_utils import tool, toolset
+from archytas.python import Python
+from archytas.utils import InstanceMethod
 
 
 @tool()
@@ -53,6 +56,42 @@ def timestamp() -> float:
     """
     return datetime.now().timestamp()
 
+
+#TODO: there's really only a single method that is a tool in this class. look into single method being a tool 
+#      @InstanceMethod would be used to make sure the method is bound to an instance of the class
+@toolset()
+class PythonTool:
+    """
+    This is not a @toolset, but rather a single tool method that maintains a state between calls
+    """
+    def __init__(self, locals:dict[str,Any]|None=None, prelude_code:str|None=None):
+        #TODO
+        # create the python env instance
+        # collect any @tools from the locals, and get their docstring?
+        # add the locals to the env
+        # run the prelude code in the env
+        self.env = Python()
+
+    @tool()
+    # @InstanceMethod
+    def run(self, code:str) -> str:
+        """
+        Runs python code in a python environment.
+
+        The environment is persistent between runs, so any variables created will be available in subsequent runs.
+        The only visible effects of this tool are from output to stdout/stderr. If you want to view a result, you MUST print it.
+
+        Args:
+            code (str): The code to run
+
+        Returns:
+            str: The stdout output of the code
+        """
+        out, err = self.env.run_script(code)
+        if err:
+            raise Exception(err)
+
+        return out
 
 
 """

@@ -20,3 +20,18 @@ def get_local_name(val:Any, locals:dict[str, Any]) -> str:
         if obj is val:
             return name
     raise ValueError(f'Value {val} not found in locals')
+
+
+
+
+class InstanceMethod:
+    """
+    A descriptor that wraps a method so that it can be accessed from an instance of the class, but not from the class itself.
+    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            raise TypeError("This method should only be accessed from an instance of the class")
+        return self.func.__get__(instance, owner)
