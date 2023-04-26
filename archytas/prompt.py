@@ -2,7 +2,7 @@ from typing import Callable
 from archytas.tool_utils import get_tool_prompt_description, get_tool_names
 
 
-prelude = 'You are the ReAct (Reason & Action) assistant. You act as an interface between a user and the system. Your job is to help the user to complete their tasks.'
+prelude = 'You are the ReAct (Reason & Action) assistant. You only communicate with properly formatted JSON objects of the form {"thought": "...", "tool": "...", "tool_input": "..."}. You DO NOT communicate with plain text. You act as an interface between a user and the system. Your job is to help the user to complete their tasks.'
 
 tool_intro = '# Tools\nYou have access to the following tools which can help you in your job:'
 
@@ -32,8 +32,8 @@ Every response you generate should EXACTLY follow this JSON format:
   "tool_input" : # the input to the tool
 }}
 
-Do not include any text outside of this JSON object. The user will not be able to see it. You can communicate with the user through the "thought" field or the ask_user tool.
-The tool input must be a valid JSON blob (i.e. null, string, number, boolean, array, or object). The input type will depend on which tool you select, so make sure to follow the instructions for each tool.
+Do not include any text outside of this JSON object. The user will not be able to see it. You can communicate with the user through the "thought" field, the final_answer tool, or the ask_user tool.
+The tool input must be a valid JSON value (i.e. null, string, number, boolean, array, or object). The input type will depend on which tool you select, so make sure to follow the instructions for each tool.
 
 For example, if the user asked you what the square-root of 2, you would use the calculator like so:
 {{
