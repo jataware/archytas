@@ -5,7 +5,10 @@ from archytas.tool_utils import make_tool_dict
 import json
 from rich import print
 import pdb
+import sys
+import logging
 
+logger = logging.Logger('archytas')
 
 class FailedTaskError(Exception): ...
 
@@ -13,7 +16,7 @@ class ReActAgent(Agent):
     def __init__(self, *, model:str='gpt-4', tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
         """
         Create a ReAct agent
-        
+
         Args:
             model (str): The model to use. Defaults to 'gpt-4'. Recommended not to change this. gpt-3.5-turbo doesn't follow the prompt format.
             tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
@@ -22,7 +25,7 @@ class ReActAgent(Agent):
 
         # create a dictionary for looking up tools by name
         tools = tools or []
-        if allow_ask_user: 
+        if allow_ask_user:
             tools.append(ask_user)
         self.tools = make_tool_dict(tools)
 
@@ -58,9 +61,11 @@ class ReActAgent(Agent):
         # ReAct loop
         while True:
 
+            logger.debug(f"""action: {action_str}""")
             # Convert agent output to json
             try:
                 action = json.loads(action_str)
+                
             except json.JSONDecodeError:
                 action_str = self.error(f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}')
                 continue
@@ -68,6 +73,7 @@ class ReActAgent(Agent):
             # verify that action has the correct keys
             try:
                 thought, tool_name, tool_input = self.extract_action(action)
+                logger.debug(f"\nThought: {thought}\nTool name: {tool_name}\nTool input: {tool_input}")
                 self.last_tool_name = tool_name # keep track of the last tool used
             except AssertionError as e:
                 action_str = self.error(str(e))
@@ -83,7 +89,7 @@ class ReActAgent(Agent):
                 return tool_input
             if tool_name == 'fail_task':
                 raise FailedTaskError(tool_input)
-            
+
             # run tool
             try:
                 tool_fn = self.tools[tool_name]
@@ -95,6 +101,7 @@ class ReActAgent(Agent):
                 tool_output = tool_fn(tool_input)
             except Exception as e:
                 action_str = self.error(f"error running tool \"{tool_name}\": {e}")
+
                 continue
 
             # have the agent observe the result, and get the next action
@@ -117,19 +124,19 @@ class ReActAgent(Agent):
         tool_input = action['tool_input']
 
         return thought, tool, tool_input
-    
+
 
     def execute(self) -> str:
         """
         Execute the model and return the output (see `Agent.execute()`).
-        Keeps track of the number of execute calls, and raises an error if there are too many.        
+        Keeps track of the number of execute calls, and raises an error if there are too many.
         """
         self.steps += 1
         if self.steps > self.max_react_steps:
             raise FailedTaskError(f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}")
         return super().execute()
 
-    
+
     def error(self, mesg) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
 
@@ -137,7 +144,7 @@ class ReActAgent(Agent):
         if self.errors >= self.max_errors:
             raise FailedTaskError(f"Too many errors during task. Last error: {mesg}")
         if self.verbose:
-            print(f"[red]error: {mesg}[/red]")
+            print(f"[red]error: {mesg}[/red]", file=sys.stderr)
 
         #tell the agent about the error, and get its response (call parent .error method)
         return super().error(mesg)
