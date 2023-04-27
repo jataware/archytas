@@ -1,5 +1,4 @@
-# get openai key from environment or .openai.toml file
-from archytas.auth import add_openai_auth; add_openai_auth()
+import os
 import openai
 import logging
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
@@ -30,12 +29,30 @@ class Message(TypedDict):
     content: str
 
 class Agent:
-    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant."):
+    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant.", api_key:str|None=None):
+        """
+        Agent class for managing communication with OpenAI's API.
 
+        Args:
+            model (str, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
+            prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
+            api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
+
+        Raises:
+            Exception: If no API key is given.
+        """
 
         self.model = model
         self.system_message: Message = {"role": Role.system, "content": prompt }
         self.messages = []
+
+        # check that an api key was given, and set it
+        if api_key is None:
+            api_key = os.environ.get('OPENAI_API_KEY', None)
+        if not api_key:
+            raise Exception("No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor.")
+        openai.api_key = api_key
+
 
     def query(self, message:str) -> str:
         """Send a user query to the agent. Returns the agent's response"""

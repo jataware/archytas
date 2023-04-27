@@ -29,7 +29,7 @@ cd archytas
 poetry install
 
 # make sure OPENAI_API_KEY var is set
-# or set openai_key in .openai.toml
+# or pass it in as an argument to the agent
 export OPENAI_API_KEY="sk-..."
 
 # run demo
