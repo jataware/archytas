@@ -9,9 +9,15 @@ Tools can be anything from internet searches to custom interpreters for your dom
 
 <div style="clear:left;"></div>
 
-# Demo Link
-[![Watch the video](https://img.youtube.com/vi/52e4xN8SIi8/maxresdefault.jpg)](https://youtu.be/52e4xN8SIi8)
- 
+# Demo Video Link
+<div align="center">
+  <a href="https://youtu.be/52e4xN8SIi8">
+    <img src="assets/covid_repl_demo.gif" alt="Watch the video">
+  </a>
+  <br/>
+  click to watch original video on youtube
+</div>
+
 # Quicksart
 ```bash
 # make sure poetry is installed
