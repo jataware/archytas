@@ -114,10 +114,10 @@ class ReActAgent(Agent):
     def extract_action(action:dict) -> tuple[str, str, str]:
         """Verify that action has the correct keys. Otherwise, raise an error"""
         assert isinstance(action, dict), f"Action must be a json dictionary, got {type(action)}"
-        assert len(action) == 3, f"Action must have exactly 3 keys, got {len(action)}"
-        assert 'thought' in action, "Action is missing key 'thought'"
-        assert 'tool' in action, "Action is missing key 'tool'"
-        assert 'tool_input' in action, "Action is missing key 'tool_input'"
+        assert 'thought' in action, "Action json is missing key 'thought'"
+        assert 'tool' in action, "Action json is missing key 'tool'"
+        assert 'tool_input' in action, "Action json is missing key 'tool_input'"
+        assert len(action) == 3, f"Action must have exactly 3 keys (thought, tool, tool_input), got ({', '.join(action.keys())})"
 
         thought = action['thought']
         tool = action['tool']
