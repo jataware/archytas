@@ -104,6 +104,8 @@ class PythonTool:
         #TODO: this is illegal...
         # self.run.__doc__ += f'\n\nThe following variables are available in the environment:\n\n' + '\n'.join(prompt_chunks)
 
+        # if locals and prelude were empty, the prompt should say this is a fresh instance and anything needs to be imported
+
     @tool()
     def run(self, code:str) -> str:
         """
