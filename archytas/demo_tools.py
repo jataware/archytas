@@ -356,6 +356,7 @@ class ModelSimulation:
         self.parameters['S'], self.parameters['I'], self.parameters['R'] = S_new, I_new, R_new
         return self.parameters
 
+    @tool()
     def reset_model(self):
         """
         Reset the model to the initial parameters
