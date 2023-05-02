@@ -18,7 +18,7 @@ Tools can be anything from internet searches to custom interpreters for your dom
   click to watch original video on youtube
 </div>
 
-# Quicksart
+# Quickstart
 ```bash
 # make sure poetry is installed
 pip install poetry
