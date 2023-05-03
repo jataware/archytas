@@ -9,7 +9,8 @@ Tools can be anything from internet searches to custom interpreters for your dom
 
 <div style="clear:left;"></div>
 
-# Demo Video Link
+# Demo
+Short demo of using the `PythonTool` to download a COVID-19 dataset, and perform some basic processing/visualization/analysis/etc.
 <div align="center">
   <a href="https://youtu.be/52e4xN8SIi8">
     <img src="assets/covid_repl_demo.gif" alt="Watch the video">
