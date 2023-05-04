@@ -125,31 +125,14 @@ class PythonTool:
             raise Exception(err)
 
         return out
+    
 
-
-"""
-python repl tool
-- have a oneshot and multishot version
-- should be able to import the functions to be included, and create the tool instance with the list of functions/modules/etc.
-- maybe a list of recommended modules the llm can import
-
-
-usage:
-import numpy as np
-py_tools:list[tools] = [fib_n, Jackpot, ModelSimulation, etc...]
-imports = '''
-import numpy as np
-import scipy as sp
-from matplotlib import pyplot as plt
-import pandas as pd
-'''
-py_tool = PythonREPL(imports, py_tools)
-
-
-class Python:
-    def __init__(self, libs/tools:list[])
-        for tool in tools:
-            if is_tool(tool): # pull out the internal function/class
-            else: # it's a regular python library/function/etc.
-
-"""
+# @tool()
+# def _man(objname:str) -> str:
+#     ...
+import pydoc
+def pyman(obj:Any) -> str:
+    """
+    Get the documentation for an object in a python environment
+    """
+    return pydoc.render_doc(obj, renderer=pydoc.plaintext)

@@ -206,13 +206,67 @@ def unwrap_tool(obj:Callable|type|Any) -> Callable|type|Any:
     """Unwrap a tool, toolset, or toolset instance"""
     assert is_tool(obj), f"unwrap can only be used on function tools, method tools, class tools, or class tool instances. Got {obj}"
     if hasattr(obj, '_instance'):
-        return obj._instance
+        return _unwrap_class_instance(obj._instance)
     if hasattr(obj, '_cls'):
-        return obj._cls
+        return _unwrap_class(obj._cls)
     if hasattr(obj, '_func'):
         return obj._func
 
     raise TypeError(f'unwrap could not unwrap {obj} of type {type(obj)}')
+
+def _unwrap_class(cls:type) -> type:
+    """
+    unwrap a class tool (including all methods annotated with type)
+
+    returns an identical class, as if it had never been wrapped
+    """
+
+    # Create a new class with the same name, inheriting from the original class
+    unwrapped_cls = type(cls.__name__, (cls,), {})
+
+    # Copy over the class attributes (unwrapping any wrapped methods)
+    for name, attr in cls.__dict__.items():
+        # Check if the attribute is a wrapped method
+        if hasattr(attr, '_is_method_tool'):
+            # Replace the attribute with the original unwrapped version
+            setattr(unwrapped_cls, name, attr._func)
+        else:
+            # If not a wrapped method, copy the attribute to the new class
+            assert not is_tool(attr), f"INTERNAL ERROR: Unwrapped class {cls.__name__} still has a tool {name} attached. This should not happen."
+            try:
+                setattr(unwrapped_cls, name, attr)
+            except AttributeError as e:
+                #skip not writable attributes
+                if 'not writable' in str(e): ...
+                #raise other errors
+                else: raise
+
+    return unwrapped_cls
+
+
+
+def _unwrap_class_instance(instance:Any) -> Any:
+    """
+    unwrap a class tool instance into an instance of the underlying (unwrapped) class
+
+    returns an identical instance, as if it was constructed from a class that had never been wrapped
+
+    Args:
+        instance (Any): An instance of a class tool. Note that this must be the _instance attribute of a class tool instance, not the class tool instance itself (e.g. you should call this with obj._instance).
+    """
+
+    # Unwrap the class of the given instance
+    unwrapped_cls = _unwrap_class(instance.__class__)
+
+    # Create a new instance of the original class without calling its constructor
+    unwrapped_instance = object.__new__(unwrapped_cls)
+
+    # Copy the instance's attributes to the new unwrapped instance
+    for name, attr in instance.__dict__.items():
+        setattr(unwrapped_instance, name, attr)
+
+    return unwrapped_instance
+
 
 
 def is_class_method(func:Callable) -> bool:
