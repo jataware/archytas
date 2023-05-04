@@ -1,3 +1,4 @@
+from __future__ import annotations # enable 3.9 support
 from typing import Callable
 from archytas.tool_utils import get_tool_prompt_description, get_tool_names
 

@@ -1,3 +1,4 @@
+from __future__ import annotations # enable 3.9 support
 from typing import Any
 
 def get_local_name(val:Any, locals:dict[str, Any]) -> str:

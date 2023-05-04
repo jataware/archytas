@@ -1,3 +1,4 @@
+from __future__ import annotations # enable 3.9 support
 import os
 import openai
 import logging

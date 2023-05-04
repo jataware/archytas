@@ -1,3 +1,4 @@
+from __future__ import annotations # enable 3.9 support
 from archytas.agent import Agent
 from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user

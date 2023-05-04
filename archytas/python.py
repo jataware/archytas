@@ -1,3 +1,5 @@
+from __future__ import annotations # enable 3.9 support
+
 import sys
 from io import StringIO
 from types import ModuleType

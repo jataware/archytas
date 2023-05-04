@@ -1,3 +1,4 @@
+from __future__ import annotations # enable 3.9 support
 import inspect
 from docstring_parser import parse as parse_docstring
 from rich import traceback; traceback.install(show_locals=True)

@@ -1,3 +1,4 @@
+from __future__ import annotations # enable 3.9 support
 from typing import Any
 from archytas.tool_utils import tool, toolset, is_tool, unwrap_tool
 from archytas.python import Python
