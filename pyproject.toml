@@ -14,7 +14,7 @@ license = "GPL-3.0-or-later"
 chat-repl = "archytas.repl:start_repl"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.9"
 openai = "^0.27.4"
 tenacity = "^8.2.2"
 rich = "^13.3.4"
