@@ -445,26 +445,25 @@ def get_tool_signature(func:Callable) -> tuple[list[tuple[str, type, str|None, s
     # Check if the docstring argument types match the signature argument types
     for arg_name, arg_type in signature_args.items():
         docstring_arg_type, _, _ = docstring_args[arg_name]
-        if arg_type.__name__ != docstring_arg_type:
+        if docstring_arg_type not in (arg_type.__name__ , str(arg_type)):
             raise ValueError(f"Docstring type '{docstring_arg_type}' does not match function signature type '{arg_type.__name__}' for argument '{arg_name}' for function '{func.__name__}'")
 
     # Generate a list of tuples (name, type, description, default) for each argument
     #TODO: use the signature to determine if an argument is optional or not
     args_list = [(arg_name, signature_args[arg_name], arg_desc, arg_default) for arg_name, (arg_type, arg_desc, arg_default) in docstring_args.items()]
 
-    # get the return type and description
+    # get the return type and description (and correctly set None to empty return type)
     signature_ret_type = signature.return_annotation
+    if signature_ret_type is None:
+        signature_ret_type = inspect.Signature.empty
 
-    # # if docstring.returns:
-    # if signature_ret_type == inspect.Signature.empty and docstring.returns is None:
-    #     ...
     try:
         docstring_ret_type = docstring.returns.type_name
     except AttributeError:
         docstring_ret_type = '_empty'
     if signature_ret_type.__name__ != docstring_ret_type:
         raise ValueError(f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{signature_ret_type.__name__}' for function '{func.__name__}'")
-    
+
     # get the return type and description
     if docstring.returns is None:
         ret = (None, None, None)
@@ -494,7 +493,7 @@ def make_tool_dict(tools:list[Callable|type|Any]) -> dict[str, Callable]:
     #TODO: extract methods from any class tools
     tool_dict = {}
     for tool in tools:
-        assert is_tool(tool), f"make_tool_dict can only be used on tools. Got {tool}"
+        assert is_tool(tool), f"make_tool_dict can only be used on wrapped @tools/@toolsets. Got {tool}"
         name = getattr(tool, '_name')
         
         
