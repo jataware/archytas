@@ -175,66 +175,6 @@ class Math:
         return math.pi
 
 
-
-# @tool()
-class StatefulToolExample:
-    def __init__(self, i:int, s:str):
-        self.i = i
-        self.s = s
-
-    # @tool()
-    def inc(self) -> int:
-        """
-        increment the internal counter
-
-        Returns:
-            int: The new value of the internal counter
-        """
-        self.i += 1
-        return self.i
-
-    # @tool()
-    def set_i(self, i:int):
-        """
-        set the internal counter
-
-        Args:
-            i (int): The new value of the internal counter
-        """
-        self.i = i
-
-    # @tool()
-    def set_s(self, s:str):
-        """
-        set the internal string
-
-        Args:
-            s (str): The new value of the internal string
-        """
-        self.s = s
-
-    # @tool()
-    def get_i(self) -> int:
-        """
-        get the internal counter
-        
-        Returns:
-            int: The value of the internal counter
-        """
-        return self.i
-    
-    # @tool()
-    def get_s(self) -> str:
-        """
-        get the internal string
-
-        Returns:
-            str: The value of the internal string
-        """
-
-        return self.s
-
-
 from random import random
 @toolset()
 class Jackpot:
@@ -362,3 +302,57 @@ class ModelSimulation:
         Reset the model to the initial parameters
         """
         self.parameters = self._default_parameters.copy()
+
+
+
+@tool()
+def ObservablePlot(code:str):
+    """
+    Create an observable plot in code.
+
+    Args:
+        code (str): The Observable Plot code
+
+    """
+
+
+
+@toolset()
+class PlannerTool:
+    """
+    A tool for helping to make long term plans. After a plan is made, the system will remind you of the plan as you execute each of the steps.
+    """
+    def __init__(self):
+        self.current_plan = None
+        self.progress = None
+
+    @tool()
+    def make_new_plan(self, draft:list[str]) -> None:
+        """
+        Start the plan making process.
+
+        This starts a conversation with the system to refine and revise a plan until it is robust and well thought out.
+
+        Args:
+            draft (list[str]): An initial list of steps to include in the plan. These can be revised later.
+        """
+        self.current_plan = draft
+        import pdb; pdb.set_trace()
+        ...
+
+    @tool()
+    def revise_single_step(self, i:int, replacement:str) -> None:
+        """
+        Revise a single step in the current plan
+
+        Args:
+            i (int): The index of the step to revise
+            replacement (str): The new step to replace the old step with
+        """
+        raise NotImplementedError('TODO')
+
+    # @tool()
+    # def revise_plan(self, updates:dict[int,str]) -> None: ...
+
+    # @tool()
+    # def finalize_plan():...
