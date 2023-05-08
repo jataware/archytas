@@ -338,14 +338,15 @@ def get_tool_func_prompt_description(func:Callable):
     if len(args_list) == 0:
         chunks.append("None")
     
-
-    elif len(args_list) == 1 and args_list[0][1] is not dict:
+    # 1-argument case for simple types don't need to be wrapped in a json
+    elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
         arg_name, arg_type, arg_desc, arg_default = args_list[0]
         chunks.append(f"({arg_type.__name__}")
         if arg_default:
             chunks.append(f", optional")
         chunks.append(f") {arg_desc}")
     
+    # all other cases have arguments wrapped in a json
     else:
         chunks.append("a json object with the following fields:\n    {")
         for arg_name, arg_type, arg_desc, arg_default in args_list:
