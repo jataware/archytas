@@ -59,7 +59,7 @@ def timestamp() -> float:
 @toolset()
 class PythonTool:
     """
-    Tool for running python code.
+    Tool for running python code. If the user asks you to write code, you can run it here.
     """
     def __init__(self, locals:dict[str,Any]|None=None, prelude:str=''):
         """
