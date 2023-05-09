@@ -140,6 +140,7 @@ class Agent:
                     messages=[self.system_message] + self.messages,
                     temperature=0,
                 )
+            #TODO: this can probably be removed
             except InvalidRequestError as e:
                 print(self.messages)
                 import pdb;pdb.set_trace()
@@ -157,4 +158,30 @@ class Agent:
                 self.messages.remove(context_message)
                 del self._context_lifetimes[context_message]
 
+        return result
+
+    @retry
+    def oneshot(self, prompt:str, query:str) -> str:
+        """
+        Send a user query to the agent. Returns the agent's response.
+        This method ignores any previous conversation history, as well as the existing prompt.
+        The output is the raw LLM text withouth any postprocessing, so you'll need to handle parsing it yourself.
+
+        Args:
+            prompt (str): The prompt to use when starting a new conversation.
+            query (str): The user query to send to the agent.
+
+        Returns:
+            str: The agent's response to the user query.
+        """
+        #TODO: replace with custom context that can be passed in
+        with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
+            completion = openai.ChatCompletion.create(
+                model=self.model, 
+                messages=[{"role": Role.system, "content": prompt }, {"role": Role.user, "content": query}],
+                temperature=0,
+            )
+
+        # return the agent's response
+        result = completion.choices[0].message.content
         return result
