@@ -70,6 +70,18 @@ class Agent:
         self.messages.append(context_message)
         self._context_lifetimes[context_message] = time
 
+    def update_timed_context(self) -> None:
+        """
+        Update the lifetimes of all timed contexts, and remove any that have expired.
+        This should be called after every LLM response.
+        """
+        # Update context lifetimes and remove expired contexts
+        for context_message in list(self._context_lifetimes.keys()):
+            self._context_lifetimes[context_message] -= 1
+            if self._context_lifetimes[context_message] <= 0:
+                self.messages.remove(context_message)
+                del self._context_lifetimes[context_message]
+
     
     def add_permanent_context(self, context:str) -> None:
         """
@@ -134,29 +146,18 @@ class Agent:
     def execute(self) -> str:
         #TODO: replace with custom context that can be passed in
         with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
-            try:
-                completion = openai.ChatCompletion.create(
-                    model=self.model, 
-                    messages=[self.system_message] + self.messages,
-                    temperature=0,
-                )
-            #TODO: this can probably be removed
-            except InvalidRequestError as e:
-                print(self.messages)
-                import pdb;pdb.set_trace()
-                ...
+            completion = openai.ChatCompletion.create(
+                model=self.model, 
+                messages=[self.system_message] + self.messages,
+                temperature=0,
+            )
         
         # grab the response and add it to the chat history
         result = completion.choices[0].message.content
         self.messages.append({"role": Role.assistant, "content": result})
 
-
-        # Update context lifetimes and remove expired contexts
-        for context_message, lifetime in list(self._context_lifetimes.items()):
-            self._context_lifetimes[context_message] -= 1
-            if self._context_lifetimes[context_message] <= 0:
-                self.messages.remove(context_message)
-                del self._context_lifetimes[context_message]
+        # remove any timed contexts that have expired
+        self.update_timed_context()
 
         return result
 
