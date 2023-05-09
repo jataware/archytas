@@ -21,6 +21,7 @@ rich = "^13.3.4"
 docstring-parser = "^0.15"
 pytz = "^2023.3"
 toml = "^0.10.2"
+frozendict = "^2.3.8"
 
 [tool.poetry.group.dev.dependencies]
 easyrepl = "^0.1.2"

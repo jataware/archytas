@@ -4,7 +4,7 @@ import logging
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
 from typing import TypedDict, Literal, Callable
-
+from frozendict import frozendict
 
 from rich.spinner import Spinner
 from rich.live import Live
@@ -46,6 +46,9 @@ class Agent:
         self.system_message: Message = {"role": Role.system, "content": prompt }
         self.messages = []
 
+        # keep track of injected context messages and their lifetimes
+        self._context_lifetimes = {}
+
         # check that an api key was given, and set it
         if api_key is None:
             api_key = os.environ.get('OPENAI_API_KEY', None)
@@ -63,8 +66,10 @@ class Agent:
             context (str): The context to add to the agent's conversation.
             time (int, optional): The number of time steps the context will live for. Defaults to 1 (i.e. it gets deleted as soon as the LLM sees it once).
         """
-        self.messages.append({"role": Role.system, "content": context})
-        raise NotImplementedError("This feature is not yet implemented.")
+        context_message = frozendict({"role": Role.system, "content": context})
+        self.messages.append(context_message)
+        self._context_lifetimes[context_message] = time
+
     
     def add_permanent_context(self, context:str) -> None:
         """
@@ -89,9 +94,14 @@ class Agent:
         Returns:
             Callable[[], None]: A function that can be called to remove the context from the conversation.
         """
-        self.messages.append({"role": Role.system, "content": context})
-        raise NotImplementedError("This feature is not yet implemented.")
-    
+        context_message = {"role": Role.system, "content": context}
+        self.messages.append(context_message)
+
+        def remove_context():
+            self.messages.remove(context_message)
+
+        return remove_context
+
     
     def query(self, message:str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
@@ -114,7 +124,7 @@ class Agent:
         self.messages.append({"role": Role.system, "content": f'ERROR: {error}'})
         result = self.execute()
 
-        # Drop error + original bad input from chat history
+        # Drop error + LLM's bad input from chat history
         if drop_error:
             del self.messages[-3:-1]
 
@@ -138,5 +148,13 @@ class Agent:
         # grab the response and add it to the chat history
         result = completion.choices[0].message.content
         self.messages.append({"role": Role.assistant, "content": result})
+
+
+        # Update context lifetimes and remove expired contexts
+        for context_message, lifetime in list(self._context_lifetimes.items()):
+            self._context_lifetimes[context_message] -= 1
+            if self._context_lifetimes[context_message] <= 0:
+                self.messages.remove(context_message)
+                del self._context_lifetimes[context_message]
 
         return result
