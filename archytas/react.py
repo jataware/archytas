@@ -13,7 +13,7 @@ logger = logging.Logger('archytas')
 class FailedTaskError(Exception): ...
 
 class ReActAgent(Agent):
-    def __init__(self, *, model:str='gpt-4', api_key:str|None=None, tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False):
+    def __init__(self, *, model:str='gpt-4', api_key:str|None=None, tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False, **kwargs):
         """
         Create a ReAct agent
 
@@ -39,7 +39,7 @@ class ReActAgent(Agent):
 
         # create the prompt with the tools, and initialize the agent
         self.prompt = build_prompt(tools)
-        super().__init__(model=model, prompt=self.prompt, api_key=api_key)
+        super().__init__(model=model, prompt=self.prompt, api_key=api_key, **kwargs)
 
         # react settings
         self.max_errors = max_errors or float('inf')

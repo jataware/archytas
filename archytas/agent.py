@@ -3,7 +3,7 @@ import openai
 import logging
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
-from typing import TypedDict, Literal, Callable
+from typing import TypedDict, Literal, Callable, ContextManager
 from frozendict import frozendict
 
 from rich.spinner import Spinner
@@ -28,8 +28,15 @@ class Message(TypedDict):
     role: Literal['system', 'assistant', 'user']
     content: str
 
+
+def cli_spinner(): 
+    return Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True)
+class no_spinner:
+    def __enter__(self): pass
+    def __exit__(self, *args): pass
+
 class Agent:
-    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant.", api_key:str|None=None):
+    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant.", api_key:str|None=None, spinner:Callable[[], ContextManager]|None=cli_spinner):
         """
         Agent class for managing communication with OpenAI's API.
 
@@ -45,6 +52,7 @@ class Agent:
         self.model = model
         self.system_message: Message = {"role": Role.system, "content": prompt }
         self.messages = []
+        self.spinner = spinner if spinner is not None else no_spinner
 
         # keep track of injected context messages and their lifetimes
         self._context_lifetimes = {}
@@ -144,8 +152,7 @@ class Agent:
     
     @retry
     def execute(self) -> str:
-        #TODO: replace with custom context that can be passed in
-        with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
+        with self.spinner():
             completion = openai.ChatCompletion.create(
                 model=self.model, 
                 messages=[self.system_message] + self.messages,
@@ -176,7 +183,7 @@ class Agent:
             str: The agent's response to the user query.
         """
         #TODO: replace with custom context that can be passed in
-        with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
+        with self.spinner():
             completion = openai.ChatCompletion.create(
                 model=self.model, 
                 messages=[{"role": Role.system, "content": prompt }, {"role": Role.user, "content": query}],
