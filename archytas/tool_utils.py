@@ -74,7 +74,9 @@ def tool(*, name:str|None=None):
 
             #TODO: make this look at _call_type rather than isinstance to determine what to do
             #      single argument functions that take a dict vs multi-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
-            if len(args_list) == 1:
+            if args is None:
+                pass
+            elif len(args_list) == 1:
                 pargs.append(args)
             elif isinstance(args, dict):
                 kwargs.update(args)
@@ -82,8 +84,6 @@ def tool(*, name:str|None=None):
                 pargs.update(args)
             elif isinstance(args, (str, int, float, bool)):
                 pargs.append(args)
-            elif args is None:
-                pass
             else:
                 raise TypeError(f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}")
 
@@ -162,10 +162,11 @@ def toolset(*, name:str|None=None):
         # Needs the instance to bind them, so wrap __new__ and bind right as they are created.
         prev_new = cls.__new__
         def new(cls, *args, **kwargs):
-            obj = prev_new(cls, *args, **kwargs)
+            obj = prev_new(cls)
             for method in methods:
                 bound_run_method = method.run.__get__(obj, cls)
                 method.run = bound_run_method
+            obj._is_class_tool_instance = True
             return obj
         cls.__new__ = new
 

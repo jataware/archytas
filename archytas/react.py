@@ -102,7 +102,7 @@ class ReActAgent(Agent):
                 continue
 
             try:
-                tool_output = tool_fn(tool_input)
+                tool_output = tool_fn.run(tool_input)
             except Exception as e:
                 action_str = self.error(f"error running tool \"{tool_name}\": {e}")
 
