@@ -3,7 +3,7 @@ import openai
 import logging
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
-from typing import TypedDict, Literal
+from typing import TypedDict, Literal, Callable
 
 
 from rich.spinner import Spinner
@@ -54,6 +54,45 @@ class Agent:
         openai.api_key = api_key
 
 
+    def add_timed_context(self, context:str, time:int=1) -> None:
+        """
+        Add a context to the agent's conversation.
+        The context will be added to the conversation for a finite number of time steps.
+
+        Args:
+            context (str): The context to add to the agent's conversation.
+            time (int, optional): The number of time steps the context will live for. Defaults to 1 (i.e. it gets deleted as soon as the LLM sees it once).
+        """
+        self.messages.append({"role": Role.system, "content": context})
+        raise NotImplementedError("This feature is not yet implemented.")
+    
+    def add_permanent_context(self, context:str) -> None:
+        """
+        Add a context to the agent's conversation.
+        The context will be added to the conversation permanently.
+
+        Args:
+            context (str): The context to add to the agent's conversation.
+        """
+        self.messages.append({"role": Role.system, "content": context})
+
+
+    def add_managed_context(self, context:str) -> Callable[[], None]:
+        """
+        Add a context to the agent's conversation.
+        The context will be added to the conversation for an arbitrary number of time steps.
+        Returns a function that can be called to remove the context from the conversation.
+
+        Args:
+            context (str): The context to add to the agent's conversation.
+
+        Returns:
+            Callable[[], None]: A function that can be called to remove the context from the conversation.
+        """
+        self.messages.append({"role": Role.system, "content": context})
+        raise NotImplementedError("This feature is not yet implemented.")
+    
+    
     def query(self, message:str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
         self.messages.append({"role": Role.user, "content": message})
@@ -83,6 +122,7 @@ class Agent:
     
     @retry
     def execute(self) -> str:
+        #TODO: replace with custom context that can be passed in
         with Live(Spinner('dots', speed=2, text="thinking..."), refresh_per_second=30, transient=True):
             try:
                 completion = openai.ChatCompletion.create(
