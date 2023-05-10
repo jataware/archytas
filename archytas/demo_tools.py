@@ -356,3 +356,22 @@ class PlannerTool:
 
     # @tool()
     # def finalize_plan():...
+
+
+from .tool_utils import AgentRef
+@tool()
+def pirate_subquery(query:str, agent:AgentRef) -> str:
+    """
+    Runs a subquery using a oneshot agent in which answers will be worded like a pirate.
+
+    Args:
+        query (str): The query to run against the agent.
+
+    Returns:
+        str: Result of the subquery in pirate vernacular.
+
+    """
+    prompt = """
+    You are an pirate. Answer all questions truthfully using pirate vernacular.
+    """
+    return agent.oneshot(prompt=prompt, query=query)

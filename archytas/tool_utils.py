@@ -16,6 +16,18 @@ import pdb
 # wrapper._man_page = man_page
 
 
+# Class/type definition for types used in dependency injection.
+AgentRef = type("AgentRef", (), {})
+ToolNameRef = type("ToolNameRef", (), {})
+ToolFnRef = type("ToolFnRef", (), {})
+
+INJECTION_MAPPING = {
+    AgentRef: "agent",
+    ToolNameRef: "tool_name",
+    ToolFnRef: "raw_tool",
+}
+
+
 def tool(*, name:str|None=None):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
@@ -48,7 +60,7 @@ def tool(*, name:str|None=None):
             raise TypeError(f"tool decorator can only be applied to functions or classes. Got {func} of type {type(func)}")
 
         #attach usage description to the wrapper function
-        args_list, ret, desc = get_tool_signature(func)
+        args_list, ret, desc, injections = get_tool_signature(func)
 
         func._name = name if name else func.__name__
         func._is_function_tool = True
@@ -56,7 +68,7 @@ def tool(*, name:str|None=None):
         func._ret = ret
         func._desc = desc
 
-        def run(*args:tuple[object, dict|list|str|int|float|bool|None]):
+        def run(*args:tuple[object, dict|list|str|int|float|bool|None], tool_context:dict[str,object]=None):
             """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
 
             # The only time this will be a tuple is if more than one argument is passed in, which should only happen when this is an method and that is self.
@@ -86,6 +98,13 @@ def tool(*, name:str|None=None):
                 pargs.append(args)
             else:
                 raise TypeError(f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}")
+
+            # Add injections to kwargs
+            for inj_name, inj_type in injections.items():
+                context_key = INJECTION_MAPPING.get(inj_type, None)
+                context_value = tool_context.get(context_key, None)
+                if context_value:
+                    kwargs[inj_name] = context_value
 
             result = func(*pargs, **kwargs)
 
@@ -346,7 +365,11 @@ def get_tool_signature(func:Callable) -> tuple[list[tuple[str, type, str|None, s
     docstring_args = {arg.arg_name: (arg.type_name, arg.description, arg.default) for arg in docstring.params}
 
     # Extract argument information from the signature (ignore self from class methods)
-    signature_args = {k: v.annotation for i, (k, v) in enumerate(signature.parameters.items()) if not (i == 0 and k == 'self')}
+    all_args = {k: v.annotation for i, (k, v) in enumerate(signature.parameters.items()) if not (i == 0 and k == 'self')}
+
+    # Extract argument information from the signature (ignore self from class methods)
+    injected_args = {k: v for k, v in all_args.items() if v in INJECTION_MAPPING}
+    signature_args = {k: v for k, v in all_args.items() if k not in injected_args}
 
     # Check if the docstring argument names match the signature argument names
     if set(docstring_args.keys()) != set(signature_args.keys()):
@@ -384,7 +407,7 @@ def get_tool_signature(func:Callable) -> tuple[list[tuple[str, type, str|None, s
     examples = [example.description for example in docstring.examples]
     desc = (docstring.short_description, docstring.long_description, examples)
     
-    return args_list, ret, desc
+    return args_list, ret, desc, injected_args
 
 
 
