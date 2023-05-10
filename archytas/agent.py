@@ -56,6 +56,7 @@ class Agent:
 
         # keep track of injected context messages and their lifetimes
         self._context_lifetimes = {}
+        self._all_context_messages = []
 
         # check that an api key was given, and set it
         if api_key is None:
@@ -77,6 +78,8 @@ class Agent:
         context_message = frozendict({"role": Role.system, "content": context})
         self.messages.append(context_message)
         self._context_lifetimes[context_message] = time
+        self._all_context_messages.append(context_message)
+
 
     def update_timed_context(self) -> None:
         """
@@ -88,6 +91,7 @@ class Agent:
             self._context_lifetimes[context_message] -= 1
             if self._context_lifetimes[context_message] <= 0:
                 self.messages.remove(context_message)
+                self._all_context_messages.remove(context_message)
                 del self._context_lifetimes[context_message]
 
     
@@ -99,7 +103,9 @@ class Agent:
         Args:
             context (str): The context to add to the agent's conversation.
         """
-        self.messages.append({"role": Role.system, "content": context})
+        context_message = {"role": Role.system, "content": context}
+        self.messages.append(context_message)
+        self._all_context_messages.append(context_message)
 
 
     def add_managed_context(self, context:str) -> Callable[[], None]:
@@ -116,12 +122,20 @@ class Agent:
         """
         context_message = {"role": Role.system, "content": context}
         self.messages.append(context_message)
+        self._all_context_messages.append(context_message)
 
         def remove_context():
             self.messages.remove(context_message)
+            self._all_context_messages.remove(context_message)
 
         return remove_context
 
+    def clear_all_context(self) -> None:
+        """Remove all contexts from the agent's conversation."""
+        for context_message in self._all_context_messages:
+            self.messages.remove(context_message)
+        self._all_context_messages = []
+        self._context_lifetimes = {}
     
     def query(self, message:str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
