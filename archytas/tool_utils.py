@@ -20,11 +20,13 @@ import pdb
 AgentRef = type("AgentRef", (), {})
 ToolNameRef = type("ToolNameRef", (), {})
 ToolFnRef = type("ToolFnRef", (), {})
+LoopControllerRef = type("LoopControllerRef", (), {})
 
 INJECTION_MAPPING = {
     AgentRef: "agent",
     ToolNameRef: "tool_name",
     ToolFnRef: "raw_tool",
+    LoopControllerRef: "loop_controller",
 }
 
 
