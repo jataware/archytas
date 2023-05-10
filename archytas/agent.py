@@ -196,7 +196,6 @@ class Agent:
         Returns:
             str: The agent's response to the user query.
         """
-        #TODO: replace with custom context that can be passed in
         with self.spinner():
             completion = openai.ChatCompletion.create(
                 model=self.model, 
