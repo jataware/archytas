@@ -12,6 +12,24 @@ logger = logging.Logger('archytas')
 
 class FailedTaskError(Exception): ...
 
+
+class LoopController:
+    PROCEED = 0
+    STOP = 1
+    ERROR = 2
+
+    state: int|None
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def set_state(self, new_value):
+        self.state = new_value
+
+    def reset(self):
+        self.state = 0
+
+
 class ReActAgent(Agent):
     def __init__(self, *, model:str='gpt-4', api_key:str|None=None, tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False, **kwargs):
         """
@@ -62,6 +80,8 @@ class ReActAgent(Agent):
         # run the initial user query
         action_str = self.query(query)
 
+        controller = LoopController()
+
         # ReAct loop
         while True:
 
@@ -106,12 +126,19 @@ class ReActAgent(Agent):
                     "agent": self,
                     "tool_name": tool_name,
                     "raw_tool": tool_fn,
+                    "loop_controller": controller,
                 }
                 tool_output = tool_fn.run(tool_input, tool_context=tool_context)
             except Exception as e:
                 action_str = self.error(f"error running tool \"{tool_name}\": {e}")
 
                 continue
+
+            # Check loop controller to see if we need to stop or error
+            if controller.state == LoopController.STOP:
+                return tool_output
+            if controller.state == LoopController.ERROR:
+                raise FailedTaskError(tool_output)
 
             # have the agent observe the result, and get the next action
             if self.verbose:
