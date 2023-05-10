@@ -93,7 +93,7 @@ def tool(*, name:str|None=None):
             elif isinstance(args, dict):
                 kwargs.update(args)
             elif isinstance(args, list):
-                pargs.update(args)
+                pargs.extend(args)
             elif isinstance(args, (str, int, float, bool)):
                 pargs.append(args)
             else:
