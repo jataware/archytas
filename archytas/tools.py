@@ -1,5 +1,5 @@
 from typing import Any
-from archytas.tool_utils import tool, toolset, is_tool, unwrap_tool
+from archytas.tool_utils import tool, toolset, is_tool
 from archytas.python import Python
 
 
@@ -83,9 +83,8 @@ class PythonTool:
         env_update = {}
         for name, obj in locals.items():
             if is_tool(obj):
-                inner = unwrap_tool(obj)
-                env_update[name] = inner
-                prompt_chunks.append(f'{name} = {inner.__doc__}')
+                env_update[name] = obj
+                prompt_chunks.append(f'{name} = {obj.__doc__}')
             else:
                 env_update[name] = obj
                 prompt_chunks.append(f'{name} = {obj} ({type(obj)})')

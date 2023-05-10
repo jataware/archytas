@@ -46,12 +46,59 @@ def tool(*, name:str|None=None):
         # check that the decorator is being applied to a function
         if not inspect.isfunction(func):
             raise TypeError(f"tool decorator can only be applied to functions or classes. Got {func} of type {type(func)}")
+
+        #attach usage description to the wrapper function
+        args_list, ret, desc = get_tool_signature(func)
+
+        func._name = name if name else func.__name__
+        func._is_function_tool = True
+        func._args_list = args_list
+        func._ret = ret
+        func._desc = desc
+
+        def run(*args:tuple[object, dict|list|str|int|float|bool|None]):
+            """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
+
+            # The only time this will be a tuple is if more than one argument is passed in, which should only happen when this is an method and that is self.
+            if len(args) == 2 and getattr(args[0], "_is_class_tool", False):
+                self, args = args
+            else:
+                self = None
+                args = args[0]
+
+            if self is not None:
+                pargs = [self]
+            else:
+                pargs = []
+            kwargs = {}
+
+            #TODO: make this look at _call_type rather than isinstance to determine what to do
+            #      single argument functions that take a dict vs multi-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
+            if args is None:
+                pass
+            elif len(args_list) == 1:
+                pargs.append(args)
+            elif isinstance(args, dict):
+                kwargs.update(args)
+            elif isinstance(args, list):
+                pargs.update(args)
+            elif isinstance(args, (str, int, float, bool)):
+                pargs.append(args)
+            else:
+                raise TypeError(f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}")
+
+            result = func(*pargs, **kwargs)
+
+            #convert the result to a string if it is not already a string
+            if not isinstance(result, str):
+                result = str(result)
+
+            return result
+
+        # Add func as the attribute of the run method
+        func.run = run
         
-        # determine if function, or class method, and return the appropriate wrapper
-        if is_class_method(func):
-            return make_method_tool_wrapper(func, name)
-        else:
-            return make_func_tool_wrapper(func, name)
+        return func
 
     return decorator
 
@@ -111,168 +158,34 @@ def toolset(*, name:str|None=None):
         # get the class docstring description
         docstring = inspect.getdoc(cls)
 
-        class wrapper:
-            def __init__(self, *args, **kwargs):
-                # create an instance of the class
-                self._instance = cls(*args, **kwargs)
-
-                # mark this as a class tool instance
-                self._is_class_tool_instance = True
-
+        # Somewhat complicated way of turning the run functions in to bound methods to the instance.
+        # Needs the instance to bind them, so wrap __new__ and bind right as they are created.
+        prev_new = cls.__new__
+        def new(cls, *args, **kwargs):
+            obj = prev_new(cls)
+            for method in methods:
+                bound_run_method = method.run.__get__(obj, cls)
+                method.run = bound_run_method
+            obj._is_class_tool_instance = True
+            return obj
+        cls.__new__ = new
 
         # attach the metadata to the class
-        wrapper._name = name if name else cls.__name__
-        wrapper._is_class_tool = True
-        wrapper._docstring = docstring
-        wrapper._tool_methods = methods
-        wrapper._cls = cls
-        
-        return wrapper
+        cls._name = name if name else cls.__name__
+        cls._is_class_tool = True
+        cls._docstring = docstring
+        cls._tool_methods = methods
+
+        return cls
     
     return decorator
-
-
-
-def make_func_tool_wrapper(func:Callable, name:str|None=None):
-    def wrapper(args:dict|list|str|int|float|bool|None):
-        """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
-        
-        #TODO: make this look at _call_type rather than isinstance to determine what to do
-        #      single argument functions that take a dict vs mutli-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
-        if isinstance(args, dict):
-            result = func(**args)
-        elif isinstance(args, list):
-            result = func(*args)
-        elif isinstance(args, (str, int, float, bool)):
-            result = func(args)
-        elif args is None:
-            result = func()
-        else:
-            raise TypeError(f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}")
-
-        #convert the result to a string if it is not already a string
-        if not isinstance(result, str):
-            result = str(result)
-
-        return result
-    
-    #attach usage description to the wrapper function
-    args_list, ret, desc = get_tool_signature(func)
-
-    wrapper._name = name if name else func.__name__
-    wrapper._is_function_tool = True
-    wrapper._args_list = args_list
-    wrapper._ret = ret
-    wrapper._desc = desc
-    wrapper._func = func
-
-    return wrapper
-
-def make_method_tool_wrapper(func:Callable, name:str|None=None):
-    def wrapper(self, args:dict|list|str|int|float|bool|None):
-        """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
-        
-        if isinstance(args, dict):
-            result = func(self, **args)
-        elif isinstance(args, list):
-            result = func(self, *args)
-        elif isinstance(args, (str, int, float, bool)):
-            result = func(self, args)
-        elif args is None:
-            result = func(self)
-        else:
-            raise TypeError(f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}")
-
-        #convert the result to a string if it is not already a string
-        if not isinstance(result, str):
-            result = str(result)
-
-        return result
-    
-    #attach usage description to the wrapper function
-    args_list, ret, desc = get_tool_signature(func)
-
-    wrapper._name = name if name else func.__name__
-    wrapper._is_method_tool = True
-    wrapper._args_list = args_list
-    wrapper._ret = ret
-    wrapper._desc = desc
-    wrapper._func = func
-
-    return wrapper
-
-
-def unwrap_tool(obj:Callable|type|Any) -> Callable|type|Any:
-    """Unwrap a tool, toolset, or toolset instance"""
-    assert is_tool(obj), f"unwrap can only be used on function tools, method tools, class tools, or class tool instances. Got {obj}"
-    if hasattr(obj, '_instance'):
-        return _unwrap_class_instance(obj._instance)
-    if hasattr(obj, '_cls'):
-        return _unwrap_class(obj._cls)
-    if hasattr(obj, '_func'):
-        return obj._func
-
-    raise TypeError(f'unwrap could not unwrap {obj} of type {type(obj)}')
-
-def _unwrap_class(cls:type) -> type:
-    """
-    unwrap a class tool (including all methods annotated with type)
-
-    returns an identical class, as if it had never been wrapped
-    """
-
-    # Create a new class with the same name, inheriting from the original class
-    unwrapped_cls = type(cls.__name__, (cls,), {})
-
-    # Copy over the class attributes (unwrapping any wrapped methods)
-    for name, attr in cls.__dict__.items():
-        # Check if the attribute is a wrapped method
-        if hasattr(attr, '_is_method_tool'):
-            # Replace the attribute with the original unwrapped version
-            setattr(unwrapped_cls, name, attr._func)
-        else:
-            # If not a wrapped method, copy the attribute to the new class
-            assert not is_tool(attr), f"INTERNAL ERROR: Unwrapped class {cls.__name__} still has a tool {name} attached. This should not happen."
-            try:
-                setattr(unwrapped_cls, name, attr)
-            except AttributeError as e:
-                #skip not writable attributes
-                if 'not writable' in str(e): ...
-                #raise other errors
-                else: raise
-
-    return unwrapped_cls
-
-
-
-def _unwrap_class_instance(instance:Any) -> Any:
-    """
-    unwrap a class tool instance into an instance of the underlying (unwrapped) class
-
-    returns an identical instance, as if it was constructed from a class that had never been wrapped
-
-    Args:
-        instance (Any): An instance of a class tool. Note that this must be the _instance attribute of a class tool instance, not the class tool instance itself (e.g. you should call this with obj._instance).
-    """
-
-    # Unwrap the class of the given instance
-    unwrapped_cls = _unwrap_class(instance.__class__)
-
-    # Create a new instance of the original class without calling its constructor
-    unwrapped_instance = object.__new__(unwrapped_cls)
-
-    # Copy the instance's attributes to the new unwrapped instance
-    for name, attr in instance.__dict__.items():
-        setattr(unwrapped_instance, name, attr)
-
-    return unwrapped_instance
-
 
 
 def is_class_method(func:Callable) -> bool:
     """checks if a function is part of a class, or a standalone function"""
     assert inspect.isfunction(func), f"is_class_method can only be used on functions. Got {func}"
     return func.__qualname__ != func.__name__
+
 
 def is_tool(obj:Callable|type) -> bool:
     """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
@@ -283,6 +196,7 @@ def get_tool_name(obj:Callable|type) -> str:
     """Get the name of the tool, either from the @tool _name field, or the __name__ attribute"""
     assert is_tool(obj), f"get_tool_name can only be used on decorated @tools. Got {obj}"
     return getattr(obj, '_name')
+
 
 def get_tool_names(obj:Callable|type) -> list[str]:
     """
@@ -302,7 +216,6 @@ def get_tool_names(obj:Callable|type) -> list[str]:
     return [get_tool_name(obj)]
 
 
-
 def get_tool_prompt_description(obj:Callable|type|Any):
     if hasattr(obj, '_is_class_tool') or hasattr(obj, '_is_class_tool_instance'):
         return get_tool_class_prompt_description(obj)
@@ -310,6 +223,7 @@ def get_tool_prompt_description(obj:Callable|type|Any):
         return get_tool_func_prompt_description(obj)
 
     raise TypeError(f"get_tool_prompt_description can only be used on @tools. Got {obj}")
+
 
 def get_tool_func_prompt_description(func:Callable):
     assert is_tool(func), f"Function {func.__name__} does not have the @tool decorator attached"
@@ -416,7 +330,6 @@ def get_tool_signature(func:Callable) -> tuple[list[tuple[str, type, str|None, s
 
     Args:
         func (function): The function to check and extract information from
-        ignore_self (bool): If True, ignore the first argument of the function if it is named 'self'
 
     Returns:
         args_list: A list of tuples (name, type, description, default) for each argument
@@ -429,14 +342,11 @@ def get_tool_signature(func:Callable) -> tuple[list[tuple[str, type, str|None, s
     docstring = parse_docstring(func.__doc__)
     signature = inspect.signature(func)
 
-    # determine if self needs to be ignored
-    ignore_self: bool = is_class_method(func)
-
     # Extract argument information from the docstring
     docstring_args = {arg.arg_name: (arg.type_name, arg.description, arg.default) for arg in docstring.params}
 
     # Extract argument information from the signature (ignore self from class methods)
-    signature_args = {k: v.annotation for i, (k, v) in enumerate(signature.parameters.items()) if not (i == 0 and ignore_self and k == 'self')}
+    signature_args = {k: v.annotation for i, (k, v) in enumerate(signature.parameters.items()) if not (i == 0 and k == 'self')}
 
     # Check if the docstring argument names match the signature argument names
     if set(docstring_args.keys()) != set(signature_args.keys()):
@@ -517,7 +427,7 @@ def make_tool_dict(tools:list[Callable|type|Any]) -> dict[str, Callable]:
             instance = tool()
 
         # add each method to the tool dictionary under the name 'class_name.method_name'
-        methods = inspect.getmembers(instance._instance, predicate=inspect.ismethod)
+        methods = inspect.getmembers(instance, predicate=inspect.ismethod)
         for _, method in methods:
             if not hasattr(method, '_name'):
                 continue
