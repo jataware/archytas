@@ -210,8 +210,23 @@ def is_class_method(func:Callable) -> bool:
 
 def is_tool(obj:Callable|type) -> bool:
     """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
-    return hasattr(obj, '_is_function_tool') or hasattr(obj, '_is_method_tool') or hasattr(obj, '_is_class_tool') or hasattr(obj, '_is_class_tool_instance')
-        
+    return is_function_tool(obj) or is_method_tool(obj) or is_class_tool(obj) or is_class_tool_instance(obj)
+
+def is_function_tool(obj:Callable) -> bool:
+    """checks if an object is a tool function"""
+    return inspect.isfunction(obj) and hasattr(obj, '_is_function_tool')
+
+def is_method_tool(obj:Callable) -> bool:
+    """checks if an object is a tool method"""
+    return inspect.ismethod(obj) and hasattr(obj, '_is_method_tool')
+
+def is_class_tool(obj:type) -> bool:
+    """checks if an object is a tool class"""
+    return inspect.isclass(obj) and hasattr(obj, '_is_class_tool')
+
+def is_class_tool_instance(obj:type) -> bool:
+    """checks if an object is an instance of a tool class"""
+    return hasattr(obj, '_is_class_tool_instance')
 
 def get_tool_name(obj:Callable|type) -> str:
     """Get the name of the tool, either from the @tool _name field, or the __name__ attribute"""
@@ -225,7 +240,7 @@ def get_tool_names(obj:Callable|type) -> list[str]:
     """
     assert is_tool(obj), f"get_tool_name can only be used on decorated @tools. Got {obj}"
     
-    if hasattr(obj, '_is_class_tool') or hasattr(obj, '_is_class_tool_instance'):
+    if is_class_tool(obj) or is_class_tool_instance(obj):
         cls_name = get_tool_name(obj)
 
         #construct names as cls_name.method_name
@@ -238,9 +253,9 @@ def get_tool_names(obj:Callable|type) -> list[str]:
 
 
 def get_tool_prompt_description(obj:Callable|type|Any):
-    if hasattr(obj, '_is_class_tool') or hasattr(obj, '_is_class_tool_instance'):
+    if is_class_tool(obj) or is_class_tool_instance(obj):
         return get_tool_class_prompt_description(obj)
-    if hasattr(obj, '_is_function_tool') or hasattr(obj, '_is_method_tool'):
+    if is_function_tool(obj) or is_method_tool(obj):
         return get_tool_func_prompt_description(obj)
 
     raise TypeError(f"get_tool_prompt_description can only be used on @tools. Got {obj}")
@@ -322,7 +337,7 @@ def get_tool_class_prompt_description(cls:type):
     Returns:
         str: The prompt description for the class tool
     """
-    assert hasattr(cls, '_is_class_tool') or hasattr(cls, '_is_class_tool_instance'), f"class or instance {cls} does not have the @tool decorator attached"
+    assert is_class_tool(cls) or is_class_tool_instance(cls), f"class or instance {cls} does not have the @tool decorator attached"
 
 
     chunks = []
@@ -432,21 +447,21 @@ def make_tool_dict(tools:list[Callable|type|Any]) -> dict[str, Callable]:
         name = getattr(tool, '_name')
         
         
-        if hasattr(tool, '_is_function_tool'):
+        if is_function_tool(tool):
             if name in tool_dict:
                 raise ValueError(f"Tool name '{name}' is already in use")
             tool_dict[name] = tool
             continue
         
-        if hasattr(tool, '_is_method_tool'):
+        if is_method_tool(tools):
             #TODO: not sure if methods should be allowed since they need usually need a class instance...
             raise NotImplementedError("Free-floating tool methods are not yet supported")
             pdb.set_trace()
         
 
         # collect methods from @toolset. handle if instance of class or class itself
-        assert hasattr(tool, '_is_class_tool'), f"Tool {tool} is not a function, method, or class tool"
-        if hasattr(tool, '_is_class_tool_instance'):
+        assert is_class_tool(tool) or is_class_tool_instance(tool), f"Tool {tool} is not a function, method, or class tool"
+        if is_class_tool_instance(tool):
             instance = tool
         else:
             instance = tool()
