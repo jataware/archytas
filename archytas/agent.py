@@ -4,6 +4,7 @@ import logging
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
 from typing import Literal, Callable, ContextManager
+from enum import Enum
 
 from rich.spinner import Spinner
 from rich.live import Live
@@ -18,20 +19,20 @@ retry = tenacity_retry(
     before_sleep=before_sleep_log(logger, logging.WARNING),
 )
 
-class Role:
+class Role(str, Enum):
     system = 'system'
     assistant = 'assistant'
     user = 'user'
 
 class Message(dict):
     """Message format for communicating with the OpenAI API."""
-    def __init__(self, role: Literal['system', 'assistant', 'user'], content: str):
-        super().__init__(role=role, content=content)
+    def __init__(self, role:Role, content:str):
+        super().__init__(role=role.value, content=content)
 
 class ContextMessage(Message):
     """Simple wrapper around a message that adds an id and optional lifetime."""
-    def __init__(self, role: Literal['system', 'assistant', 'user'], content:str, id:int, lifetime:int=-1):
-        super().__init__(role=role, content=content)
+    def __init__(self, role:Role, content:str, id:int, lifetime:int=-1):
+        super().__init__(role=role.value, content=content)
         self.id = id
         self.lifetime = lifetime
 
