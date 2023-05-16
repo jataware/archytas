@@ -1,10 +1,10 @@
 import os
 import openai
 import logging
-from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
+from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
-from typing import TypedDict, Literal, Callable, ContextManager
-from frozendict import frozendict
+from typing import Literal, Callable, ContextManager
+from enum import Enum
 
 from rich.spinner import Spinner
 from rich.live import Live
@@ -19,14 +19,22 @@ retry = tenacity_retry(
     before_sleep=before_sleep_log(logger, logging.WARNING),
 )
 
-#TODO: want these to be enums, but Role.role needs to return a string, not an enum member
-class Role:
+class Role(str, Enum):
     system = 'system'
     assistant = 'assistant'
     user = 'user'
-class Message(TypedDict):
-    role: Literal['system', 'assistant', 'user']
-    content: str
+
+class Message(dict):
+    """Message format for communicating with the OpenAI API."""
+    def __init__(self, role:Role, content:str):
+        super().__init__(role=role.value, content=content)
+
+class ContextMessage(Message):
+    """Simple wrapper around a message that adds an id and optional lifetime."""
+    def __init__(self, role:Role, content:str, id:int, lifetime:int|None=None):
+        super().__init__(role=role, content=content)
+        self.id = id
+        self.lifetime = lifetime
 
 
 def cli_spinner(): 
@@ -50,13 +58,12 @@ class Agent:
         """
 
         self.model = model
-        self.system_message: Message = {"role": Role.system, "content": prompt }
-        self.messages = []
+        self.system_message = Message(role=Role.system, content=prompt)
+        self.messages: list[Message] = []
         self.spinner = spinner if spinner is not None else no_spinner
 
-        # keep track of injected context messages and their lifetimes
-        self._context_lifetimes = {}
-        self._all_context_messages = []
+        # use to generate unique ids for context messages
+        self._current_context_id = 0
 
         # check that an api key was given, and set it
         if api_key is None:
@@ -65,86 +72,76 @@ class Agent:
             raise Exception("No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor.")
         openai.api_key = api_key
 
+    def new_context_id(self) -> int:
+        """Generate a new context id."""
+        self._current_context_id += 1
+        return self._current_context_id
 
-    def add_timed_context(self, context:str, time:int=1) -> None:
+    def add_context(self, context:str, *, lifetime:int|None=None) -> int:
         """
-        Add a context to the agent's conversation.
-        The context will be added to the conversation for a finite number of time steps.
+        Inject a context message to the agent's conversation.
+
+        Useful for providing the agent with information relevant to the current conversation, e.g. tool state, environment info, etc.
+        If a lifetime is specified, the context message will automatically be deleted from the chat history after that many steps.
+        A context message can be deleted manually by calling clear_context() with the id of the context message.
 
         Args:
             context (str): The context to add to the agent's conversation.
-            time (int, optional): The number of time steps the context will live for. Defaults to 1 (i.e. it gets deleted as soon as the LLM sees it once).
-        """
-        context_message = frozendict({"role": Role.system, "content": context})
-        self.messages.append(context_message)
-        self._context_lifetimes[context_message] = time
-        self._all_context_messages.append(context_message)
+            lifetime (int, optional): The number of time steps the context will live for. Defaults to None (i.e. it will never be removed).
 
+        Returns:
+            int: The id of the context message.
+        """
+        context_message = ContextMessage(role=Role.system, content=context, id=self.new_context_id(), lifetime=lifetime)
+        self.messages.append(context_message)
+        return context_message.id
 
     def update_timed_context(self) -> None:
         """
         Update the lifetimes of all timed contexts, and remove any that have expired.
         This should be called after every LLM response.
         """
-        # Update context lifetimes and remove expired contexts
-        for context_message in list(self._context_lifetimes.keys()):
-            self._context_lifetimes[context_message] -= 1
-            if self._context_lifetimes[context_message] <= 0:
-                self.messages.remove(context_message)
-                self._all_context_messages.remove(context_message)
-                del self._context_lifetimes[context_message]
+        #decrement lifetimes of all timed context messages
+        for message in self.messages:
+            if isinstance(message, ContextMessage) and message.lifetime is not None:
+                message.lifetime -= 1
 
-    
-    def add_permanent_context(self, context:str) -> None:
+        #remove expired context messages
+        new_messages = []
+        for message in self.messages:
+            if isinstance(message, ContextMessage) and message.lifetime == 0:
+                continue
+            new_messages.append(message)
+        self.messages = new_messages
+
+
+    def clear_context(self, id:int) -> None:
         """
-        Add a context to the agent's conversation.
-        The context will be added to the conversation permanently.
+        Remove a single context message from the agent's conversation.
 
         Args:
-            context (str): The context to add to the agent's conversation.
+            id (int): The id of the context message to remove.
         """
-        context_message = {"role": Role.system, "content": context}
-        self.messages.append(context_message)
-        self._all_context_messages.append(context_message)
+        new_messages = []
+        for message in self.messages:
+            if isinstance(message, ContextMessage) and message.id == id:
+                continue
+            new_messages.append(message)
+        self.messages = new_messages
 
-
-    def add_managed_context(self, context:str) -> Callable[[], None]:
-        """
-        Add a context to the agent's conversation.
-        The context will be added to the conversation for an arbitrary number of time steps.
-        Returns a function that can be called to remove the context from the conversation.
-
-        Args:
-            context (str): The context to add to the agent's conversation.
-
-        Returns:
-            Callable[[], None]: A function that can be called to remove the context from the conversation.
-        """
-        context_message = {"role": Role.system, "content": context}
-        self.messages.append(context_message)
-        self._all_context_messages.append(context_message)
-
-        def remove_context():
-            self.messages.remove(context_message)
-            self._all_context_messages.remove(context_message)
-
-        return remove_context
 
     def clear_all_context(self) -> None:
-        """Remove all contexts from the agent's conversation."""
-        for context_message in self._all_context_messages:
-            self.messages.remove(context_message)
-        self._all_context_messages = []
-        self._context_lifetimes = {}
+        """Remove all context messages from the agent's conversation."""
+        self.messages = [message for message in self.messages if not isinstance(message, ContextMessage)]
     
     def query(self, message:str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
-        self.messages.append({"role": Role.user, "content": message})
+        self.messages.append(Message(role=Role.user, content=message))
         return self.execute()
     
     def observe(self, observation:str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        self.messages.append({"role": Role.system, "content": observation})
+        self.messages.append(Message(role=Role.system, content=observation))
         return self.execute()
     
     def error(self, error:str, drop_error:bool=True) -> str:
@@ -155,7 +152,7 @@ class Agent:
             error (str): The error message to send to the agent.
             drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
-        self.messages.append({"role": Role.system, "content": f'ERROR: {error}'})
+        self.messages.append(Message(role=Role.system, content=f'ERROR: {error}'))
         result = self.execute()
 
         # Drop error + LLM's bad input from chat history
@@ -175,7 +172,7 @@ class Agent:
         
         # grab the response and add it to the chat history
         result = completion.choices[0].message.content
-        self.messages.append({"role": Role.assistant, "content": result})
+        self.messages.append(Message(role=Role.assistant, content=result))
 
         # remove any timed contexts that have expired
         self.update_timed_context()
@@ -199,7 +196,7 @@ class Agent:
         with self.spinner():
             completion = openai.ChatCompletion.create(
                 model=self.model, 
-                messages=[{"role": Role.system, "content": prompt }, {"role": Role.user, "content": query}],
+                messages=[Message(role=Role.system, content=prompt), Message(role=Role.user, content=query)],
                 temperature=0,
             )
 

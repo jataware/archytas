@@ -15,10 +15,10 @@ class FailedTaskError(Exception): ...
 
 class LoopController:
     PROCEED = 0
-    STOP = 1
-    ERROR = 2
+    STOP_SUCCESS = 1
+    STOP_FATAL = 2
 
-    state: int|None
+    state: int
 
     def __init__(self) -> None:
         self.reset()
@@ -135,9 +135,9 @@ class ReActAgent(Agent):
                 continue
 
             # Check loop controller to see if we need to stop or error
-            if controller.state == LoopController.STOP:
+            if controller.state == LoopController.STOP_SUCCESS:
                 return tool_output
-            if controller.state == LoopController.ERROR:
+            if controller.state == LoopController.STOP_FATAL:
                 raise FailedTaskError(tool_output)
 
             # have the agent observe the result, and get the next action
