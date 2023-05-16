@@ -1,10 +1,9 @@
 import os
 import openai
 import logging
-from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError, InvalidRequestError
+from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
-from typing import TypedDict, Literal, Callable, ContextManager
-from frozendict import frozendict
+from typing import Literal, Callable, ContextManager
 
 from rich.spinner import Spinner
 from rich.live import Live
