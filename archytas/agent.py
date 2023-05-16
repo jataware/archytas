@@ -31,8 +31,8 @@ class Message(dict):
 
 class ContextMessage(Message):
     """Simple wrapper around a message that adds an id and optional lifetime."""
-    def __init__(self, role:Role, content:str, id:int, lifetime:int=-1):
-        super().__init__(role=role.value, content=content)
+    def __init__(self, role:Role, content:str, id:int, lifetime:int|None=None):
+        super().__init__(role=role, content=content)
         self.id = id
         self.lifetime = lifetime
 
@@ -77,7 +77,7 @@ class Agent:
         self._current_context_id += 1
         return self._current_context_id
 
-    def add_context(self, context:str, *, lifetime:int=-1) -> int:
+    def add_context(self, context:str, *, lifetime:int|None=None) -> int:
         """
         Inject a context message to the agent's conversation.
 
@@ -87,7 +87,7 @@ class Agent:
 
         Args:
             context (str): The context to add to the agent's conversation.
-            lifetime (int, optional): The number of time steps the context will live for. Defaults to -1 (i.e. it will never be removed).
+            lifetime (int, optional): The number of time steps the context will live for. Defaults to None (i.e. it will never be removed).
 
         Returns:
             int: The id of the context message.
@@ -101,13 +101,19 @@ class Agent:
         Update the lifetimes of all timed contexts, and remove any that have expired.
         This should be called after every LLM response.
         """
-        #filter out messages that have expired
-        self.messages = [message for message in self.messages if not isinstance(message, ContextMessage) or message.lifetime != 0]
-
         #decrement lifetimes of all timed context messages
         for message in self.messages:
-            if isinstance(message, ContextMessage):
+            if isinstance(message, ContextMessage) and message.lifetime is not None:
                 message.lifetime -= 1
+
+        #remove expired context messages
+        new_messages = []
+        for message in self.messages:
+            if isinstance(message, ContextMessage) and message.lifetime == 0:
+                continue
+            new_messages.append(message)
+        self.messages = new_messages
+
 
     def clear_context(self, id:int) -> None:
         """
@@ -116,7 +122,13 @@ class Agent:
         Args:
             id (int): The id of the context message to remove.
         """
-        self.messages = [message for message in self.messages if not isinstance(message, ContextMessage) or message.id != id]
+        new_messages = []
+        for message in self.messages:
+            if isinstance(message, ContextMessage) and message.id == id:
+                continue
+            new_messages.append(message)
+        self.messages = new_messages
+
 
     def clear_all_context(self) -> None:
         """Remove all context messages from the agent's conversation."""
