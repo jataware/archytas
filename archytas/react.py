@@ -3,7 +3,6 @@ from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import json
-from rich import print
 import pdb
 import sys
 import logging
@@ -106,7 +105,7 @@ class ReActAgent(Agent):
             # print action
             if self.verbose:
                 #TODO: better coloring
-                print(f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n")
+                self.print(f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n")
 
             # exit ReAct loop if agent says final_answer or fail_task
             if tool_name == 'final_answer':
@@ -142,7 +141,7 @@ class ReActAgent(Agent):
 
             # have the agent observe the result, and get the next action
             if self.verbose:
-                print(f"observation: {tool_output}\n")
+                self.print(f"observation: {tool_output}\n")
             action_str = self.observe(tool_output)
 
 
@@ -180,7 +179,11 @@ class ReActAgent(Agent):
         if self.errors >= self.max_errors:
             raise FailedTaskError(f"Too many errors during task. Last error: {mesg}")
         if self.verbose:
-            print(f"[red]error: {mesg}[/red]", file=sys.stderr)
+            if self.rich_print:
+                self.print(f"[red]error: {mesg}[/red]", file=sys.stderr)
+            else:
+                self.print(f"error: {mesg}", file=sys.stderr)
+
 
         #tell the agent about the error, and get its response (call parent .error method)
         return super().error(mesg)

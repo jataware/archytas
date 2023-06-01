@@ -6,6 +6,7 @@ from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_excepti
 from typing import Literal, Callable, ContextManager
 from enum import Enum
 
+from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
 
@@ -44,7 +45,7 @@ class no_spinner:
     def __exit__(self, *args): pass
 
 class Agent:
-    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant.", api_key:str|None=None, spinner:Callable[[], ContextManager]|None=cli_spinner):
+    def __init__(self, *, model:str='gpt-4', prompt:str="You are a helpful assistant.", api_key:str|None=None, spinner:Callable[[], ContextManager]|None=cli_spinner, rich_print:bool=True):
         """
         Agent class for managing communication with OpenAI's API.
 
@@ -57,10 +58,14 @@ class Agent:
             Exception: If no API key is given.
         """
 
+        self.rich_print = bool(rich_print and not os.environ.get("DISABLE_RICH_PRINT", False))
         self.model = model
         self.system_message = Message(role=Role.system, content=prompt)
         self.messages: list[Message] = []
-        self.spinner = spinner if spinner is not None else no_spinner
+        if spinner is not None and self.rich_print:
+            self.spinner = spinner
+        else:
+            self.spinner = no_spinner
 
         # use to generate unique ids for context messages
         self._current_context_id = 0
@@ -71,6 +76,12 @@ class Agent:
         if not api_key:
             raise Exception("No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor.")
         openai.api_key = api_key
+
+    def print(self, *args, **kwargs):
+        if self.rich_print:
+            rprint(*args, **kwargs)
+        else:
+            print(*args, **kwargs)
 
     def new_context_id(self) -> int:
         """Generate a new context id."""
