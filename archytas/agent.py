@@ -3,7 +3,7 @@ import openai
 import logging
 from openai.error import Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError
 from tenacity import before_sleep_log, retry as tenacity_retry, retry_if_exception_type as retry_if, stop_after_attempt, wait_exponential
-from typing import Literal, Callable, ContextManager
+from typing import Callable, ContextManager
 from enum import Enum
 
 from rich import print as rprint
@@ -53,6 +53,8 @@ class Agent:
             model (str, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
             prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
             api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
+            spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
+            rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
 
         Raises:
             Exception: If no API key is given.
