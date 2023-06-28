@@ -56,7 +56,8 @@ class ReActAgent(Agent):
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
             verbose (bool, optional): Whether to print the agent's thoughts and observations. Defaults to False.
-            thought_handler (function, optional): Set to None to disable, or leave default of Undefined to use default. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
+            thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to 
+                    use default. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
         """
 
         # create a dictionary for looking up tools by name
