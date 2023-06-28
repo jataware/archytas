@@ -6,8 +6,11 @@ import json
 import pdb
 import sys
 import logging
+import typing
 
 logger = logging.Logger('archytas')
+
+class Undefined: ...
 
 class FailedTaskError(Exception): ...
 
@@ -28,9 +31,20 @@ class LoopController:
     def reset(self):
         self.state = 0
 
-
 class ReActAgent(Agent):
-    def __init__(self, *, model:str='gpt-4', api_key:str|None=None, tools:list=None, allow_ask_user:bool=True, max_errors:int|None=3, max_react_steps:int|None=None, verbose:bool=False, **kwargs):
+    def __init__(
+        self,
+        *,
+        model: str = "gpt-4",
+        api_key: str | None = None,
+        tools: list = None,
+        allow_ask_user: bool = True,
+        max_errors: int | None = 3,
+        max_react_steps: int | None = None,
+        verbose: bool = False,
+        thought_handler: typing.Callable | None = Undefined,
+        **kwargs,
+    ):
         """
         Create a ReAct agent
 
@@ -42,6 +56,7 @@ class ReActAgent(Agent):
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
             verbose (bool, optional): Whether to print the agent's thoughts and observations. Defaults to False.
+            thought_handler (function, optional): Set to None to disable, or leave default of Undefined to use default. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
         """
 
         # create a dictionary for looking up tools by name
@@ -49,6 +64,11 @@ class ReActAgent(Agent):
         if allow_ask_user:
             tools.append(ask_user)
         self.tools = make_tool_dict(tools)
+
+        if thought_handler is Undefined:
+            self.thought_handler = self.thought_callback
+        else:
+            self.thought_handler = thought_handler
 
         #check that the tools dict keys match the list of generated tool names
         names, keys = sorted(build_all_tool_names(tools)), sorted([*self.tools.keys()])
@@ -69,6 +89,12 @@ class ReActAgent(Agent):
 
         # keep track of the last tool used (for error messages)
         self.last_tool_name = ''
+
+
+    def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
+        if self.verbose:
+            #TODO: better coloring
+            self.print(f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n")
 
 
     def react(self, query:str) -> str:
@@ -102,10 +128,8 @@ class ReActAgent(Agent):
                 action_str = self.error(str(e))
                 continue
 
-            # print action
-            if self.verbose:
-                #TODO: better coloring
-                self.print(f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n")
+            if self.thought_handler:
+                self.thought_handler(thought, tool_name, tool_input)
 
             # exit ReAct loop if agent says final_answer or fail_task
             if tool_name == 'final_answer':
