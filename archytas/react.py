@@ -98,7 +98,7 @@ class ReActAgent(Agent):
             self.print(f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n")
 
 
-    def react(self, query:str) -> str:
+    async def react(self, query:str) -> str:
         # reset error and steps counter
         self.errors = 0
         self.steps = 0
@@ -152,7 +152,7 @@ class ReActAgent(Agent):
                     "raw_tool": tool_fn,
                     "loop_controller": controller,
                 }
-                tool_output = tool_fn.run(tool_input, tool_context=tool_context)
+                tool_output = await tool_fn.run(tool_input, tool_context=tool_context)
             except Exception as e:
                 action_str = self.error(f"error running tool \"{tool_name}\": {e}")
 

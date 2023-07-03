@@ -1,3 +1,5 @@
+import asyncio
+
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import datetime_tool, timestamp, PythonTool
 from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot, ModelSimulation, pirate_subquery
@@ -8,7 +10,7 @@ from easyrepl import REPL
 import pdb
 
 
-def start_repl():
+async def start_repl():
     # make an instance of a class tool
     jackpot = Jackpot(chips=1000)
 
@@ -32,7 +34,7 @@ def start_repl():
     # run the REPL
     for query in REPL(history_file='chat_history.txt'):
         try:
-            answer = agent.react(query)
+            answer = await agent.react(query)
             print(f'[green]{answer}[/green]')
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
@@ -41,6 +43,9 @@ def start_repl():
 
 
 
+def main():
+    asyncio.run(start_repl())
+
 
 if __name__ == '__main__':
-    start_repl()
+    main()
