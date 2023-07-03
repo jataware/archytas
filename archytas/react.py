@@ -2,6 +2,7 @@ from archytas.agent import Agent
 from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
+import asyncio
 import json
 import pdb
 import sys
@@ -99,6 +100,17 @@ class ReActAgent(Agent):
 
 
     def react(self, query:str) -> str:
+        """
+        Synchronous wrapper around the asynchronous react_async method.
+        """
+        return asyncio.run(self.react_async(query))
+
+
+    async def react_async(self, query:str) -> str:
+        """
+        Asynchronous react loop function.
+        Continually calls tools until a satisfactory answer is reached.
+        """
         # reset error and steps counter
         self.errors = 0
         self.steps = 0
@@ -152,7 +164,7 @@ class ReActAgent(Agent):
                     "raw_tool": tool_fn,
                     "loop_controller": controller,
                 }
-                tool_output = tool_fn.run(tool_input, tool_context=tool_context)
+                tool_output = await tool_fn.run(tool_input, tool_context=tool_context)
             except Exception as e:
                 action_str = self.error(f"error running tool \"{tool_name}\": {e}")
 

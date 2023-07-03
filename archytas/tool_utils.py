@@ -70,7 +70,7 @@ def tool(*, name:str|None=None):
         func._ret = ret
         func._desc = desc
 
-        def run(*args:tuple[object, dict|list|str|int|float|bool|None], tool_context:dict[str,object]=None):
+        async def run(*args:tuple[object, dict|list|str|int|float|bool|None], tool_context:dict[str,object]=None):
             """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
 
             # The only time this will be a tuple is if more than one argument is passed in, which should only happen when this is an method and that is self.
@@ -108,7 +108,10 @@ def tool(*, name:str|None=None):
                 if context_value:
                     kwargs[inj_name] = context_value
 
-            result = func(*pargs, **kwargs)
+            if inspect.iscoroutinefunction(func):
+                result = await func(*pargs, **kwargs)
+            else:
+                result = func(*pargs, **kwargs)
 
             #convert the result to a string if it is not already a string
             if not isinstance(result, str):
