@@ -1,5 +1,3 @@
-import asyncio
-
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import datetime_tool, timestamp, PythonTool
 from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot, ModelSimulation, pirate_subquery
@@ -43,9 +41,6 @@ def start_repl():
 
 
 
-def main():
-    start_repl()
-
 
 if __name__ == '__main__':
-    main()
+    start_repl()

@@ -11,7 +11,7 @@ license = "GPL-3.0-or-later"
 "Bug Tracker" = "https://github.com/jataware/archytas/issues"
 
 [tool.poetry.scripts]
-chat-repl = "archytas.repl:main"
+chat-repl = "archytas.repl:start_repl"
 
 [tool.poetry.dependencies]
 python = "^3.10"
