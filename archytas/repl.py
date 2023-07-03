@@ -10,7 +10,7 @@ from easyrepl import REPL
 import pdb
 
 
-async def start_repl():
+def start_repl():
     # make an instance of a class tool
     jackpot = Jackpot(chips=1000)
 
@@ -34,7 +34,7 @@ async def start_repl():
     # run the REPL
     for query in REPL(history_file='chat_history.txt'):
         try:
-            answer = await agent.react(query)
+            answer = agent.react(query)
             print(f'[green]{answer}[/green]')
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
@@ -44,7 +44,7 @@ async def start_repl():
 
 
 def main():
-    asyncio.run(start_repl())
+    start_repl()
 
 
 if __name__ == '__main__':
