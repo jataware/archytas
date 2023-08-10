@@ -2,6 +2,7 @@ import inspect
 from docstring_parser import parse as parse_docstring
 from rich import traceback; traceback.install(show_locals=True)
 from textwrap import indent
+from types import FunctionType
 from typing import Callable, Any
 
 
@@ -176,8 +177,8 @@ def toolset(*, name:str|None=None):
         #metadata should include a list of the class's tool methods
 
         #get the list of @tool methods in the class
-        methods = inspect.getmembers(cls, predicate=inspect.isfunction)
-        methods = [method for name, method in methods if is_tool(method)]
+        tool_methods = inspect.getmembers(cls, predicate=inspect.isfunction)
+        tool_methods = [(name, tool_method) for name, tool_method in tool_methods if is_tool(tool_method)]
 
         # get the class docstring description
         docstring = inspect.getdoc(cls)
@@ -187,9 +188,22 @@ def toolset(*, name:str|None=None):
         prev_new = cls.__new__
         def new(cls, *args, **kwargs):
             obj = prev_new(cls)
-            for method in methods:
-                bound_run_method = method.run.__get__(obj, cls)
-                method.run = bound_run_method
+            for name, tool_method in tool_methods:
+                # Clone the tool method
+                cloned_method = FunctionType(
+                    tool_method.__code__,
+                    tool_method.__globals__,
+                    tool_method.__name__,
+                    argdefs=tool_method.__defaults__,
+                    closure=tool_method.__closure__
+                )
+                cloned_method.__annotations__.update(tool_method.__annotations__)
+                cloned_method.__dict__.update(tool_method.__dict__)
+                cloned_method.__doc__ = tool_method.__doc__
+                bound_run_method = cloned_method.run.__get__(obj, cls)
+                # Add and bind the run method and bind the cloned method
+                cloned_method.__dict__["run"] = bound_run_method
+                setattr(obj, name, cloned_method.__get__(obj, cls))
             obj._is_class_tool_instance = True
             return obj
         cls.__new__ = new
@@ -198,7 +212,7 @@ def toolset(*, name:str|None=None):
         cls._name = name if name else cls.__name__
         cls._is_class_tool = True
         cls._docstring = docstring
-        cls._tool_methods = methods
+        cls._tool_methods = list(zip(*tool_methods))[1]
 
         return cls
     
