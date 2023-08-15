@@ -57,6 +57,24 @@ class ContextMessage(Message):
         self.lifetime = lifetime
 
 
+class AutoContextMessage(Message):
+    """An automatically updating context message that remains towards the top of the message list."""
+
+    content_updater: Callable[[], str]
+
+    def __init__(
+        self,
+        role: Role,
+        default_content: str,
+        content_updater: Callable[[], str] | None = None,
+    ):
+        super().__init__(role, default_content)
+        self.content_updater = content_updater
+
+    def update_content(self):
+        self.update(content=self.content_updater())
+
+
 def cli_spinner():
     return Live(
         Spinner("dots", speed=2, text="thinking..."),
@@ -111,6 +129,10 @@ class Agent:
         # use to generate unique ids for context messages
         self._current_context_id = 0
 
+        # Initialize the auto_context_message to empty
+        self.auto_context_message = None
+        self.auto_update_context = False
+
         # check that an api key was given, and set it
         if api_key is None:
             api_key = os.environ.get("OPENAI_API_KEY", None)
@@ -130,6 +152,16 @@ class Agent:
         """Generate a new context id."""
         self._current_context_id += 1
         return self._current_context_id
+
+    @property
+    def all_messages(self) -> list[Message]:
+        messages = [self.system_message]
+        if self.auto_context_message:
+            if self.auto_update_context:
+                self.auto_context_message.update_content()
+            messages.append(self.auto_context_message)
+        messages.extend(self.messages)
+        return messages
 
     def add_context(self, context: str, *, lifetime: int | None = None) -> int:
         """
@@ -195,6 +227,36 @@ class Agent:
             if not isinstance(message, ContextMessage)
         ]
 
+    def set_auto_context(
+        self,
+        default_content: str,
+        content_updater: Callable[[], str] | None = None,
+        auto_update: bool = True,
+    ):
+        """
+        A special type of context message that is always towards the top (but after the prompt and any system messages).
+        This allows an agent to automatically update its context based on live conditions without having to call a tool every time.
+
+        Args:
+            default_content (str): The default message/content of the context if the content updater has not or cannot be run.
+            content_updater (callable): A function/lambda that takes no arguments and returns a string. The returned string 
+                                        becomes the new context value.
+            auto_update (boolean): If true, the context will be updated on every call. Otherwise, the context can be updated by 
+                                   calling `agent.auto_context_message.update_content()` when desired.
+        """
+        self.auto_update_context = auto_update
+        if not self.auto_context_message:
+            self.auto_context_message = AutoContextMessage(
+                role=Role.system,
+                default_content=default_content,
+                content_updater=content_updater,
+            )
+        else:
+            self.auto_context_message.update(
+                default_content=default_content,
+                content_updater=content_updater,
+            )
+
     def query(self, message: str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
         self.messages.append(Message(role=Role.user, content=message))
@@ -227,7 +289,7 @@ class Agent:
         with self.spinner():
             completion = openai.ChatCompletion.create(
                 model=self.model,
-                messages=[self.system_message] + self.messages,
+                messages=self.all_messages,
                 temperature=0,
             )
 
