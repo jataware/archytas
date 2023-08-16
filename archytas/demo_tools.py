@@ -1,9 +1,8 @@
 from archytas.tool_utils import tool, toolset
 
 
-
 @tool()
-def fib_n(n:int) -> int:
+def fib_n(n: int) -> int:
     """
     generate the nth fibonacci number
 
@@ -27,9 +26,8 @@ def fib_n(n:int) -> int:
     return n0
 
 
-
 @tool()
-def example_tool(arg1:int, arg2:str='', arg3:dict=None) -> int:
+def example_tool(arg1: int, arg2: str = "", arg3: dict = None) -> int:
     """
     Simple 1 sentence description of the tool
 
@@ -52,8 +50,9 @@ def example_tool(arg1:int, arg2:str='', arg3:dict=None) -> int:
     """
     return 42
 
+
 @tool()
-def calculator(expression:str) -> float:
+def calculator(expression: str) -> float:
     """
     A simple calculator tool. Can perform basic arithmetic
 
@@ -64,7 +63,7 @@ def calculator(expression:str) -> float:
 
     multiple chained operations are not currently supported.
 
-    Expressions may not contain parentheses, or multiple operations. 
+    Expressions may not contain parentheses, or multiple operations.
     If you want to do a complex calculation, you must do it in multiple steps.
 
     Args:
@@ -72,7 +71,7 @@ def calculator(expression:str) -> float:
 
     Returns:
         float: The result of the calculation
-    
+
     Examples:
         >>> calculator('22/7')
         3.142857142857143
@@ -82,40 +81,46 @@ def calculator(expression:str) -> float:
         5.74
     """
 
-    #ensure that only one operation is present
-    ops = [c for c in expression if c in '+-*/^%']
+    # ensure that only one operation is present
+    ops = [c for c in expression if c in "+-*/^%"]
     if len(ops) > 1:
-        raise ValueError(f"Invalid expression, too many operators. Expected exactly one of '+ - * / ^ %', found {', '.join(ops)}")
+        raise ValueError(
+            f"Invalid expression, too many operators. Expected exactly one of '+ - * / ^ %', found {', '.join(ops)}"
+        )
     if len(ops) == 0:
-        raise ValueError(f"Invalid expression, no operation found. Expected one of '+ - * / ^ %'")
-    
+        raise ValueError(
+            f"Invalid expression, no operation found. Expected one of '+ - * / ^ %'"
+        )
+
     op = ops[0]
 
     _a, _b = expression.split(op)
     a = float(_a)
     b = float(_b)
 
-    if op == '+':
-        return a+b
-    elif op == '-':
-        return a-b
-    elif op == '*':
-        return a*b
-    elif op == '/':
-        return a/b
-    elif op == '^':
+    if op == "+":
+        return a + b
+    elif op == "-":
+        return a - b
+    elif op == "*":
+        return a * b
+    elif op == "/":
+        return a / b
+    elif op == "^":
         return a**b
-    elif op == '%':
-        return a%b
+    elif op == "%":
+        return a % b
 
 
-#TODO: still not great since have to include cls in the signature
+# TODO: still not great since have to include cls in the signature
 class classproperty(property):
     def __get__(self, cls, owner):
         return classmethod(self.fget).__get__(None, owner)()
 
 
 import math
+
+
 # @tool()
 class Math:
     def __init__(self):
@@ -123,7 +128,7 @@ class Math:
 
     # @tool
     @staticmethod
-    def sin(x:float) -> float:
+    def sin(x: float) -> float:
         """
         Calculate the sine of x
 
@@ -137,7 +142,7 @@ class Math:
 
     # @tool
     @staticmethod
-    def cos(x:float) -> float:
+    def cos(x: float) -> float:
         """
         Calculate the cosine of x
 
@@ -148,10 +153,10 @@ class Math:
             float: The cosine of x
         """
         return math.cos(x)
-    
+
     # @tool
     @staticmethod
-    def tan(x:float) -> float:
+    def tan(x: float) -> float:
         """
         Calculate the tangent of x
 
@@ -162,9 +167,9 @@ class Math:
             float: The tangent of x
         """
         return math.tan(x)
-    
+
     # @tool
-    @classproperty #TODO: still not great since have to include cls in the signature
+    @classproperty  # TODO: still not great since have to include cls in the signature
     def pi(*_) -> float:
         """
         Get the value of pi
@@ -176,20 +181,32 @@ class Math:
 
 
 from random import random
+
+
 @toolset()
 class Jackpot:
     """
     A simple slot machine game
-    
+
     Start with 100 chips, and make bets to try and win more chips.
     """
-    def __init__(self, chips:float=100, win_table:list[tuple[float,float]]=[(0.01, 20), (0.02, 10), (0.05, 4.5), (0.2, 1.25)]):
+
+    def __init__(
+        self,
+        chips: float = 100,
+        win_table: list[tuple[float, float]] = [
+            (0.01, 20),
+            (0.02, 10),
+            (0.05, 4.5),
+            (0.2, 1.25),
+        ],
+    ):
         self._initial_chips = chips
         self.chips = chips
         self.win_table = win_table
 
     @tool()
-    def spin(self, bet:float) -> float:
+    def spin(self, bet: float) -> float:
         """
         Spin the slot machine
 
@@ -200,8 +217,10 @@ class Jackpot:
             float: The amount won or lost
         """
         if bet > self.chips:
-            raise ValueError(f"Bet must be less than or equal to the current winnings. Bet: {bet}, Winnings: {self.winnings}")
-        
+            raise ValueError(
+                f"Bet must be less than or equal to the current winnings. Bet: {bet}, Winnings: {self.winnings}"
+            )
+
         spin = random()
         total_prob = 0
         multiplier = -1
@@ -210,10 +229,10 @@ class Jackpot:
             if spin <= total_prob:
                 multiplier = win_multiplier
                 break
-                
-        self.chips += bet*multiplier            
-        return bet*multiplier
-            
+
+        self.chips += bet * multiplier
+        return bet * multiplier
+
     @tool()
     def get_chips(self) -> float:
         """
@@ -223,7 +242,7 @@ class Jackpot:
             float: The current amount of chips in your wallet
         """
         return self.chips
-    
+
     @tool()
     def reset(self):
         """
@@ -232,14 +251,20 @@ class Jackpot:
         self.chips = self._initial_chips
 
 
-
 @toolset()
 class ModelSimulation:
     """
     Simple example of a SIR model simulation
     """
+
     def __init__(self, dt=0.1):
-        self._default_parameters = {'beta': 0.002, 'gamma': 0.1, 'S': 990, 'I': 10, 'R': 0}
+        self._default_parameters = {
+            "beta": 0.002,
+            "gamma": 0.1,
+            "S": 990,
+            "I": 10,
+            "R": 0,
+        }
         self.parameters = self._default_parameters.copy()
         self.dt = dt
 
@@ -255,7 +280,7 @@ class ModelSimulation:
         return self.parameters
 
     @tool()
-    def set_model_parameters(self, update:dict):
+    def set_model_parameters(self, update: dict):
         """
         Set some or all of the model parameters
 
@@ -265,7 +290,7 @@ class ModelSimulation:
         self.parameters.update(update)
 
     @tool()
-    def run_model(self, steps:int=100) -> dict:
+    def run_model(self, steps: int = 100) -> dict:
         """
         Run the model for a number of steps
 
@@ -275,8 +300,12 @@ class ModelSimulation:
         Returns:
             dict: The model results in the form {param0: value0, param1: value1, ...}
         """
-        S_new, I_new, R_new = self.parameters['S'], self.parameters['I'], self.parameters['R']
-        beta, gamma = self.parameters['beta'], self.parameters['gamma']
+        S_new, I_new, R_new = (
+            self.parameters["S"],
+            self.parameters["I"],
+            self.parameters["R"],
+        )
+        beta, gamma = self.parameters["beta"], self.parameters["gamma"]
         population = S_new + I_new + R_new
 
         for _ in range(steps):
@@ -285,15 +314,19 @@ class ModelSimulation:
             dI = beta * S_old * I_old - gamma * I_old
             dR = gamma * I_old
 
-            S_new = max(0, min(S_old + self.dt*dS, population))
-            I_new = max(0, min(I_old + self.dt*dI, population))
-            R_new = max(0, min(R_old + self.dt*dR, population))
+            S_new = max(0, min(S_old + self.dt * dS, population))
+            I_new = max(0, min(I_old + self.dt * dI, population))
+            R_new = max(0, min(R_old + self.dt * dR, population))
 
             # Ensure the total population remains constant
             total_error = population - (S_new + I_new + R_new)
             R_new += total_error
 
-        self.parameters['S'], self.parameters['I'], self.parameters['R'] = S_new, I_new, R_new
+        self.parameters["S"], self.parameters["I"], self.parameters["R"] = (
+            S_new,
+            I_new,
+            R_new,
+        )
         return self.parameters
 
     @tool()
@@ -304,9 +337,8 @@ class ModelSimulation:
         self.parameters = self._default_parameters.copy()
 
 
-
 @tool()
-def ObservablePlot(code:str):
+def ObservablePlot(code: str):
     """
     Create an observable plot in code.
 
@@ -316,18 +348,18 @@ def ObservablePlot(code:str):
     """
 
 
-
 @toolset()
 class PlannerTool:
     """
     A tool for helping to make long term plans. After a plan is made, the system will remind you of the plan as you execute each of the steps.
     """
+
     def __init__(self):
         self.current_plan = None
         self.progress = None
 
     @tool()
-    def make_new_plan(self, draft:list[str]) -> None:
+    def make_new_plan(self, draft: list[str]) -> None:
         """
         Start the plan making process.
 
@@ -337,11 +369,13 @@ class PlannerTool:
             draft (list[str]): An initial list of steps to include in the plan. These can be revised later.
         """
         self.current_plan = draft
-        import pdb; pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
         ...
 
     @tool()
-    def revise_single_step(self, i:int, replacement:str) -> None:
+    def revise_single_step(self, i: int, replacement: str) -> None:
         """
         Revise a single step in the current plan
 
@@ -349,7 +383,7 @@ class PlannerTool:
             i (int): The index of the step to revise
             replacement (str): The new step to replace the old step with
         """
-        raise NotImplementedError('TODO')
+        raise NotImplementedError("TODO")
 
     # @tool()
     # def revise_plan(self, updates:dict[int,str]) -> None: ...
@@ -359,8 +393,10 @@ class PlannerTool:
 
 
 from .tool_utils import AgentRef
+
+
 @tool()
-def pirate_subquery(query:str, agent:AgentRef) -> str:
+def pirate_subquery(query: str, agent: AgentRef) -> str:
     """
     Runs a subquery using a oneshot agent in which answers will be worded like a pirate.
 

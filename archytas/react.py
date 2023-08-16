@@ -9,11 +9,15 @@ import sys
 import logging
 import typing
 
-logger = logging.Logger('archytas')
+logger = logging.Logger("archytas")
 
-class Undefined: ...
 
-class FailedTaskError(Exception): ...
+class Undefined:
+    ...
+
+
+class FailedTaskError(Exception):
+    ...
 
 
 class LoopController:
@@ -31,6 +35,7 @@ class LoopController:
 
     def reset(self):
         self.state = 0
+
 
 class ReActAgent(Agent):
     def __init__(
@@ -57,7 +62,7 @@ class ReActAgent(Agent):
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
             verbose (bool, optional): Whether to print the agent's thoughts and observations. Defaults to False.
-            thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to 
+            thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
                     print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
         """
 
@@ -72,17 +77,19 @@ class ReActAgent(Agent):
         else:
             self.thought_handler = thought_handler
 
-        #check that the tools dict keys match the list of generated tool names
+        # check that the tools dict keys match the list of generated tool names
         names, keys = sorted(build_all_tool_names(tools)), sorted([*self.tools.keys()])
-        assert names == keys, f'Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}'
+        assert (
+            names == keys
+        ), f"Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}"
 
         # create the prompt with the tools, and initialize the agent
         self.prompt = build_prompt(tools)
         super().__init__(model=model, prompt=self.prompt, api_key=api_key, **kwargs)
 
         # react settings
-        self.max_errors = max_errors or float('inf')
-        self.max_react_steps = max_react_steps or float('inf')
+        self.max_errors = max_errors or float("inf")
+        self.max_react_steps = max_react_steps or float("inf")
         self.verbose = verbose
 
         # number of errors and steps during current task
@@ -90,23 +97,22 @@ class ReActAgent(Agent):
         self.steps = 0
 
         # keep track of the last tool used (for error messages)
-        self.last_tool_name = ''
-
+        self.last_tool_name = ""
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
-            #TODO: better coloring
-            self.print(f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n")
+            # TODO: better coloring
+            self.print(
+                f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n"
+            )
 
-
-    def react(self, query:str) -> str:
+    def react(self, query: str) -> str:
         """
         Synchronous wrapper around the asynchronous react_async method.
         """
         return asyncio.run(self.react_async(query))
 
-
-    async def react_async(self, query:str) -> str:
+    async def react_async(self, query: str) -> str:
         """
         Asynchronous react loop function.
         Continually calls tools until a satisfactory answer is reached.
@@ -122,21 +128,24 @@ class ReActAgent(Agent):
 
         # ReAct loop
         while True:
-
             logger.debug(f"""action: {action_str}""")
             # Convert agent output to json
             try:
                 action = json.loads(action_str)
-                
+
             except json.JSONDecodeError:
-                action_str = self.error(f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}')
+                action_str = self.error(
+                    f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}'
+                )
                 continue
 
             # verify that action has the correct keys
             try:
                 thought, tool_name, tool_input = self.extract_action(action)
-                logger.debug(f"\nThought: {thought}\nTool name: {tool_name}\nTool input: {tool_input}")
-                self.last_tool_name = tool_name # keep track of the last tool used
+                logger.debug(
+                    f"\nThought: {thought}\nTool name: {tool_name}\nTool input: {tool_input}"
+                )
+                self.last_tool_name = tool_name  # keep track of the last tool used
             except AssertionError as e:
                 action_str = self.error(str(e))
                 continue
@@ -145,16 +154,16 @@ class ReActAgent(Agent):
                 self.thought_handler(thought, tool_name, tool_input)
 
             # exit ReAct loop if agent says final_answer or fail_task
-            if tool_name == 'final_answer':
+            if tool_name == "final_answer":
                 return tool_input
-            if tool_name == 'fail_task':
+            if tool_name == "fail_task":
                 raise FailedTaskError(tool_input)
 
             # run tool
             try:
                 tool_fn = self.tools[tool_name]
             except KeyError:
-                action_str = self.error(f"unknown tool \"{tool_name}\"")
+                action_str = self.error(f'unknown tool "{tool_name}"')
                 continue
 
             try:
@@ -166,7 +175,7 @@ class ReActAgent(Agent):
                 }
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context)
             except Exception as e:
-                action_str = self.error(f"error running tool \"{tool_name}\": {e}")
+                action_str = self.error(f'error running tool "{tool_name}": {e}')
 
                 continue
 
@@ -181,22 +190,24 @@ class ReActAgent(Agent):
                 self.print(f"observation: {tool_output}\n")
             action_str = self.observe(tool_output)
 
-
     @staticmethod
-    def extract_action(action:dict) -> tuple[str, str, str]:
+    def extract_action(action: dict) -> tuple[str, str, str]:
         """Verify that action has the correct keys. Otherwise, raise an error"""
-        assert isinstance(action, dict), f"Action must be a json dictionary, got {type(action)}"
-        assert 'thought' in action, "Action json is missing key 'thought'"
-        assert 'tool' in action, "Action json is missing key 'tool'"
-        assert 'tool_input' in action, "Action json is missing key 'tool_input'"
-        assert len(action) == 3, f"Action must have exactly 3 keys (thought, tool, tool_input), got ({', '.join(action.keys())})"
+        assert isinstance(
+            action, dict
+        ), f"Action must be a json dictionary, got {type(action)}"
+        assert "thought" in action, "Action json is missing key 'thought'"
+        assert "tool" in action, "Action json is missing key 'tool'"
+        assert "tool_input" in action, "Action json is missing key 'tool_input'"
+        assert (
+            len(action) == 3
+        ), f"Action must have exactly 3 keys (thought, tool, tool_input), got ({', '.join(action.keys())})"
 
-        thought = action['thought']
-        tool = action['tool']
-        tool_input = action['tool_input']
+        thought = action["thought"]
+        tool = action["tool"]
+        tool_input = action["tool_input"]
 
         return thought, tool, tool_input
-
 
     def execute(self) -> str:
         """
@@ -205,9 +216,10 @@ class ReActAgent(Agent):
         """
         self.steps += 1
         if self.steps > self.max_react_steps:
-            raise FailedTaskError(f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}")
+            raise FailedTaskError(
+                f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}"
+            )
         return super().execute()
-
 
     def error(self, mesg) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
@@ -221,6 +233,5 @@ class ReActAgent(Agent):
             else:
                 self.print(f"error: {mesg}", file=sys.stderr)
 
-
-        #tell the agent about the error, and get its response (call parent .error method)
+        # tell the agent about the error, and get its response (call parent .error method)
         return super().error(mesg)

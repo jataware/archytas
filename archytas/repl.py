@@ -1,8 +1,17 @@
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import datetime_tool, timestamp, PythonTool
-from archytas.demo_tools import fib_n, example_tool, calculator, Jackpot, ModelSimulation, pirate_subquery
+from archytas.demo_tools import (
+    fib_n,
+    example_tool,
+    calculator,
+    Jackpot,
+    ModelSimulation,
+    pirate_subquery,
+)
 
-from rich import traceback, print; traceback.install(show_locals=True)
+from rich import traceback, print
+
+traceback.install(show_locals=True)
 from easyrepl import REPL
 
 import pdb
@@ -13,7 +22,17 @@ def start_repl():
     jackpot = Jackpot(chips=1000)
 
     # make a list of the tools to use
-    tools = [datetime_tool, timestamp, fib_n, example_tool, calculator, jackpot, ModelSimulation, PythonTool, pirate_subquery]
+    tools = [
+        datetime_tool,
+        timestamp,
+        fib_n,
+        example_tool,
+        calculator,
+        jackpot,
+        ModelSimulation,
+        PythonTool,
+        pirate_subquery,
+    ]
 
     # # example of making a python tool with a prelude and some pre-initialized local variables
     # import numpy as np
@@ -30,17 +49,15 @@ def start_repl():
     # print(agent.prompt)
 
     # run the REPL
-    for query in REPL(history_file='chat_history.txt'):
+    for query in REPL(history_file="chat_history.txt"):
         try:
             answer = agent.react(query)
-            print(f'[green]{answer}[/green]')
+            print(f"[green]{answer}[/green]")
         except FailedTaskError as e:
             print(f"[red]{e}[/red]")
         except KeyboardInterrupt:
-            print('[yellow]KeyboardInterrupt[/yellow]')
+            print("[yellow]KeyboardInterrupt[/yellow]")
 
 
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     start_repl()
