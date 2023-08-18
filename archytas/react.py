@@ -122,7 +122,7 @@ class ReActAgent(Agent):
         self.steps = 0
 
         # run the initial user query
-        action_str = self.query(query)
+        action_str = await self.query(query)
 
         controller = LoopController()
 
@@ -134,7 +134,7 @@ class ReActAgent(Agent):
                 action = json.loads(action_str)
 
             except json.JSONDecodeError:
-                action_str = self.error(
+                action_str = await self.error(
                     f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}'
                 )
                 continue
@@ -147,7 +147,7 @@ class ReActAgent(Agent):
                 )
                 self.last_tool_name = tool_name  # keep track of the last tool used
             except AssertionError as e:
-                action_str = self.error(str(e))
+                action_str = await self.error(str(e))
                 continue
 
             if self.thought_handler:
@@ -163,7 +163,7 @@ class ReActAgent(Agent):
             try:
                 tool_fn = self.tools[tool_name]
             except KeyError:
-                action_str = self.error(f'unknown tool "{tool_name}"')
+                action_str = await self.error(f'unknown tool "{tool_name}"')
                 continue
 
             try:
@@ -175,7 +175,7 @@ class ReActAgent(Agent):
                 }
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context)
             except Exception as e:
-                action_str = self.error(f'error running tool "{tool_name}": {e}')
+                action_str = await self.error(f'error running tool "{tool_name}": {e}')
 
                 continue
 
@@ -188,7 +188,7 @@ class ReActAgent(Agent):
             # have the agent observe the result, and get the next action
             if self.verbose:
                 self.print(f"observation: {tool_output}\n")
-            action_str = self.observe(tool_output)
+            action_str = await self.observe(tool_output)
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str]:
