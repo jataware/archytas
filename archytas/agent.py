@@ -1,3 +1,4 @@
+import inspect
 import os
 import openai
 import logging
@@ -57,6 +58,28 @@ class ContextMessage(Message):
         self.lifetime = lifetime
 
 
+class AutoContextMessage(Message):
+    """An automatically updating context message that remains towards the top of the message list."""
+
+    content_updater: Callable[[], str]
+
+    def __init__(
+        self,
+        role: Role,
+        default_content: str,
+        content_updater: Callable[[], str] | None = None,
+    ):
+        super().__init__(role, default_content)
+        self.content_updater = content_updater
+
+    async def update_content(self):
+        if inspect.iscoroutinefunction(self.content_updater):
+            result = await self.content_updater()
+        else:
+            result = self.content_updater()
+        self.update(content=result)
+
+
 def cli_spinner():
     return Live(
         Spinner("dots", speed=2, text="thinking..."),
@@ -111,6 +134,10 @@ class Agent:
         # use to generate unique ids for context messages
         self._current_context_id = 0
 
+        # Initialize the auto_context_message to empty
+        self.auto_context_message = None
+        self.auto_update_context = False
+
         # check that an api key was given, and set it
         if api_key is None:
             api_key = os.environ.get("OPENAI_API_KEY", None)
@@ -130,6 +157,16 @@ class Agent:
         """Generate a new context id."""
         self._current_context_id += 1
         return self._current_context_id
+
+    @property
+    async def all_messages(self) -> list[Message]:
+        messages = [self.system_message]
+        if self.auto_context_message:
+            if self.auto_update_context:
+                await self.auto_context_message.update_content()
+            messages.append(self.auto_context_message)
+        messages.extend(self.messages)
+        return messages
 
     def add_context(self, context: str, *, lifetime: int | None = None) -> int:
         """
@@ -195,17 +232,47 @@ class Agent:
             if not isinstance(message, ContextMessage)
         ]
 
-    def query(self, message: str) -> str:
+    def set_auto_context(
+        self,
+        default_content: str,
+        content_updater: Callable[[], str] | None = None,
+        auto_update: bool = True,
+    ):
+        """
+        A special type of context message that is always towards the top (but after the prompt and any system messages).
+        This allows an agent to automatically update its context based on live conditions without having to call a tool every time.
+
+        Args:
+            default_content (str): The default message/content of the context if the content updater has not or cannot be run.
+            content_updater (callable): A function/lambda that takes no arguments and returns a string. The returned string
+                                        becomes the new context value.
+            auto_update (boolean): If true, the context will be updated on every call. Otherwise, the context can be updated by
+                                   calling `agent.auto_context_message.update_content()` when desired.
+        """
+        self.auto_update_context = auto_update
+        if not self.auto_context_message:
+            self.auto_context_message = AutoContextMessage(
+                role=Role.system,
+                default_content=default_content,
+                content_updater=content_updater,
+            )
+        else:
+            self.auto_context_message.update(
+                default_content=default_content,
+                content_updater=content_updater,
+            )
+
+    async def query(self, message: str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
         self.messages.append(Message(role=Role.user, content=message))
-        return self.execute()
+        return await self.execute()
 
-    def observe(self, observation: str) -> str:
+    async def observe(self, observation: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
         self.messages.append(Message(role=Role.system, content=observation))
-        return self.execute()
+        return await self.execute()
 
-    def error(self, error: str, drop_error: bool = True) -> str:
+    async def error(self, error: str, drop_error: bool = True) -> str:
         """
         Send an error message to the agent. Returns the agent's response.
 
@@ -214,7 +281,7 @@ class Agent:
             drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
         self.messages.append(Message(role=Role.system, content=f"ERROR: {error}"))
-        result = self.execute()
+        result = await self.execute()
 
         # Drop error + LLM's bad input from chat history
         if drop_error:
@@ -223,11 +290,12 @@ class Agent:
         return result
 
     @retry
-    def execute(self) -> str:
+    async def execute(self) -> str:
         with self.spinner():
+            messages = await self.all_messages
             completion = openai.ChatCompletion.create(
                 model=self.model,
-                messages=[self.system_message] + self.messages,
+                messages=messages,
                 temperature=0,
             )
 
@@ -241,7 +309,7 @@ class Agent:
         return result
 
     @retry
-    def oneshot(self, prompt: str, query: str) -> str:
+    async def oneshot(self, prompt: str, query: str) -> str:
         """
         Send a user query to the agent. Returns the agent's response.
         This method ignores any previous conversation history, as well as the existing prompt.
