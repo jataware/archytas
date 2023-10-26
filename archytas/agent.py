@@ -2,6 +2,7 @@ import inspect
 import os
 import openai
 import logging
+import asyncio
 from openai.error import (
     Timeout,
     APIError,
@@ -335,3 +336,28 @@ class Agent:
         # return the agent's response
         result = completion.choices[0].message.content
         return result
+
+    @property
+    def all_messages_sync(self) -> list[Message]:
+        """Synchronous wrapper around the asynchronous all_messages property."""
+        return asyncio.run(self.all_messages)
+
+    def query_sync(self, message: str) -> str:
+        """Synchronous wrapper around the asynchronous query method."""
+        return asyncio.run(self.query(message))
+
+    def observe_sync(self, observation: str) -> str:
+        """Synchronous wrapper around the asynchronous observe method."""
+        return asyncio.run(self.observe(observation))
+
+    def error_sync(self, error: str, drop_error: bool = True) -> str:
+        """Synchronous wrapper around the asynchronous error method."""
+        return asyncio.run(self.error(error, drop_error))
+
+    def execute_sync(self) -> str:
+        """Synchronous wrapper around the asynchronous execute method."""
+        return asyncio.run(self.execute())
+
+    def oneshot_sync(self, prompt: str, query: str) -> str:
+        """Synchronous wrapper around the asynchronous oneshot method."""
+        return asyncio.run(self.oneshot(prompt, query))
