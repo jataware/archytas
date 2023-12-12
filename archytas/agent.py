@@ -159,7 +159,6 @@ class Agent:
         self._current_context_id += 1
         return self._current_context_id
 
-    @property
     async def all_messages(self) -> list[Message]:
         messages = [self.system_message]
         if self.auto_context_message:
@@ -293,7 +292,7 @@ class Agent:
     @retry
     async def execute(self) -> str:
         with self.spinner():
-            messages = await self.all_messages
+            messages = await self.all_messages()
             completion = openai.ChatCompletion.create(
                 model=self.model,
                 messages=messages,
@@ -337,10 +336,9 @@ class Agent:
         result = completion.choices[0].message.content
         return result
 
-    @property
     def all_messages_sync(self) -> list[Message]:
-        """Synchronous wrapper around the asynchronous all_messages property."""
-        return asyncio.run(self.all_messages)
+        """Synchronous wrapper around the asynchronous all_messages method."""
+        return asyncio.run(self.all_messages())
 
     def query_sync(self, message: str) -> str:
         """Synchronous wrapper around the asynchronous query method."""

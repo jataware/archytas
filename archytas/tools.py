@@ -1,5 +1,5 @@
 from typing import Any
-from archytas.tool_utils import tool, toolset, is_tool
+from archytas.tool_utils import tool, is_tool
 from archytas.python import Python
 
 
@@ -57,7 +57,6 @@ def timestamp() -> float:
     return datetime.now().timestamp()
 
 
-@toolset()
 class PythonTool:
     """
     Tool for running python code. If the user asks you to write code, you can run it here.
