@@ -93,5 +93,5 @@ def build_all_tool_names(tools: list[Callable]) -> list[str]:
     Returns:
         list: A list of tool names
     """
-    tool_names = [name for tool in tools for name in get_tool_names(tool)]
+    tool_names = get_tool_names(tools)
     return tool_names

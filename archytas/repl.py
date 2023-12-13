@@ -1,5 +1,6 @@
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tools import datetime_tool, timestamp, PythonTool
+from archytas.tool_utils import tool
 from archytas.demo_tools import (
     fib_n,
     example_tool,
@@ -15,6 +16,24 @@ traceback.install(show_locals=True)
 from easyrepl import REPL
 
 import pdb
+
+class CustomAgent(ReActAgent):
+    """
+    This ReAct agent has it's own tool(s) defined.
+    """
+
+    @tool()
+    def where_am_i(self, prompt: str) -> str:
+        """
+        This tool is used is used if the user wants to know where they are located.
+
+        Args:
+            prompt (str): The prompt the user provided that caused this tool to be selected.
+
+        Returns:
+            str: The answer to the question asked.
+        """
+        return f"Why do you ask me '{prompt}'? You are on Earth."
 
 
 def start_repl():
@@ -43,7 +62,7 @@ def start_repl():
     # tools = [python]
 
     # create the agent
-    agent = ReActAgent(tools=tools, verbose=True)
+    agent = CustomAgent(tools=tools, verbose=True)
 
     # print the agent's prompt
     # print(agent.prompt)

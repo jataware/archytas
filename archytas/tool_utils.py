@@ -7,6 +7,10 @@ from textwrap import indent
 from types import FunctionType
 from typing import Callable, Any
 
+from .agent import Agent
+
+import logging
+logger = logging.getLogger(__name__)
 
 import pdb
 
@@ -31,6 +35,17 @@ INJECTION_MAPPING = {
     ToolFnRef: "raw_tool",
     LoopControllerRef: "loop_controller",
 }
+
+def toolset(*args, **kwargs):
+    """
+    A dummy decorator for backwards compatibility.
+    Provides no funcitonality.
+    Any class can now contain tools without a decorator.
+    """
+    logger.warning("Warning: The usage of the @toolset decorator is deprecated and the decorator will be removed in a future version.")
+    def decorator(cls):
+        return cls
+    return decorator
 
 
 def tool(*, name: str | None = None):
@@ -71,29 +86,21 @@ def tool(*, name: str | None = None):
         args_list, ret, desc, injections = get_tool_signature(func)
 
         func._name = name if name else func.__name__
-        func._is_function_tool = True
-        func._args_list = args_list
-        func._ret = ret
-        func._desc = desc
+        func._is_tool = True
 
         async def run(
-            *args: tuple[object, dict | list | str | int | float | bool | None],
+            args: tuple[object, dict | list | str | int | float | bool | None],
             tool_context: dict[str, object] = None,
+            self_ref: object = None
+
         ):
             """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
-
-            # The only time this will be a tuple is if more than one argument is passed in, which should only happen when this is an method and that is self.
-            if len(args) == 2 and getattr(args[0], "_is_class_tool", False):
-                self, args = args
-            else:
-                self = None
-                args = args[0]
-
-            if self is not None:
-                pargs = [self]
-            else:
-                pargs = []
+            # Initialise positional and keyword argument holders
+            pargs = []
             kwargs = {}
+
+            if self_ref:
+                pargs.append(self_ref)
 
             # TODO: make this look at _call_type rather than isinstance to determine what to do
             #      single argument functions that take a dict vs multi-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
@@ -138,280 +145,88 @@ def tool(*, name: str | None = None):
     return decorator
 
 
-def toolset(*, name: str | None = None):
-    """
-    Decorator used to convert a class into a toolset for ReAct agents to use.
-
-    Usage:
-    ```
-        @toolset()
-        class MyToolset:
-            '''
-            description of the toolset
-            '''
-
-            def __init__(self, arg1, arg2, ...):
-                # initialize the toolset, set up state, etc.
-                # if has no required arguments, can pass class constructor to agent's list of tools
-                # if has required arguments, must pass an instance to agent's list of tools
-
-            @tool()
-            def my_tool(self, arg:type) -> type:
-                '''
-                Short description of the tool method
-
-                Long description of the tool method
-
-                Args:
-                    arg (type): Description of the argument
-
-                Returns:
-                    type: Description of the return value
-
-                Examples:
-                    optional description of the example
-                    >>> my_tool(arg)
-                    result
-                '''
-
-            @tool()
-            def my_other_tool(self, arg:type) -> type:
-                '''<tool docstring>'''
-    ```
-    """
-
-    def decorator(cls: type):
-        if not inspect.isclass(cls):
-            raise TypeError(
-                f"toolset decorator can only be applied to classes. Got {cls} of type {type(cls)}"
-            )
-
-        # basically just add metadata, and return the class
-        # metadata should include a list of the class's tool methods
-
-        # get the list of @tool methods in the class
-        tool_methods = inspect.getmembers(cls, predicate=inspect.isfunction)
-        tool_methods = [
-            (name, tool_method)
-            for name, tool_method in tool_methods
-            if is_tool(tool_method)
-        ]
-
-        # get the class docstring description
-        docstring = inspect.getdoc(cls)
-
-        # Somewhat complicated way of turning the run functions in to bound methods to the instance.
-        # Needs the instance to bind them, so wrap __new__ and bind right as they are created.
-        prev_new = cls.__new__
-
-        def new(cls, *args, **kwargs):
-            obj = prev_new(cls)
-            for name, tool_method in tool_methods:
-                # Clone the tool method
-                cloned_method = FunctionType(
-                    tool_method.__code__,
-                    tool_method.__globals__,
-                    tool_method.__name__,
-                    argdefs=tool_method.__defaults__,
-                    closure=tool_method.__closure__,
-                )
-                cloned_method.__annotations__.update(tool_method.__annotations__)
-                cloned_method.__dict__.update(tool_method.__dict__)
-                cloned_method.__doc__ = tool_method.__doc__
-                bound_run_method = cloned_method.run.__get__(obj, cls)
-                # Add and bind the run method and bind the cloned method
-                cloned_method.__dict__["run"] = bound_run_method
-                setattr(obj, name, cloned_method.__get__(obj, cls))
-            obj._is_class_tool_instance = True
-            return obj
-
-        cls.__new__ = new
-
-        # attach the metadata to the class
-        cls._name = name if name else cls.__name__
-        cls._is_class_tool = True
-        cls._docstring = docstring
-        cls._tool_methods = list(zip(*tool_methods))[1]
-
-        return cls
-
-    return decorator
-
-
-def is_class_method(func: Callable) -> bool:
-    """checks if a function is part of a class, or a standalone function"""
-    assert inspect.isfunction(
-        func
-    ), f"is_class_method can only be used on functions. Got {func}"
-    return func.__qualname__ != func.__name__
-
-
 def is_tool(obj: Callable | type) -> bool:
     """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
     return (
-        is_function_tool(obj)
-        or is_method_tool(obj)
-        or is_class_tool(obj)
-        or is_class_tool_instance(obj)
+        getattr(obj, '_is_tool', False)
     )
-
-
-def is_function_tool(obj: Callable) -> bool:
-    """checks if an object is a tool function"""
-    return inspect.isfunction(obj) and hasattr(obj, "_is_function_tool")
-
-
-def is_method_tool(obj: Callable) -> bool:
-    """checks if an object is a tool method"""
-    return inspect.ismethod(obj) and hasattr(obj, "_is_method_tool")
-
-
-def is_class_tool(obj: type) -> bool:
-    """checks if an object is a tool class"""
-    return inspect.isclass(obj) and hasattr(obj, "_is_class_tool")
-
-
-def is_class_tool_instance(obj: type) -> bool:
-    """checks if an object is an instance of a tool class"""
-    return hasattr(obj, "_is_class_tool_instance")
-
-
-def get_tool_name(obj: Callable | type) -> str:
-    """Get the name of the tool, either from the @tool _name field, or the __name__ attribute"""
-    assert is_tool(
-        obj
-    ), f"get_tool_name can only be used on decorated @tools. Got {obj}"
-    return getattr(obj, "_name")
-
-
-def get_tool_names(obj: Callable | type) -> list[str]:
-    """
-    Get the tool name, or all method names if tool is a class tool
-    """
-    assert is_tool(
-        obj
-    ), f"get_tool_name can only be used on decorated @tools. Got {obj}"
-
-    if is_class_tool(obj) or is_class_tool_instance(obj):
-        cls_name = get_tool_name(obj)
-
-        # construct names as cls_name.method_name
-        names = [f"{cls_name}.{get_tool_name(method)}" for method in obj._tool_methods]
-
-        return names
-
-    # otherwise, just return the name of the tool
-    return [get_tool_name(obj)]
 
 
 def get_tool_prompt_description(obj: Callable | type | Any):
-    if is_class_tool(obj) or is_class_tool_instance(obj):
-        return get_tool_class_prompt_description(obj)
-    if is_function_tool(obj) or is_method_tool(obj):
-        return get_tool_func_prompt_description(obj)
-
-    raise TypeError(
-        f"get_tool_prompt_description can only be used on @tools. Got {obj}"
-    )
+    return get_prompt_description(obj)
 
 
-def get_tool_func_prompt_description(func: Callable):
-    assert is_tool(
-        func
-    ), f"Function {func.__name__} does not have the @tool decorator attached"
-    assert inspect.isfunction(
-        func
-    ), f"get_tool_func_prompt_description can only be used on functions. Got {func}"
+def get_prompt_description(obj: Callable | type | Any):
 
     # get the list of arguments
-
-    args_list = func._args_list
-    ret_name, ret_type, ret_description = func._ret
-    short_desc, long_desc, examples = func._desc
-
     chunks = []
     tab = "    "
 
-    ############### NAME/DESCRIPTION ###############
-    chunks.append(f"{func._name}:\n")
-    if short_desc:
-        chunks.append(f"{tab}{short_desc}\n\n")
-    if long_desc:
-        chunks.append(f"{indent(long_desc, tab)}\n\n")
+    if inspect.isfunction(obj) or inspect.ismethod(obj):
+        args_list, ret, desc, injections = get_tool_signature(obj)
+        args_list = args_list
+        ret_name, ret_type, ret_description = ret
+        short_desc, long_desc, examples = desc
 
-    #################### INPUT ####################
-    chunks.append("    _input_: ")
+        ############### NAME/DESCRIPTION ###############
+        chunks.append(f"{obj._name}:\n")
+        if short_desc:
+            chunks.append(f"{tab}{short_desc}\n\n")
+        if long_desc:
+            chunks.append(f"{indent(long_desc, tab)}\n\n")
 
-    if len(args_list) == 0:
-        chunks.append("None")
+        #################### INPUT ####################
+        chunks.append("    _input_: ")
 
-    # 1-argument case for simple types don't need to be wrapped in a json
-    elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
-        arg_name, arg_type, arg_desc, arg_default = args_list[0]
-        chunks.append(f"({arg_type.__name__}")
-        if arg_default:
-            chunks.append(f", optional")
-        chunks.append(f") {arg_desc}")
+        if len(args_list) == 0:
+            chunks.append("None")
 
-    # all other cases have arguments wrapped in a json
-    else:
-        chunks.append("a json object with the following fields:\n    {")
-        for arg_name, arg_type, arg_desc, arg_default in args_list:
-            chunks.append(f'\n        "{arg_name}": # ({arg_type.__name__}')
+        # 1-argument case for simple types don't need to be wrapped in a json
+        elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
+            arg_name, arg_type, arg_desc, arg_default = args_list[0]
+            chunks.append(f"({arg_type.__name__}")
             if arg_default:
                 chunks.append(f", optional")
             chunks.append(f") {arg_desc}")
-        chunks.append(f"\n{tab}}}")
 
-    #################### OUTPUT ####################
-    chunks.append("\n    _output_: ")
-    if ret_type is None:
-        chunks.append("None")
+        # all other cases have arguments wrapped in a json
+        else:
+            chunks.append("a json object with the following fields:\n    {")
+            for arg_name, arg_type, arg_desc, arg_default in args_list:
+                chunks.append(f'\n        "{arg_name}": # ({arg_type.__name__}')
+                if arg_default:
+                    chunks.append(f", optional")
+                chunks.append(f") {arg_desc}")
+            chunks.append(f"\n{tab}}}")
+
+        #################### OUTPUT ####################
+        chunks.append("\n    _output_: ")
+        if ret_type is None:
+            chunks.append("None")
+        else:
+            chunks.append(f"({ret_type.__name__}) {ret_description}")
+
+        ############### EXAMPLES ###############
+        # TODO: examples need to be parsed...
     else:
-        chunks.append(f"({ret_type.__name__}) {ret_description}")
+        tool_methods = collect_tools_from_object(obj)
+        if tool_methods:
+            ############### NAME/DESCRIPTION ###############
+            if inspect.isclass(obj):
+                chunks.append(f"{obj.__name__} (class):\n")
+            else:
+                chunks.append(f"{obj.__class__.__name__} (class instance):\n")
+            docstring = inspect.getdoc(obj)
+            if docstring:
+                chunks.append(f"{indent(docstring, tab)}\n\n")
 
-    ############### EXAMPLES ###############
-    # TODO: examples need to be parsed...
+            #################### METHODS ####################
+            chunks.append(f"{tab}methods:\n")
+            for method in tool_methods:
+                method_str = get_prompt_description(method)
+                chunks.append(f"{indent(method_str, tab*2)}\n\n")
 
     return "".join(chunks)
-
-
-def get_tool_class_prompt_description(cls: type):
-    """
-    Get the prompt description for a class tool, including all of its tool methods
-
-    class description is as follows:
-      class_name (class):
-          full unmodified class docstring
-          methods:
-              <get_tool_func_prompt_description for each method>
-
-    Args:
-        cls (type|Any): The class tool to get the description for, or an instance of a class tool
-
-    Returns:
-        str: The prompt description for the class tool
-    """
-    assert is_class_tool(cls) or is_class_tool_instance(
-        cls
-    ), f"class or instance {cls} does not have the @tool decorator attached"
-
-    chunks = []
-    tab = "    "
-
-    ############### NAME/DESCRIPTION ###############
-    chunks.append(f"{cls._name} (class):\n")
-    if cls._docstring:
-        chunks.append(f"{indent(cls._docstring, tab)}\n\n")
-
-    #################### METHODS ####################
-    chunks.append(f"{tab}methods:\n")
-    for method in cls._tool_methods:
-        method_str = get_tool_func_prompt_description(method)
-        chunks.append(f"{indent(method_str, tab*2)}\n\n")
-
-    # strip trailing whitespace
-    return "".join(chunks).rstrip()
 
 
 def get_tool_signature(
@@ -432,9 +247,7 @@ def get_tool_signature(
         ret: A tuple (name, type, description) for the return value
         desc: A tuple (short_description, long_description, examples) from the docstring for the function
     """
-    assert inspect.isfunction(
-        func
-    ), f"get_tool_signature can only be used on functions. Got {func}"
+    assert inspect.isfunction(func) or inspect.ismethod(func), f"get_tool_signature can only be used on functions or methods. Got {func}"
 
     # get the function signature from the function and the docstring
     docstring = parse_docstring(func.__doc__)
@@ -509,6 +322,14 @@ def get_tool_signature(
     return args_list, ret, desc, injected_args
 
 
+def collect_tools_from_object(obj: object):
+    result = []
+    for item_name, item in inspect.getmembers(obj, predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member)):
+        if is_tool(item):
+            result.append(item)
+    return result
+
+
 def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
     """
     Create a dictionary of tools from a list of tool functions.
@@ -521,48 +342,35 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
     Returns:
         dict[str, Callable]: A dictionary of tools. Class methods of class tools are included as separate functions.
     """
-    # TODO: extract methods from any class tools
     tool_dict = {}
     for tool in tools:
-        assert is_tool(
-            tool
-        ), f"make_tool_dict can only be used on wrapped @tools/@toolsets. Got {tool}"
-        name = getattr(tool, "_name")
-
-        if is_function_tool(tool):
-            if name in tool_dict:
-                raise ValueError(f"Tool name '{name}' is already in use")
+        # If the tool is actually a class and not an instance or function, instantiate it
+        if isinstance(tool, type):
+            tool = tool()
+        if is_tool(tool):
+            name = getattr(tool, "_name", None)
+            if name is None and isinstance(tool, Agent):
+                name = tool.__class__.__name__
             tool_dict[name] = tool
-            continue
-
-        if is_method_tool(tools):
-            # TODO: not sure if methods should be allowed since they need usually need a class instance...
-            raise NotImplementedError(
-                "Free-floating tool methods are not yet supported"
-            )
-            pdb.set_trace()
-
-        # collect methods from @toolset. handle if instance of class or class itself
-        assert is_class_tool(tool) or is_class_tool_instance(
-            tool
-        ), f"Tool {tool} is not a function, method, or class tool"
-        if is_class_tool_instance(tool):
-            instance = tool
-        else:
-            instance = tool()
 
         # add each method to the tool dictionary under the name 'class_name.method_name'
-        methods = inspect.getmembers(instance, predicate=inspect.ismethod)
+        methods = inspect.getmembers(tool, predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member))
         for _, method in methods:
-            if not hasattr(method, "_name"):
-                continue
-            method_name = f"{name}.{method._name}"
-            if method_name in tool_dict:
-                raise ValueError(f"Tool name '{method_name}' is already in use")
-            tool_dict[method_name] = method
-
+            if is_tool(method):
+                if isinstance(tool, type):
+                    cls_name = getattr(tool, "_name", None) or tool.__name__
+                else:
+                    cls_name = getattr(tool, "_name", None) or tool.__class__.__name__
+                method_name = getattr(method, "_name", None) or getattr(method, "__name__")
+                method_name = f"{cls_name}.{method_name}"
+                if method_name in tool_dict and method is not tool_dict[method_name]:
+                    raise ValueError(f"Tool name '{method_name}' is already in use")
+                tool_dict[method_name] = method
     return tool_dict
 
+def get_tool_names(tools:list[Callable | type | Any]):
+    res = list(make_tool_dict(tools).keys())
+    return res
 
 def test():
     from archytas.tools import ask_user, datetime_tool, timestamp

@@ -70,6 +70,7 @@ class ReActAgent(Agent):
         tools = tools or []
         if allow_ask_user:
             tools.append(ask_user)
+        tools.append(self)
         self.tools = make_tool_dict(tools)
 
         if thought_handler is Undefined:
@@ -173,7 +174,9 @@ class ReActAgent(Agent):
                     "raw_tool": tool_fn,
                     "loop_controller": controller,
                 }
-                tool_output = await tool_fn.run(tool_input, tool_context=tool_context)
+
+                tool_self_ref = getattr(tool_fn, "__self__", None)
+                tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
             except Exception as e:
                 action_str = await self.error(f'error running tool "{tool_name}": {e}')
 

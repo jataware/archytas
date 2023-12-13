@@ -1,4 +1,4 @@
-from archytas.tool_utils import tool, toolset
+from archytas.tool_utils import tool
 
 
 @tool()
@@ -183,7 +183,6 @@ class Math:
 from random import random
 
 
-@toolset()
 class Jackpot:
     """
     A simple slot machine game
@@ -251,7 +250,6 @@ class Jackpot:
         self.chips = self._initial_chips
 
 
-@toolset()
 class ModelSimulation:
     """
     Simple example of a SIR model simulation
@@ -348,7 +346,6 @@ def ObservablePlot(code: str):
     """
 
 
-@toolset()
 class PlannerTool:
     """
     A tool for helping to make long term plans. After a plan is made, the system will remind you of the plan as you execute each of the steps.
