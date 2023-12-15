@@ -41,7 +41,7 @@ class ReActAgent(Agent):
     def __init__(
         self,
         *,
-        model: str = "gpt-4",
+        model: str = "gpt-4-1106-preview",
         api_key: str | None = None,
         tools: list = None,
         allow_ask_user: bool = True,

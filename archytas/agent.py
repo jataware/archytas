@@ -3,12 +3,12 @@ import os
 import openai
 import logging
 import asyncio
-from openai.error import (
-    Timeout,
+from openai import (
+    APITimeoutError,
     APIError,
     APIConnectionError,
     RateLimitError,
-    ServiceUnavailableError,
+    InternalServerError,
 )
 from tenacity import (
     before_sleep_log,
@@ -31,7 +31,7 @@ retry = tenacity_retry(
     stop=stop_after_attempt(4),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if(
-        (Timeout, APIError, APIConnectionError, RateLimitError, ServiceUnavailableError)
+        (APITimeoutError,APIError,APIConnectionError,RateLimitError,InternalServerError)
     ),
     before_sleep=before_sleep_log(logger, logging.WARNING),
 )
@@ -101,7 +101,7 @@ class Agent:
     def __init__(
         self,
         *,
-        model: str = "gpt-4",
+        model: str = "gpt-4-1106-preview",
         prompt: str = "You are a helpful assistant.",
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
@@ -293,10 +293,12 @@ class Agent:
     async def execute(self) -> str:
         with self.spinner():
             messages = await self.all_messages()
-            completion = openai.ChatCompletion.create(
+            openai_kwargs={'response_format':{"type": "json_object"}} if self.model=='gpt-4-1106-preview' else {}
+            completion = openai.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=0,
+                **openai_kwargs
             )
 
         # grab the response and add it to the chat history
@@ -323,13 +325,15 @@ class Agent:
             str: The agent's response to the user query.
         """
         with self.spinner():
-            completion = openai.ChatCompletion.create(
+            openai_kwargs={'response_format':{"type": "json_object"}} if self.model=='gpt-4-1106-preview' else {}
+            completion = openai.chat.completions.create(
                 model=self.model,
                 messages=[
                     Message(role=Role.system, content=prompt),
                     Message(role=Role.user, content=query),
                 ],
                 temperature=0,
+                **openai_kwargs
             )
 
         # return the agent's response
