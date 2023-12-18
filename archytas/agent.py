@@ -293,12 +293,10 @@ class Agent:
     async def execute(self) -> str:
         with self.spinner():
             messages = await self.all_messages()
-            openai_kwargs={'response_format':{"type": "json_object"}} if self.model=='gpt-4-1106-preview' else {}
             completion = openai.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=0,
-                **openai_kwargs
             )
 
         # grab the response and add it to the chat history
@@ -325,7 +323,6 @@ class Agent:
             str: The agent's response to the user query.
         """
         with self.spinner():
-            openai_kwargs={'response_format':{"type": "json_object"}} if self.model=='gpt-4-1106-preview' else {}
             completion = openai.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -333,7 +330,6 @@ class Agent:
                     Message(role=Role.user, content=query),
                 ],
                 temperature=0,
-                **openai_kwargs
             )
 
         # return the agent's response

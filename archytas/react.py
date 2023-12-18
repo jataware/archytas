@@ -132,7 +132,11 @@ class ReActAgent(Agent):
             logger.debug(f"""action: {action_str}""")
             # Convert agent output to json
             try:
-                action = json.loads(action_str)
+                if action_str.startswith('```json'):
+                    action = json.loads(action_str[7:-3]) # Drop "```json" (7) from start and "```" (3) from end to only get the contents
+                # Other parsing schemes can be added here if they are added in the future
+                else:
+                    action = json.loads(action_str)
 
             except json.JSONDecodeError:
                 action_str = await self.error(
@@ -174,7 +178,6 @@ class ReActAgent(Agent):
                     "raw_tool": tool_fn,
                     "loop_controller": controller,
                 }
-
                 tool_self_ref = getattr(tool_fn, "__self__", None)
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
             except Exception as e:
