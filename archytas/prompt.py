@@ -9,16 +9,15 @@ def prelude() -> str:
 def tool_intro() -> str:
     return "# Tools\nYou have access to the following tools which can help you in your job:"
 
-
 def system_tools() -> str:
     return f"""
 final_answer:
-    the final_answer tool is used to indicate that you have completed the task. You should use this tool to communicate the final answer to the user.
-    _input_: the final answer to the user's task
+    The final_answer tool is used to indicate that you have completed the task. You should use this tool to communicate the final answer to the user.
+    _input_: A string representing a human-readable reply that conveys the final answer to the user's request, task or question.
 
 fail_task
-    the fail_task tool is used to indicate that you have failed to complete the task. You should use this tool to communicate the reason for the failure to the user. Do not call this tool unless you have given a good effort to complete the task.
-    _input_: the reason for the failure
+    The fail_task tool is used to indicate that you have failed to complete the task. You should use this tool to communicate the reason for the failure to the user. Do not call this tool unless you have given a good effort to complete the task.
+    _input_: A plain text explanation of the reason for the failure, along with the raw root cause reason of the error for debugging.
 """.strip()
 
 

@@ -168,7 +168,7 @@ class ReActAgent(Agent):
             try:
                 tool_fn = self.tools[tool_name]
             except KeyError:
-                action_str = await self.error(f'unknown tool "{tool_name}"')
+                action_str = await self.error(f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}')
                 continue
 
             try:
