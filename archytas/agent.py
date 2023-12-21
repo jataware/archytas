@@ -262,15 +262,18 @@ class Agent:
                 content_updater=content_updater,
             )
 
+    async def handle_message(self, message: Message):
+        """Appends a message to the message list and executes."""
+        self.messages.append(message)
+        return await self.execute()
+
     async def query(self, message: str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
-        self.messages.append(Message(role=Role.user, content=message))
-        return await self.execute()
+        return await self.handle_message(Message(role=Role.user, content=message))
 
     async def observe(self, observation: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        self.messages.append(Message(role=Role.system, content=observation))
-        return await self.execute()
+        return await self.handle_message(Message(role=Role.system, content=observation))
 
     async def error(self, error: str, drop_error: bool = True) -> str:
         """
@@ -280,8 +283,7 @@ class Agent:
             error (str): The error message to send to the agent.
             drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
-        self.messages.append(Message(role=Role.system, content=f"ERROR: {error}"))
-        result = await self.execute()
+        result = await self.handle_message(Message(role=Role.system, content=f"ERROR: {error}"))
 
         # Drop error + LLM's bad input from chat history
         if drop_error:

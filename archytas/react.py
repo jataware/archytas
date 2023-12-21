@@ -1,4 +1,4 @@
-from archytas.agent import Agent
+from archytas.agent import Agent, Message, Role
 from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
@@ -35,6 +35,27 @@ class LoopController:
 
     def reset(self):
         self.state = 0
+
+
+class AutoSummarizedToolMessage(Message):
+    """A message that replaces its full tool output with a summary after the ReAct loop is complete."""
+
+    summary_content: str
+    summarized: bool
+
+    def __init__(
+        self,
+        role: Role,
+        tool_content: str,
+        summary_content: str,
+    ):
+        self.summarized = False
+        self.summary_content = summary_content
+        super().__init__(role, tool_content)
+
+    async def update_content(self):
+        self.update(content=self.summary_content)
+        self.summarized = True
 
 
 class ReActAgent(Agent):
@@ -160,6 +181,7 @@ class ReActAgent(Agent):
 
             # exit ReAct loop if agent says final_answer or fail_task
             if tool_name == "final_answer":
+                await self.summarize_messages()
                 return tool_input
             if tool_name == "fail_task":
                 raise FailedTaskError(tool_input)
@@ -187,14 +209,23 @@ class ReActAgent(Agent):
 
             # Check loop controller to see if we need to stop or error
             if controller.state == LoopController.STOP_SUCCESS:
+                await self.summarize_messages()
                 return tool_output
             if controller.state == LoopController.STOP_FATAL:
+                await self.summarize_messages()
                 raise FailedTaskError(tool_output)
 
             # have the agent observe the result, and get the next action
             if self.verbose:
                 self.print(f"observation: {tool_output}\n")
-            action_str = await self.observe(tool_output)
+            if getattr(tool_fn, "autosummarize", False):
+                action_str = await self.handle_message(AutoSummarizedToolMessage(
+                    role=Role.system,
+                    tool_content=tool_output,
+                    summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
+                ))
+            else:
+                action_str = await self.observe(tool_output)
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str]:
@@ -241,3 +272,9 @@ class ReActAgent(Agent):
 
         # tell the agent about the error, and get its response (call parent .error method)
         return super().error(mesg)
+
+    async def summarize_messages(self):
+        """Summarizes and self-summarizing tool messages."""
+        for message in self.messages:
+            if isinstance(message, AutoSummarizedToolMessage) and not message.summarized:
+                await message.update_content()
