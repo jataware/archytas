@@ -150,7 +150,12 @@ class ReActAgent(Agent):
 
         # ReAct loop
         while True:
-            logger.debug(f"""action: {action_str}""")
+            self.debug(
+                f"""action: {action_str}""",
+                debug_metadata={
+                    "action": "action",
+                }
+            )
             # Convert agent output to json
             try:
                 if action_str.startswith('```json'):
@@ -168,8 +173,11 @@ class ReActAgent(Agent):
             # verify that action has the correct keys
             try:
                 thought, tool_name, tool_input = self.extract_action(action)
-                logger.debug(
-                    f"\nThought: {thought}\nTool name: {tool_name}\nTool input: {tool_input}"
+                self.debug(
+                    f"\nThought: {thought}\nTool name: {tool_name}\nTool input: {tool_input}",
+                    debug_metadata={
+                        "action": "thought"
+                    }
                 )
                 self.last_tool_name = tool_name  # keep track of the last tool used
             except AssertionError as e:
@@ -182,6 +190,12 @@ class ReActAgent(Agent):
             # exit ReAct loop if agent says final_answer or fail_task
             if tool_name == "final_answer":
                 await self.summarize_messages()
+                self.debug(
+                    "Final answer: %s", tool_input,
+                    debug_metadata={
+                        "action": "final_answer"
+                    }
+                )
                 return tool_input
             if tool_name == "fail_task":
                 raise FailedTaskError(tool_input)
@@ -201,12 +215,30 @@ class ReActAgent(Agent):
                     "loop_controller": controller,
                 }
                 tool_self_ref = getattr(tool_fn, "__self__", None)
+                self.debug(
+                    "Running tool '%s' with input '%s'", tool_name, tool_input,
+                    debug_metadata={
+                        "action": "tool_run"
+                    }
+                )
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
+                self.debug(
+                    "Tool '%s' with input '%s' output:\n%s", tool_name, tool_input, tool_output,
+                    debug_metadata={
+                        "action": "tool_output"
+                    }
+                )
             except Exception as e:
                 action_str = await self.error(f'error running tool "{tool_name}": {e}')
 
                 continue
 
+            self.debug(
+                "Controller state: %s", controller.state,
+                debug_metadata={
+                    "action": "controller_state"
+                }
+            )
             # Check loop controller to see if we need to stop or error
             if controller.state == LoopController.STOP_SUCCESS:
                 await self.summarize_messages()
@@ -217,7 +249,7 @@ class ReActAgent(Agent):
 
             # have the agent observe the result, and get the next action
             if self.verbose:
-                self.print(f"observation: {tool_output}\n")
+                self.display_observation(tool_output)
             if getattr(tool_fn, "autosummarize", False):
                 action_str = await self.handle_message(AutoSummarizedToolMessage(
                     role=Role.system,
@@ -272,6 +304,12 @@ class ReActAgent(Agent):
 
         # tell the agent about the error, and get its response (call parent .error method)
         return super().error(mesg)
+
+    def display_observation(self, observation):
+        """
+        Display the observation. Can be overridden by subclasses to display the observation in different ways.
+        """
+        self.print(f"observation: {observation}\n")
 
     async def summarize_messages(self):
         """Summarizes and self-summarizing tool messages."""
