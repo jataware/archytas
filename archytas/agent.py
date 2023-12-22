@@ -154,13 +154,13 @@ class Agent:
         else:
             print(*args, **kwargs)
 
-    def debug(self, msg, *args, debug_metadata: dict=None, **kwargs) -> None:
+    def debug(self, msg: str, debug_metadata: dict=None) -> None:
         """
         Debug handler
 
         Function at this level so it can be overridden in a subclass.
         """
-        logger.debug(msg, *args, **kwargs)
+        logger.debug(msg)
 
     def new_context_id(self) -> int:
         """Generate a new context id."""

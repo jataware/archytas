@@ -191,7 +191,7 @@ class ReActAgent(Agent):
             if tool_name == "final_answer":
                 await self.summarize_messages()
                 self.debug(
-                    "Final answer: %s", tool_input,
+                    f"Final answer: {tool_input}",
                     debug_metadata={
                         "action": "final_answer"
                     }
@@ -216,14 +216,14 @@ class ReActAgent(Agent):
                 }
                 tool_self_ref = getattr(tool_fn, "__self__", None)
                 self.debug(
-                    "Running tool '%s' with input '%s'", tool_name, tool_input,
+                    f"Running tool '{tool_name}' with input '{tool_input}'",
                     debug_metadata={
                         "action": "tool_run"
                     }
                 )
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
                 self.debug(
-                    "Tool '%s' with input '%s' output:\n%s", tool_name, tool_input, tool_output,
+                    f"Tool '{tool_name}' with input '{tool_input}' output:\n{tool_output}",
                     debug_metadata={
                         "action": "tool_output"
                     }
@@ -234,7 +234,7 @@ class ReActAgent(Agent):
                 continue
 
             self.debug(
-                "Controller state: %s", controller.state,
+                f"Controller state: {controller.state}",
                 debug_metadata={
                     "action": "controller_state"
                 }
