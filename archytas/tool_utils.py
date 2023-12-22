@@ -48,7 +48,7 @@ def toolset(*args, **kwargs):
     return decorator
 
 
-def tool(*, name: str | None = None):
+def tool(*, name: str | None = None, autosummarize: bool = False):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
@@ -87,6 +87,7 @@ def tool(*, name: str | None = None):
 
         func._name = name if name else func.__name__
         func._is_tool = True
+        func.autosummarize = autosummarize
 
         async def run(
             args: tuple[object, dict | list | str | int | float | bool | None],
