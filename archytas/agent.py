@@ -17,7 +17,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from typing import Callable, ContextManager
+from typing import Callable, ContextManager, Any
 from enum import Enum
 
 from rich import print as rprint
@@ -106,6 +106,7 @@ class Agent:
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
         rich_print: bool = True,
+        verbose: bool = False,
     ):
         """
         Agent class for managing communication with OpenAI's API.
@@ -116,6 +117,7 @@ class Agent:
             api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
+            verbose (bool, optional): TODO. Defaults to False.
 
         Raises:
             Exception: If no API key is given.
@@ -124,6 +126,7 @@ class Agent:
         self.rich_print = bool(
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
+        self.verbose = verbose
         self.model = model
         self.system_message = Message(role=Role.system, content=prompt)
         self.messages: list[Message] = []
@@ -154,13 +157,13 @@ class Agent:
         else:
             print(*args, **kwargs)
 
-    def debug(self, msg: str, debug_metadata: dict=None) -> None:
+    def debug(self, event_type: str, content: Any) -> None:
         """
         Debug handler
 
         Function at this level so it can be overridden in a subclass.
         """
-        logger.debug(msg)
+        logger.debug(event_type, content)
 
     def new_context_id(self) -> int:
         """Generate a new context id."""
@@ -303,6 +306,8 @@ class Agent:
     async def execute(self) -> str:
         with self.spinner():
             messages = await self.all_messages()
+            if self.verbose:
+                self.debug(event_type="llm_request", content=messages)
             completion = openai.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -312,6 +317,8 @@ class Agent:
         # grab the response and add it to the chat history
         result = completion.choices[0].message.content
         self.messages.append(Message(role=Role.assistant, content=result))
+        if self.verbose:
+            self.debug(event_type="llm_response", content=result)
 
         # remove any timed contexts that have expired
         self.update_timed_context()
@@ -333,6 +340,8 @@ class Agent:
             str: The agent's response to the user query.
         """
         with self.spinner():
+            if self.verbose:
+                self.debug(event_type="llm_oneshot", content=prompt)
             completion = openai.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -344,6 +353,8 @@ class Agent:
 
         # return the agent's response
         result = completion.choices[0].message.content
+        if self.verbose:
+            self.debug(event_type="llm_response", content=result)
         return result
 
     def all_messages_sync(self) -> list[Message]:

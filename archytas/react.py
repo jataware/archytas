@@ -68,7 +68,6 @@ class ReActAgent(Agent):
         allow_ask_user: bool = True,
         max_errors: int | None = 3,
         max_react_steps: int | None = None,
-        verbose: bool = False,
         thought_handler: typing.Callable | None = Undefined,
         **kwargs,
     ):
@@ -82,7 +81,6 @@ class ReActAgent(Agent):
             allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
-            verbose (bool, optional): Whether to print the agent's thoughts and observations. Defaults to False.
             thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
                     print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
         """
@@ -112,7 +110,6 @@ class ReActAgent(Agent):
         # react settings
         self.max_errors = max_errors or float("inf")
         self.max_react_steps = max_react_steps or float("inf")
-        self.verbose = verbose
 
         # number of errors and steps during current task
         self.errors = 0
@@ -151,9 +148,9 @@ class ReActAgent(Agent):
         # ReAct loop
         while True:
             self.debug(
-                f"""action: {action_str}""",
-                debug_metadata={
-                    "action": "action",
+                event_type="react_action",
+                content={
+                    "action": action_str,
                 }
             )
             # Convert agent output to json
@@ -174,9 +171,11 @@ class ReActAgent(Agent):
             try:
                 thought, tool_name, tool_input = self.extract_action(action)
                 self.debug(
-                    f"\nThought: {thought}\nTool name: {tool_name}\nTool input: {tool_input}",
-                    debug_metadata={
-                        "action": "thought"
+                    event_type="react_thought",
+                    content={
+                        "thought": thought,
+                        "tool_name": tool_name,
+                        "tool_input": tool_input
                     }
                 )
                 self.last_tool_name = tool_name  # keep track of the last tool used
@@ -191,9 +190,9 @@ class ReActAgent(Agent):
             if tool_name == "final_answer":
                 await self.summarize_messages()
                 self.debug(
-                    f"Final answer: {tool_input}",
-                    debug_metadata={
-                        "action": "final_answer"
+                    event_type="react_final_answer",
+                    content={
+                        "final_answer": tool_input,
                     }
                 )
                 return tool_input
@@ -216,16 +215,19 @@ class ReActAgent(Agent):
                 }
                 tool_self_ref = getattr(tool_fn, "__self__", None)
                 self.debug(
-                    f"Running tool '{tool_name}' with input '{tool_input}'",
-                    debug_metadata={
-                        "action": "tool_run"
+                    event_type="react_tool",
+                    content={
+                        "tool": tool_name,
+                        "input": tool_input,
                     }
                 )
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
                 self.debug(
-                    f"Tool '{tool_name}' with input '{tool_input}' output:\n{tool_output}",
-                    debug_metadata={
-                        "action": "tool_output"
+                    event_type="react_tool_output",
+                    content={
+                        "tool": tool_name,
+                        "input": tool_input,
+                        "output": tool_output,
                     }
                 )
             except Exception as e:
@@ -233,12 +235,13 @@ class ReActAgent(Agent):
 
                 continue
 
-            self.debug(
-                f"Controller state: {controller.state}",
-                debug_metadata={
-                    "action": "controller_state"
-                }
-            )
+            if controller.state != LoopController.PROCEED:
+                self.debug(
+                    event_type="react_controller_state",
+                    content={
+                        "state": controller.state,
+                    }
+                )
             # Check loop controller to see if we need to stop or error
             if controller.state == LoopController.STOP_SUCCESS:
                 await self.summarize_messages()
