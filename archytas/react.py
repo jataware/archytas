@@ -125,13 +125,13 @@ class ReActAgent(Agent):
                 f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n"
             )
 
-    def react(self, query: str) -> str:
+    def react(self, query: str, react_context:dict=None) -> str:
         """
         Synchronous wrapper around the asynchronous react_async method.
         """
-        return asyncio.run(self.react_async(query))
+        return asyncio.run(self.react_async(query, react_context))
 
-    async def react_async(self, query: str) -> str:
+    async def react_async(self, query: str, react_context:dict=None) -> str:
         """
         Asynchronous react loop function.
         Continually calls tools until a satisfactory answer is reached.
@@ -212,6 +212,7 @@ class ReActAgent(Agent):
                     "tool_name": tool_name,
                     "raw_tool": tool_fn,
                     "loop_controller": controller,
+                    "react_context": react_context,
                 }
                 tool_self_ref = getattr(tool_fn, "__self__", None)
                 self.debug(

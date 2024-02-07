@@ -117,7 +117,7 @@ class Agent:
             api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
-            verbose (bool, optional): TODO. Defaults to False.
+            verbose (bool, optional): Expands the debug output. Includes full query context on requests to the LLM. Defaults to False.
 
         Raises:
             Exception: If no API key is given.
