@@ -91,7 +91,7 @@ class PythonTool:
                 prompt_chunks.append(f"{name} = {obj} ({type(obj)})")
 
         # update the env with the locals
-        self.env.update_locals(env_update)
+        self.env.locals.update(env_update)
 
         # run the prelude code
         if prelude:

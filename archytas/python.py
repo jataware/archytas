@@ -4,21 +4,10 @@ from types import ModuleType
 from typing import Any
 from archytas.utils import get_local_name
 
-import pdb
+from archytas.language_environment import LanguageEnvironment
 
 
-class Python:
-    def __init__(self):
-        self.locals: dict[str, Any] = {}
-        self._added_locals: dict[
-            str, Any
-        ] = {}  # keep track of any modules/classes/functions/etc. added to locals
-        self.imports: list[str] = []  # keep track of any imports added
-        self.all_scripts: list[str] = []  # keep track of all scripts run
-
-    def update_locals(self, new_locals: dict):
-        self.locals.update(new_locals)
-
+class Python(LanguageEnvironment):
     def add_locals(
         self, new_locals: list[type | ModuleType | Any], outer_locals: dict[str, Any]
     ):
@@ -36,33 +25,8 @@ class Python:
             self._added_locals.update(update)
             self.locals.update(update)
 
-    def run_script(self, script: str):
-        # capture any stdout/stderr from the script
-        captured_stdout = StringIO()
-        captured_stderr = StringIO()
-        sys.stdout = captured_stdout
-        sys.stderr = captured_stderr
-
-        # save the script text
-        self.all_scripts.append(script)
-
-        # run the script
-        try:
-            exec(script, self.locals)
-        except Exception as e:
-            sys.stderr.write(str(e))
-
-        # restore stdout/stderr
-        sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__
-
-        return captured_stdout.getvalue(), captured_stderr.getvalue()
-
-    # def add_imports(self, imports:list[str]):
-    #     #TODO: this should import them into the locals dict by calling exec() on the import statements
-    #     #      also handle splitting up multiple imports in a single string
-    #     #TODO: this could also be a more generic add_code() method
-    #     self.imports.extend(imports)
+    def execute(self, script:str):
+        exec(script, self.locals)
 
 
 def main():
