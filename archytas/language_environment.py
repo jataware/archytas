@@ -1,47 +1,68 @@
 import sys
 from io import StringIO
 from typing import Any
-from abc import ABC, abstractmethod
+from tempfile import NamedTemporaryFile
+import subprocess
 
+from tool_utils import tool
 
-class LanguageEnvironment(ABC):
-    def __init__(self):
+tool_docs = lambda language: (
+    f"Runs {language} n code in a {language} environment.\n\n"
+    "The environment is persistent between runs, so any variables created will be available in subsequent runs."
+    "The only visible effects of this tool are from output to stdout/stderr. "
+    "If you want to view a result, you MUST print it.\n\n"
+    f"Args:\n\tcode (str): The {language} code to run"
+    "Returns:\n\tstr"
+)
+
+class LanguageEnvironment:
+    language = "Python"
+    
+    def __new__(cls, _name, _bases, methods):
+        def run(self, code: str) -> str:
+            return self.run_script(code)
+
+        language = cls.language
+        run.__doc__ = tool_docs(language)
+        methods["run"] = tool(run)
+        return super().__new__(cls)
+
+    def __init__(self, executable: str | None = None, response_char_limit=1000):
+        language = self.__class__.language
+        default_executable = f"{language.lower()} %s"
+        self.executable = executable if executable is None else default_executable
         self.locals: dict[str, Any] = {}
         self.imports: list[str] = []
-        self.all_scripts: list[str] = []
+        self.history: list[str] = []
+        self.response_char_limit = response_char_limit
 
-    @abstractmethod
-    def add_locals(self, new_locals):
-        pass
+    def get_standalone_tools(self):
+        def run(code: str) -> str:
+            return self.run_script(code)
 
-    @abstractmethod
-    def execute(self): 
-        pass
+        language = self.__class__.language
+        run.__doc__ = tool_docs(language)
+        return [tool(run)]
+
 
     def run_script(self, script: str):
-        # capture any stdout/stderr from the script
-        captured_stdout = StringIO()
-        captured_stderr = StringIO()
-        sys.stdout = captured_stdout
-        sys.stderr = captured_stderr
+        self.history.append(script)
+        with NamedTemporaryFile() as file:
+            file.write(script)
+            response = subprocess.run(self.executable % file.name, shell=True, capture_output=True)
 
-        # save the script text
-        self.all_scripts.append(script)
+        stdout, stderr = response.stdout.decode(), response.stderr.decode()
+        def prep_for_llm(output, name):
+            if len(output) > self.response_char_limit:
+                output = output[-(self.response_char_limit+1):-1]
+            return f"{name}t: \n`````{output}\n`````\n"
 
-        # run the script
-        try:
-            self.execute(script)
-        except Exception as e:
-            sys.stderr.write(str(e))
+        return prep_for_llm(stdout, "stdout") + prep_for_llm(stderr, "stderr")
 
-        # restore stdout/stderr
-        sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__
+    def imports(self, imports:list[str]):
+        """
+        import pkg_resources
 
-        return captured_stdout.getvalue(), captured_stderr.getvalue()
-
-    # def add_imports(self, imports:list[str]):
-    #     #TODO: this should import them into the locals dict by calling exec() on the import statements
-    #     #      also handle splitting up multiple imports in a single string
-    #     #TODO: this could also be a more generic add_code() method
-    #     self.imports.extend(imports)
+        for dist in pkg_resources.working_set:
+            print(dist.project_name, dist.version)
+        """
