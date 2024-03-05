@@ -3,15 +3,15 @@ from tempfile import NamedTemporaryFile
 from dataclasses import dataclass
 import subprocess
 
-from tool_utils import tool
+from archytas.tool_utils import tool
 
 tool_docs = lambda language: (
     f"Runs {language} n code in a {language} environment.\n\n"
     "The environment is persistent between runs, so any variables created will be available in subsequent runs."
     "The only visible effects of this tool are from output to stdout/stderr. "
     "If you want to view a result, you MUST print it.\n\n"
-    f"Args:\n\tcode (str): The {language} code to run"
-    "Returns:\n\tstr"
+    f"Args:\n\tcode (str): The {language} code to run\n"
+    "Returns:\n\tstr: potentially truncated stdout and stderr"
 )
 
 python_scripts = {
@@ -59,15 +59,15 @@ class LanguageEnvironment:
             local += f"{local.name} = dill.loads({local.serialization})\n"
         return locals        
 
-    def __new__(cls, _name, _bases, methods):
+    def __new__(cls):
+        env_class = super().__new__(cls)
         def run(self, code: str) -> str:
             return self.run_script(code)
 
-
         language = cls.language
         run.__doc__ = tool_docs(language)
-        methods["run"] = tool(run)
-        return super().__new__(cls)
+        env_class.run = tool()(run)
+        return env_class
 
     def __init__(self, executable: str | None = None, response_char_limit=5000):
         language = self.__class__.language
@@ -78,10 +78,15 @@ class LanguageEnvironment:
         self.history: list[str] = []
         self.response_char_limit = response_char_limit
 
-    @tool
+    @tool()
     def dependency_list(self) -> str:
         """
-        List all dependencies that are currently installed in the environment 
+        List all dependencies that are currently installed in the environment.
+        All of these packages are usable dependencies but they might still need
+        to be imported into the environment.
+
+        Returns:
+            str: Names of all the packages currently installed 
         """
         return self.run_action(self.__class__.scripts["dependency_list"])
 
