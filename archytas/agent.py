@@ -373,7 +373,7 @@ class Agent:
         """Synchronous wrapper around the asynchronous observe method."""
         return asyncio.run(self.observe(observation))
 
-    def observe_sync(self, message: str) -> str:
+    def inspect_sync(self, message: str) -> str:
         """Synchronous wrapper around the asynchronous inspect method."""
         return asyncio.run(self.inspect(message))
 
