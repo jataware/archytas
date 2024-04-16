@@ -288,7 +288,7 @@ class Agent:
 
     async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
-        return self.execute([Message(role=Role.system, content=query)])
+        return await self.execute([Message(role=Role.system, content=query)])
 
     async def error(self, error: str, drop_error: bool = True) -> str:
         """
@@ -372,6 +372,10 @@ class Agent:
     def observe_sync(self, observation: str) -> str:
         """Synchronous wrapper around the asynchronous observe method."""
         return asyncio.run(self.observe(observation))
+
+    def observe_sync(self, message: str) -> str:
+        """Synchronous wrapper around the asynchronous inspect method."""
+        return asyncio.run(self.inspect(message))
 
     def error_sync(self, error: str, drop_error: bool = True) -> str:
         """Synchronous wrapper around the asynchronous error method."""
