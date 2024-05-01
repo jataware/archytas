@@ -1,6 +1,5 @@
 from archytas.agent import Agent, Message, Role
 from archytas.prompt import build_prompt, build_all_tool_names
-from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import asyncio
 import json
@@ -64,11 +63,11 @@ class ReActAgent(Agent):
         *,
         model: str = "gpt-4-1106-preview",
         api_key: str | None = None,
-        tools: list = None,
-        allow_ask_user: bool = True,
+        tools: list | None = None,
         max_errors: int | None = 3,
         max_react_steps: int | None = None,
         thought_handler: typing.Callable | None = Undefined,
+        disabled_tools: list | None = None,
         **kwargs,
     ):
         """
@@ -78,7 +77,6 @@ class ReActAgent(Agent):
             model (str): The model to use. Defaults to 'gpt-4'. Recommended not to change this. gpt-3.5-turbo doesn't follow the prompt format.
             api_key (str, optional): The OpenAI API key to use. If not set, defaults to reading the API key from the OPENAI_API_KEY environment variable.
             tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
-            allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
             thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
@@ -87,10 +85,8 @@ class ReActAgent(Agent):
 
         # create a dictionary for looking up tools by name
         tools = tools or []
-        if allow_ask_user:
-            tools.append(ask_user)
         tools.append(self)
-        self.tools = make_tool_dict(tools)
+        self.tools = make_tool_dict(tools, disabled_tools or [])
 
         if thought_handler is Undefined:
             self.thought_handler = self.thought_callback

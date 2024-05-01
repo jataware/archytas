@@ -148,11 +148,15 @@ def tool(*, name: str | None = None, autosummarize: bool = False):
     return decorator
 
 
-def is_tool(obj: Callable | type) -> bool:
-    """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
-    return (
-        getattr(obj, '_is_tool', False)
-    )
+def include_tool(obj: Callable | type, disabled_tools: list | None = None) -> bool:
+    """
+    Checks if an object is a tool function, tool method, tool class, or an instance of a class tool. 
+        """
+    if disabled_tools is None:
+        disabled_tools = []
+    is_tool = getattr(obj, '_is_tool', False)    
+    should_disable = lambda tool: tool == obj or getattr(tool, "_name", None) == obj or tool == obj.__name__
+    return is_tool and any([should_disable(tool) for tool in disabled_tools])
 
 
 def get_tool_prompt_description(obj: Callable | type | Any):
@@ -328,12 +332,12 @@ def get_tool_signature(
 def collect_tools_from_object(obj: object):
     result = []
     for item_name, item in inspect.getmembers(obj, predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member)):
-        if is_tool(item):
+        if include_tool(item):
             result.append(item)
     return result
 
 
-def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
+def make_tool_dict(tools: list[Callable | type | Any], disabled_tools: list[Callable | type | Any]) -> dict[str, Callable]:
     """
     Create a dictionary of tools from a list of tool functions.
 
@@ -350,7 +354,7 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
         # If the tool is actually a class and not an instance or function, instantiate it
         if isinstance(tool, type):
             tool = tool()
-        if is_tool(tool):
+        if include_tool(tool):
             name = getattr(tool, "_name", None)
             if name is None and isinstance(tool, Agent):
                 name = tool.__class__.__name__
@@ -359,7 +363,7 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
         # add each method to the tool dictionary under the name 'class_name.method_name'
         methods = inspect.getmembers(tool, predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member))
         for _, method in methods:
-            if is_tool(method):
+            if include_tool(method):
                 if isinstance(tool, type):
                     cls_name = getattr(tool, "_name", None) or tool.__name__
                 else:
