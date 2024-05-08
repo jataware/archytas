@@ -127,7 +127,7 @@ class ReActAgent(Agent):
                 if len(matches) > 1:
                     raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
                 elif len(matches) == 1:
-                    tool_name = matches[0].string
+                    tool_name = matches[0]
             if tool_name in self.tools:
                 self.tools.pop(tool_name)
             else:
