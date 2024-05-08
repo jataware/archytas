@@ -118,6 +118,10 @@ class ReActAgent(Agent):
         # keep track of the last tool used (for error messages)
         self.last_tool_name = ""
 
+    def disable(self, *tool_names):
+        for tool_name in tool_names:
+            self.tools.pop(tool_name)
+
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
             # TODO: better coloring
