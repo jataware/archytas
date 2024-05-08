@@ -122,6 +122,9 @@ class ReActAgent(Agent):
         for tool_name in tool_names:
             if tool_name in self.tools:
                 self.tools.pop(tool_name)
+        self.prompt = build_prompt(self.tools)
+        self.system_message["content"] = self.prompt
+                
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
