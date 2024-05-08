@@ -4,6 +4,7 @@ from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import asyncio
 import json
+import re
 import pdb
 import sys
 import logging
@@ -120,8 +121,17 @@ class ReActAgent(Agent):
 
     def disable(self, *tool_names):
         for tool_name in tool_names:
+            if "." not in tool_name:
+                pattern = re.compile(f"\S+\.{tool_name}$")
+                matches = list(filter(lambda name: pattern.match(name), self.tools.keys()))
+                if len(matches) > 1:
+                    raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
+                elif len(matches) == 1:
+                    tool_name = matches[0].string
             if tool_name in self.tools:
                 self.tools.pop(tool_name)
+            else:
+                raise AttributeError(f"Cannot disable nonexistent tool: {tool_name}")
         self.prompt = build_prompt(self.tools)
         self.system_message["content"] = self.prompt
                 
