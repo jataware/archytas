@@ -4,7 +4,6 @@ from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import asyncio
 import json
-import re
 import pdb
 import sys
 import logging
