@@ -57,7 +57,7 @@ def notes(*, ask_user: bool) -> str:
 """.strip()
 
 
-def build_prompt(tools: list[Callable] | dict[str, Callable]) -> str:
+def build_prompt(tools: list[Callable]) -> str:
     """
     Build the prompt for the ReAct agent
 
@@ -67,8 +67,6 @@ def build_prompt(tools: list[Callable] | dict[str, Callable]) -> str:
     Returns:
         str: The prompt for the ReAct agent
     """
-    if isinstance(tools, dict):
-        tools = list(tools.values())
     # collect all the tool names (including class.method names)
     tool_names = build_all_tool_names(tools)
 
