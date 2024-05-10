@@ -124,6 +124,8 @@ class ReActAgent(Agent):
         self.system_message["content"] = self.prompt
     
     def disable(self, *tool_names):
+        if len(tool_names) == 0:
+            return
         for tool_name in tool_names:
             if tool_name in self.tools:
                 self.tools.pop(tool_name)
