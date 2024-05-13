@@ -282,7 +282,7 @@ class ReActAgent(Agent):
 
         return thought, tool, tool_input
 
-    def execute(self) -> str:
+    def execute(self, additional_messages: list[Message] = []) -> str:
         """
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
@@ -292,7 +292,7 @@ class ReActAgent(Agent):
             raise FailedTaskError(
                 f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}"
             )
-        return super().execute()
+        return super().execute(additional_messages)
 
     def error(self, mesg) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""

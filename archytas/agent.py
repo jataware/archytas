@@ -286,6 +286,10 @@ class Agent:
         """Send a system/tool observation to the agent. Returns the agent's response"""
         return await self.handle_message(Message(role=Role.system, content=observation))
 
+    async def inspect(self, query: str) -> str:
+        """Send one-off system query that is not recorded in history"""
+        return await self.execute([Message(role=Role.system, content=query)])
+
     async def error(self, error: str, drop_error: bool = True) -> str:
         """
         Send an error message to the agent. Returns the agent's response.
@@ -303,9 +307,9 @@ class Agent:
         return result
 
     @retry
-    async def execute(self) -> str:
+    async def execute(self, additional_messages: list[Message] = []) -> str:
         with self.spinner():
-            messages = await self.all_messages()
+            messages = (await self.all_messages()) + additional_messages
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
             completion = openai.chat.completions.create(
@@ -368,6 +372,10 @@ class Agent:
     def observe_sync(self, observation: str) -> str:
         """Synchronous wrapper around the asynchronous observe method."""
         return asyncio.run(self.observe(observation))
+
+    def inspect_sync(self, message: str) -> str:
+        """Synchronous wrapper around the asynchronous inspect method."""
+        return asyncio.run(self.inspect(message))
 
     def error_sync(self, error: str, drop_error: bool = True) -> str:
         """Synchronous wrapper around the asynchronous error method."""
