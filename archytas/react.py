@@ -127,13 +127,17 @@ class ReActAgent(Agent):
         if len(tool_names) == 0:
             return
         for tool_name in tool_names:
+            logging.error(tool_name)
             if tool_name in self.tools:
                 self.tools.pop(tool_name)
+                logging.error("complete")
             elif "." not in tool_name:
+                logging.error("other")
                 matches = [name for name in self.tools.keys() if name.endswith(f".{tool_name}")]
                 if len(matches) > 1:
                     raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
                 elif len(matches) == 1:
+                    logging.error("other complete")
                     self.tools.pop(matches[0])
         self.update_prompt()
                 
