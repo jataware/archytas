@@ -124,6 +124,7 @@ class ReActAgent(Agent):
         self.system_message["content"] = self.prompt
     
     def disable(self, *tool_names):
+        logger.error(tool_names)
         if len(tool_names) == 0:
             return
         for tool_name in tool_names:
@@ -139,6 +140,7 @@ class ReActAgent(Agent):
                 elif len(matches) == 1:
                     logging.error("other complete")
                     self.tools.pop(matches[0])
+        logger.error("\n\n\n\n")
         self.update_prompt()
                 
 
