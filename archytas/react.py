@@ -3,6 +3,7 @@ from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import asyncio
+import inspect
 import json
 import pdb
 import sys
@@ -119,7 +120,11 @@ class ReActAgent(Agent):
         self.last_tool_name = ""
 
     def update_prompt(self):
-        tool_list = list(self.tools.values())
+        def get_obj(func):
+            if inspect.ismethod(func):
+                return getattr(func, "__self__", func.__class__)
+            return func
+        tool_list = list({ get_obj(tool) for tool in self.tools.values()}.union({ self }))
         self.prompt = build_prompt(tool_list)
         self.system_message["content"] = self.prompt
     
