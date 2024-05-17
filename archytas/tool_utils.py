@@ -164,6 +164,8 @@ def get_prompt_description(obj: Callable | type | Any):
     # get the list of arguments
     chunks = []
     tab = "    "
+    if getattr(obj, '_disabled', False):
+        return ""
 
     if inspect.isfunction(obj) or inspect.ismethod(obj):
         args_list, ret, desc, injections = get_tool_signature(obj)
@@ -212,7 +214,11 @@ def get_prompt_description(obj: Callable | type | Any):
         ############### EXAMPLES ###############
         # TODO: examples need to be parsed...
     else:
-        tool_methods = collect_tools_from_object(obj)
+        tool_methods = [
+                tool_method
+                for tool_method in collect_tools_from_object(obj)
+                if not getattr(tool_method, "_disabled", False)
+            ]
         if tool_methods:
             ############### NAME/DESCRIPTION ###############
             if inspect.isclass(obj):
