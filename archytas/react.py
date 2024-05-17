@@ -1,7 +1,7 @@
 from archytas.agent import Agent, Message, Role
-from archytas.prompt import build_prompt, build_all_tool_names
+from archytas.prompt import build_prompt, build_all_tool_names, prelude, tool_intro
 from archytas.tools import ask_user
-from archytas.tool_utils import make_tool_dict
+from archytas.tool_utils import make_tool_dict, get_tool_prompt_description
 import asyncio
 import json
 import pdb
@@ -122,7 +122,7 @@ class ReActAgent(Agent):
         tool_list = list(self.tools.values())
         self.prompt = build_prompt(tool_list)
         self.system_message["content"] = self.prompt
-    
+
     def disable(self, *tool_names):
         if len(tool_names) == 0:
             return
@@ -136,7 +136,29 @@ class ReActAgent(Agent):
                 elif len(matches) == 1:
                     self.tools.pop(matches[0])
         self.update_prompt()
-                
+
+    def build_prompt(self) -> str:
+        """
+        Build and the prompt
+
+        Returns:
+            None
+        """
+        from prompt import system_tools, formatting, notes
+        # collect all the tool names (including class.method names)
+        tool_names = list(self.tools.keys())
+
+        # check if the ask user prompt is in the list of tools
+        ask_user = "ask_user" in tool_names
+
+        chunks = [prelude(), tool_intro()]
+        for tool in self.tools.values():
+            chunks.append(get_tool_prompt_description(tool))
+        chunks.append(system_tools() + "\n")
+        chunks.append(formatting(tool_names, ask_user=ask_user) + "\n")
+        chunks.append(notes(ask_user=ask_user))
+        prompt = "\n\n".join(chunks)
+        self.prompt = prompt
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
