@@ -3,6 +3,7 @@ from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import asyncio
+import inspect
 import json
 import pdb
 import sys
@@ -90,6 +91,7 @@ class ReActAgent(Agent):
         if allow_ask_user:
             tools.append(ask_user)
         tools.append(self)
+        self._raw_tools = tools
         self.tools = make_tool_dict(tools)
 
         if thought_handler is Undefined:
@@ -119,24 +121,27 @@ class ReActAgent(Agent):
         self.last_tool_name = ""
 
     def update_prompt(self):
-        tool_list = list(self.tools.values())
-        self.prompt = build_prompt(tool_list)
+        self.prompt = build_prompt(self._raw_tools)
         self.system_message["content"] = self.prompt
-    
+
     def disable(self, *tool_names):
         if len(tool_names) == 0:
             return
         for tool_name in tool_names:
             if tool_name in self.tools:
-                self.tools.pop(tool_name)
+                setattr(self.tools[tool_name], '_disabled', True)
             elif "." not in tool_name:
                 matches = [name for name in self.tools.keys() if name.endswith(f".{tool_name}")]
                 if len(matches) > 1:
                     raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
                 elif len(matches) == 1:
-                    self.tools.pop(matches[0])
+                    subtool_name = matches[0]
+                    method = self.tools[subtool_name]
+
+                    setattr(method.__func__, '_disabled', True)
+
         self.update_prompt()
-                
+
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
