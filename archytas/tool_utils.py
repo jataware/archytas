@@ -12,9 +12,10 @@ from types import UnionType, GenericAlias
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
-from rich import traceback
 
-traceback.install(show_locals=True)
+from textwrap import indent
+from types import FunctionType
+from typing import Callable, Any
 
 
 logger = logging.getLogger(__name__)
@@ -342,7 +343,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
         args_list: A list of tuples (name, type, description, default) for each argument
 
     Returns:
-        preprocessor (args: Any) -> (pargs, kwargs): 
+        preprocessor (args: Any) -> (pargs, kwargs):
     """
 
     def preprocessor(args: dict | None) -> tuple[list, dict]:

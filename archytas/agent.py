@@ -12,10 +12,27 @@ from tenacity import (
     wait_exponential,
 )
 from typing import Callable, ContextManager, Any, Optional
+from openai import (
+    APITimeoutError,
+    APIError,
+    APIConnectionError,
+    RateLimitError,
+    InternalServerError,
+)
+from enum import Enum
+from functools import wraps
+from typing import Callable, ContextManager, Any
 
 from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
+
+
+from langchain_openai.chat_models import ChatOpenAI
+from langchain_core import messages as langchain_messages # import HumanMessage, SystemMessage, BaseMessage
+
+model = ChatOpenAI(model="gpt-4o")
+print(model)
 
 
 logger = logging.getLogger(__name__)
@@ -47,10 +64,21 @@ def retry(fn):
     )(fn)
 
 
+class AuthenticationError(Exception):
+    pass
+
+
 class Role(str, Enum):
     system = "system"
     assistant = "assistant"
     user = "user"
+
+
+class AssistantMessage(langchain_messages.BaseMessage):
+    """
+    Assistant Message type that plays well with langchain.
+    """
+    type = "assistant"
 
 
 class Message(dict):
@@ -97,6 +125,23 @@ def cli_spinner():
         refresh_per_second=30,
         transient=True,
     )
+
+
+def auth(func):
+    """
+    """
+    @wraps(func)
+    async def inner(*args, **kwargs):
+        # if not openai.api_key:
+        #     raise AuthenticationError(
+        #         "No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor."
+        #     )
+        try:
+            return await func(*args, **kwargs)
+        except (openai.AuthenticationError, openai.OpenAIError) as err:
+            raise AuthenticationError(err)
+    return inner
+
 
 
 class no_spinner:
@@ -317,7 +362,7 @@ class Agent:
 
         return result
 
-    @retry
+    @auth
     async def execute(self, additional_messages: list[Message] = []) -> str:
         import openai
         with self.spinner():
@@ -341,7 +386,7 @@ class Agent:
 
         return result
 
-    @retry
+    @auth
     async def oneshot(self, prompt: str, query: str) -> str:
         """
         Send a user query to the agent. Returns the agent's response.
