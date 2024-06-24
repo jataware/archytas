@@ -1,8 +1,6 @@
 import inspect
 from docstring_parser import parse as parse_docstring
-from rich import traceback
 
-traceback.install(show_locals=True)
 from textwrap import indent
 from types import FunctionType
 from typing import Callable, Any
@@ -12,7 +10,6 @@ from .agent import Agent
 import logging
 logger = logging.getLogger(__name__)
 
-import pdb
 
 
 # TODO: separate system tools from library tools from user tools

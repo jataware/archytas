@@ -7,6 +7,9 @@ dist/
 # chat history
 chat_history.txt
 
+# .env files
+.env
+
 # autoenv files
 .autoenv
 .autoleave

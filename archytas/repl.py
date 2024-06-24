@@ -10,12 +10,10 @@ from archytas.demo_tools import (
     pirate_subquery,
 )
 
-from rich import traceback, print
+from rich import print
 
-traceback.install(show_locals=True)
 from easyrepl import REPL
 
-import pdb
 
 class CustomAgent(ReActAgent):
     """

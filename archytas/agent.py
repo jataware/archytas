@@ -10,37 +10,40 @@ from openai import (
     RateLimitError,
     InternalServerError,
 )
-from tenacity import (
-    before_sleep_log,
-    retry as tenacity_retry,
-    retry_if_exception_type as retry_if,
-    stop_after_attempt,
-    wait_exponential,
-)
-from typing import Callable, ContextManager, Any
 from enum import Enum
+from functools import wraps
+from typing import Callable, ContextManager, Any
 
 from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
 
 
+from langchain_openai.chat_models import ChatOpenAI
+from langchain_core import messages as langchain_messages # import HumanMessage, SystemMessage, BaseMessage
+
+model = ChatOpenAI(model="gpt-4o")
+print(model)
+
+
 logger = logging.getLogger(__name__)
-retry = tenacity_retry(
-    reraise=True,
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if(
-        (APITimeoutError,APIError,APIConnectionError,RateLimitError,InternalServerError)
-    ),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-)
+
+
+class AuthenticationError(Exception):
+    pass
 
 
 class Role(str, Enum):
     system = "system"
     assistant = "assistant"
     user = "user"
+
+
+class AssistantMessage(langchain_messages.BaseMessage):
+    """
+    Assistant Message type that plays well with langchain.
+    """
+    type = "assistant"
 
 
 class Message(dict):
@@ -87,6 +90,23 @@ def cli_spinner():
         refresh_per_second=30,
         transient=True,
     )
+
+
+def auth(func):
+    """
+    """
+    @wraps(func)
+    async def inner(*args, **kwargs):
+        # if not openai.api_key:
+        #     raise AuthenticationError(
+        #         "No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor."
+        #     )
+        try:
+            return await func(*args, **kwargs)
+        except (openai.AuthenticationError, openai.OpenAIError) as err:
+            raise AuthenticationError(err)
+    return inner
+
 
 
 class no_spinner:
@@ -145,10 +165,6 @@ class Agent:
         # check that an api key was given, and set it
         if api_key is None:
             api_key = os.environ.get("OPENAI_API_KEY", None)
-        if not api_key:
-            raise Exception(
-                "No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor."
-            )
         openai.api_key = api_key
 
     def print(self, *args, **kwargs):
@@ -306,7 +322,7 @@ class Agent:
 
         return result
 
-    @retry
+    @auth
     async def execute(self, additional_messages: list[Message] = []) -> str:
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
@@ -329,7 +345,7 @@ class Agent:
 
         return result
 
-    @retry
+    @auth
     async def oneshot(self, prompt: str, query: str) -> str:
         """
         Send a user query to the agent. Returns the agent's response.
