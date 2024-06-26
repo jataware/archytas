@@ -3,7 +3,7 @@
 
 Implementation of the [ReAct (Reason & Action)](https://arxiv.org/abs/2210.03629) framework for Large Language Model (LLM) agents. Mainly targeting OpenAI's GPT-4.
 
-Easily create tools from simple python functions or classes with the `@tool` decorator. A tools list can then be passed to the `ReActAgent` which will automagially generate a prompt for the LLM containing usage instructions for each tool, as well as manage the ReAct decision loop while the LLM performs its task.
+Easily create tools from simple python functions or classes with the `@tool` decorator. A tools list can then be passed to the `ReActAgent` which will automagically generate a prompt for the LLM containing usage instructions for each tool, as well as manage the ReAct decision loop while the LLM performs its task.
 
 Tools can be anything from internet searches to custom interpreters for your domain. Archytas provides a few built-in demo tools e.g. datetime, fibonacci numbers, and a simple calculator.
 
