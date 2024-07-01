@@ -27,8 +27,8 @@ class ToolUsage(pydantic.BaseModel):
 
 # parser = JsonOutputParser(pydantic_object=ToolUsage)
 # model = ChatOpenAI(model="gpt-4o")
-# model = ChatOllama(model="llama3") | parser
-model = ChatOllama(model="mistral")
+# model = ChatOllama(model="llama3", base_url="http://172.17.0.1:11434")
+model = ChatOllama(model="mistral", base_url="http://172.17.0.1:11434")
 # model = ChatAnthropic(model_name="claude-3-sonnet-20240229")
 # model = ChatAnthropic(model_name="claude-3-opus-20240229")
 # model = ChatAnthropic(model_name="claude-3-5-sonnet-20240620")
@@ -71,15 +71,14 @@ class AutoContextMessage(SystemMessage):
     content_updater: Callable[[], str]
 
     def __init__(self, default_content: str, content_updater: Callable[[], str], **kwargs):
-        self.content_updater = content_updater
-        super().__init__(content=default_content, **kwargs)
+        super().__init__(content=default_content, default_content=default_content, content_updater=content_updater, **kwargs)
 
     async def update_content(self):
         if inspect.iscoroutinefunction(self.content_updater):
             result = await self.content_updater()
         else:
             result = self.content_updater()
-        self.update(content=result)
+        self.content = result
 
 
 def cli_spinner():
