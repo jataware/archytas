@@ -93,6 +93,7 @@ class ReActAgent(Agent):
         tools.append(self)
         self._raw_tools = tools
         self.tools = make_tool_dict(tools)
+        self.current_query = None
 
         if thought_handler is Undefined:
             self.thought_handler = self.thought_callback
@@ -165,6 +166,9 @@ class ReActAgent(Agent):
         self.errors = 0
         self.steps = 0
 
+        # Set the current query for use in tools, auto context, etc
+        self.current_query = query
+
         # run the initial user query
         action_str = await self.query(query)
 
@@ -220,8 +224,10 @@ class ReActAgent(Agent):
                         "final_answer": tool_input,
                     }
                 )
+                self.current_query = None
                 return tool_input
             if tool_name == "fail_task":
+                self.current_query = None
                 raise FailedTaskError(tool_input)
 
             # run tool
@@ -271,9 +277,11 @@ class ReActAgent(Agent):
             # Check loop controller to see if we need to stop or error
             if controller.state == LoopController.STOP_SUCCESS:
                 await self.summarize_messages()
+                self.current_query = None
                 return tool_output
             if controller.state == LoopController.STOP_FATAL:
                 await self.summarize_messages()
+                self.current_query = None
                 raise FailedTaskError(tool_output)
 
             # have the agent observe the result, and get the next action
