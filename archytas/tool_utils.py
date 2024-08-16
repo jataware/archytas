@@ -119,7 +119,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
             # Initialise positional and keyword argument holders
             pargs = []
             kwargs = {}
-
+            pdb.set_trace()
             if self_ref:
                 pargs.append(self_ref)
 
@@ -360,8 +360,8 @@ def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str,
     # convert the default value to a string 
     if is_dataclass(arg_default):
         arg_default = str(asdict(arg_default)) # convert dataclass to dict
-    elif issubclass(arg_type, BaseModel):
-        arg_default = str(arg_default.dict()) # convert pydantic model to dict
+    elif isinstance(arg_default, BaseModel):
+        arg_default = str(arg_default.model_dump()) # convert pydantic model to dict
     else:
         arg_default = str(arg_default) if arg_default is not None else None
 
@@ -373,6 +373,19 @@ def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str,
 
 
 def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
+    """
+    Build the input description for a dataclass, including all of its fields (and potentially their nested fields).
+
+    Args:
+        arg_type (type[DataclassInstance]): The dataclass type to get the input description for
+        arg_name (str): The name of the argument
+        arg_desc (str): The description of the argument
+        arg_default (str): The default value of the argument
+        indent (int): The level of indentation to use for the description
+
+    Returns:
+        list[str]: A list of strings that make up the input description for the dataclass
+    """
     chunks = []
     num_fields = len(arg_type.__dataclass_fields__)
     num_required_fields = sum(1 for field in arg_type.__dataclass_fields__.values() if isinstance(field.default, _MISSING_TYPE) and isinstance(field.default, _MISSING_TYPE))
@@ -425,7 +438,73 @@ def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name
     return chunks
 
 def get_pydantic_input_description(arg_type:type[BaseModel], arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
-    pdb.set_trace()
+    """
+    Build the input description for a pydantic model, including all of its fields (and potentially their nested fields).
+
+    Args:
+        arg_type (type[BaseModel]): The pydantic model type to get the input description for
+        arg_name (str): The name of the argument
+        arg_desc (str): The description of the argument
+        arg_default (str): The default value of the argument
+        indent (int): The level of indentation to use for the description
+
+    Returns:
+        list[str]: A list of strings that make up the input description for the pydantic model
+    """
+    chunks = []
+    num_fields = len(arg_type.model_fields)
+    num_required_fields = sum(1 for field in arg_type.model_fields.values() if field.is_required())
+    num_optional_fields = num_fields - num_required_fields
+
+    # argument name and high level description
+    chunks.append(f'\n{TAB*indent}"{arg_name}":')
+    if arg_desc:
+        chunks.append(f" {arg_desc}.")
+    if arg_default:
+        chunks.append(f" Defaults to {arg_default}.")
+    if num_required_fields == 0:
+        chunks.append(" a json object with zero or more of the following optional fields:\n")
+    elif num_optional_fields > 0:
+        chunks.append(" a json object with the following fields (optional fields may be omitted):\n")
+    else:
+        chunks.append(" a json object with the following fields:\n")
+
+    # opening brackets
+    chunks.append(f"{TAB*(indent)}{{")
+
+    # get the description for each field
+    for field_name, field in arg_type.model_fields.items():
+        field_type = field.annotation
+        field_desc = field.description
+
+        # determine the default value of the field
+        field_default = None
+        if not field.is_required():
+            if field.default_factory is not None:
+                field_default = field.default_factory()
+            else:
+                field_default = field.default
+
+        # if the field is a structured type, recursively get the input description
+        if is_structured_type(field_type):
+            chunks.extend(get_structured_input_description(field_type, field_name, field_desc, field_default, indent=indent+1))
+            continue
+
+        # add the field description to the chunks
+        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({field_type.__name__}{", optional" if field_default is not None else ""})')
+        if field_desc:
+            chunks.append(f" {field_desc}.")
+        if field_default is not None:
+            chunks.append(f" Defaults to {field_default}.")
+        
+    # closing brackets
+    chunks.append(f"\n{TAB*indent}}}")
+
+    return chunks
+
+
+
+
 
 def collect_tools_from_object(obj: object):
     result = []
