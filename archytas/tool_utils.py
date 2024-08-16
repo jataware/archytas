@@ -4,8 +4,12 @@ from rich import traceback
 
 traceback.install(show_locals=True)
 from textwrap import indent
-from types import FunctionType
-from typing import Callable, Any
+from typing import Callable, Any, ParamSpec, TypeVar, overload, TYPE_CHECKING
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance # only available to type checkers
+from typing_extensions import TypeIs
+from dataclasses import is_dataclass, asdict, _MISSING_TYPE
+from pydantic import BaseModel
 
 from .agent import Agent
 
@@ -22,6 +26,7 @@ import pdb
 # man_page:str|None=None
 # wrapper._man_page = man_page
 
+TAB = '    '
 
 # Class/type definition for types used in dependency injection.
 AgentRef = type("AgentRef", (), {})
@@ -50,13 +55,21 @@ def toolset(*args, **kwargs):
     return decorator
 
 
-def tool(*, name: str | None = None, autosummarize: bool = False):
+R = TypeVar("R")
+P = ParamSpec("P")
+@overload
+def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
+@overload
+def tool(*, name: str | None = None, autosummarize: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+@overload
+def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False) -> Callable[P, R]: ...
+def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
     Usage:
     ```
-        @tool()
+        @tool
         def my_tool(arg:type) -> type:
             '''
             Short description of the tool
@@ -76,6 +89,11 @@ def tool(*, name: str | None = None, autosummarize: bool = False):
             '''
     ```
     """
+
+    # decorator case where the decorator is used directly on the func
+    # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
+    if func is not None:
+        return tool(name=name, autosummarize=autosummarize)(func)
 
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
@@ -147,7 +165,6 @@ def tool(*, name: str | None = None, autosummarize: bool = False):
 
     return decorator
 
-
 def is_tool(obj: Callable | type) -> bool:
     """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
     return (
@@ -156,14 +173,9 @@ def is_tool(obj: Callable | type) -> bool:
 
 
 def get_tool_prompt_description(obj: Callable | type | Any):
-    return get_prompt_description(obj)
-
-
-def get_prompt_description(obj: Callable | type | Any):
 
     # get the list of arguments
     chunks = []
-    tab = "    "
     if getattr(obj, '_disabled', False):
         return ""
 
@@ -176,12 +188,12 @@ def get_prompt_description(obj: Callable | type | Any):
         ############### NAME/DESCRIPTION ###############
         chunks.append(f"{obj._name}:\n")
         if short_desc:
-            chunks.append(f"{tab}{short_desc}\n\n")
+            chunks.append(f"{TAB}{short_desc}\n\n")
         if long_desc:
-            chunks.append(f"{indent(long_desc, tab)}\n\n")
+            chunks.append(f"{indent(long_desc, TAB)}\n\n")
 
         #################### INPUT ####################
-        chunks.append("    _input_: ")
+        chunks.append(f"{TAB}_input_: ")
 
         if len(args_list) == 0:
             chunks.append("None")
@@ -196,13 +208,14 @@ def get_prompt_description(obj: Callable | type | Any):
 
         # all other cases have arguments wrapped in a json
         else:
-            chunks.append("a json object with the following fields:\n    {")
+            chunks.append(f"a json object with the following fields:\n{TAB}{{")
             for arg_name, arg_type, arg_desc, arg_default in args_list:
-                chunks.append(f'\n        "{arg_name}": # ({arg_type.__name__}')
-                if arg_default:
-                    chunks.append(f", optional")
-                chunks.append(f") {arg_desc}")
-            chunks.append(f"\n{tab}}}")
+                if is_structured_type(arg_type):
+                    chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc, arg_default, indent=2))
+                    continue
+
+                chunks.append(f'\n{TAB}{TAB}"{arg_name}": ({arg_type.__name__}{", optional" if arg_default else ""}) {arg_desc}')
+            chunks.append(f"\n{TAB}}}")
 
         #################### OUTPUT ####################
         chunks.append("\n    _output_: ")
@@ -227,13 +240,13 @@ def get_prompt_description(obj: Callable | type | Any):
                 chunks.append(f"{obj.__class__.__name__} (class instance):\n")
             docstring = inspect.getdoc(obj)
             if docstring:
-                chunks.append(f"{indent(docstring, tab)}\n\n")
+                chunks.append(f"{indent(docstring, TAB)}\n\n")
 
             #################### METHODS ####################
-            chunks.append(f"{tab}methods:\n")
+            chunks.append(f"{TAB}methods:\n")
             for method in tool_methods:
-                method_str = get_prompt_description(method)
-                chunks.append(f"{indent(method_str, tab*2)}\n\n")
+                method_str = get_tool_prompt_description(method)
+                chunks.append(f"{indent(method_str, TAB*2)}\n\n")
 
     return "".join(chunks)
 
@@ -330,6 +343,89 @@ def get_tool_signature(
 
     return args_list, ret, desc, injected_args
 
+def is_structured_type(arg_type:type) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
+    return is_dataclass(arg_type) or issubclass(arg_type, BaseModel)
+
+def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str, arg_default:Any|None, *, indent:int) -> list[str]:
+    """
+    Generate the tool description for a structured argument like a dataclass or pydantic model.
+
+    Args:
+        arg_type (type): The type of the structured argument. currently only supports dataclasses and pydantic models
+        arg_name (str): The name of the argument
+        arg_desc (str): The description of the argument
+        arg_default (Any|None): The default value of the argument. None indicates no default value
+    """
+
+    # convert the default value to a string 
+    if is_dataclass(arg_default):
+        arg_default = str(asdict(arg_default)) # convert dataclass to dict
+    elif issubclass(arg_type, BaseModel):
+        arg_default = str(arg_default.dict()) # convert pydantic model to dict
+    else:
+        arg_default = str(arg_default) if arg_default is not None else None
+
+    if is_dataclass(arg_type):
+        return get_dataclass_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
+
+    if issubclass(arg_type, BaseModel):
+        return get_pydantic_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
+
+
+def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
+    chunks = []
+    num_fields = len(arg_type.__dataclass_fields__)
+    num_required_fields = sum(1 for field in arg_type.__dataclass_fields__.values() if isinstance(field.default, _MISSING_TYPE) and isinstance(field.default, _MISSING_TYPE))
+    num_optional_fields = num_fields - num_required_fields
+    
+    # argument name and high level description
+    chunks.append(f'\n{TAB*indent}"{arg_name}":')
+    if arg_desc:
+        chunks.append(f" {arg_desc}.")
+    if arg_default:
+        chunks.append(f" Defaults to {arg_default}.")
+    if num_required_fields == 0:
+        chunks.append(" a json object with zero or more of the following optional fields:\n")
+    elif num_optional_fields > 0:
+        chunks.append(" a json object with the following fields (optional fields may be omitted):\n")
+    else:
+        chunks.append(" a json object with the following fields:\n")
+    
+    # opening brackets
+    chunks.append(f"{TAB*(indent)}{{")
+
+    # get the description for each field
+    for field_name, field in arg_type.__dataclass_fields__.items():
+        field_type = field.type
+        field_desc = field.metadata.get("description", "")
+
+        # determine the default value of the field
+        if not isinstance(field.default, _MISSING_TYPE):
+            field_default = field.default
+        elif not isinstance(field.default_factory, _MISSING_TYPE):
+            field_default = field.default_factory()
+        else:
+            field_default = None
+        
+        # if the field is a structured type, recursively get the input description
+        if is_structured_type(field_type):
+            chunks.extend(get_structured_input_description(field_type, field_name, field_desc, field_default, indent=indent+1))
+            continue
+
+        # add the field description to the chunks
+        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({field_type.__name__}{", optional" if field_default is not None else ""})')
+        if field_desc:
+            chunks.append(f" {field_desc}.")
+        if field_default is not None:
+            chunks.append(f" Defaults to {field_default}.")
+
+    # closing brackets
+    chunks.append(f"\n{TAB*indent}}}")
+
+    return chunks
+
+def get_pydantic_input_description(arg_type:type[BaseModel], arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
+    pdb.set_trace()
 
 def collect_tools_from_object(obj: object):
     result = []
