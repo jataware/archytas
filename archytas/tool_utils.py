@@ -119,7 +119,6 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
             # Initialise positional and keyword argument holders
             pargs = []
             kwargs = {}
-            pdb.set_trace()
             if self_ref:
                 pargs.append(self_ref)
 
