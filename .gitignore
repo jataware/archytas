@@ -6,6 +6,12 @@ dist/
 
 # chat history
 chat_history.txt
+.history
+
+# editor config files
+pyrightconfig.json
+.zed/
+.vscode/
 
 # autoenv files
 .autoenv
