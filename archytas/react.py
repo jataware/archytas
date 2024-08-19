@@ -70,6 +70,7 @@ class ReActAgent(Agent):
         max_errors: int | None = 3,
         max_react_steps: int | None = None,
         thought_handler: typing.Callable | None = Undefined,
+        message_history: typing.Optional[list[Message]] | None = None,
         **kwargs,
     ):
         """
@@ -84,8 +85,8 @@ class ReActAgent(Agent):
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
             thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
                     print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
+            message_history (list[Message], optional): A list of messages to start the agent with. Defaults to None.
         """
-
         # create a dictionary for looking up tools by name
         tools = tools or []
         if allow_ask_user:
@@ -106,9 +107,12 @@ class ReActAgent(Agent):
             names == keys
         ), f"Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}"
 
+        # Set up message history
+        self.message_history = message_history if message_history is not None else []  # Default to empty list if None
+
         # create the prompt with the tools, and initialize the agent
         self.prompt = build_prompt(tools)
-        super().__init__(model=model, prompt=self.prompt, api_key=api_key, **kwargs)
+        super().__init__(model=model, prompt=self.prompt, api_key=api_key, message_history=self.message_history, **kwargs)
 
         # react settings
         self.max_errors = max_errors or float("inf")

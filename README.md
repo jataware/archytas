@@ -50,7 +50,7 @@ some_tools = [PythonTool, ..., etc.]
 agent = ReActAgent(tools=some_tools, verbose=True)
 
 # REPL to interact with agent
-for query in REPL()
+for query in REPL():
     try:
         answer = agent.react(query)
         print(answer)
