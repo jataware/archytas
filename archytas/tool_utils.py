@@ -4,7 +4,8 @@ from rich import traceback
 
 traceback.install(show_locals=True)
 from textwrap import indent
-from typing import Callable, Any, ParamSpec, TypeVar, overload, TYPE_CHECKING
+from types import UnionType, GenericAlias
+from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload, TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance # only available to type checkers
 from typing_extensions import TypeIs
@@ -119,6 +120,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
             # Initialise positional and keyword argument holders
             pargs = []
             kwargs = {}
+            pdb.set_trace() # need to look at the func signature to determine what to do here...
             if self_ref:
                 pargs.append(self_ref)
 
@@ -213,7 +215,7 @@ def get_tool_prompt_description(obj: Callable | type | Any):
                     chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc, arg_default, indent=2))
                     continue
 
-                chunks.append(f'\n{TAB}{TAB}"{arg_name}": ({arg_type.__name__}{", optional" if arg_default else ""}) {arg_desc}')
+                chunks.append(f'\n{TAB}{TAB}"{arg_name}": ({type_to_str(arg_type)}{", optional" if arg_default else ""}) {arg_desc}')
             chunks.append(f"\n{TAB}}}")
 
         #################### OUTPUT ####################
@@ -221,7 +223,7 @@ def get_tool_prompt_description(obj: Callable | type | Any):
         if ret_type is None:
             chunks.append("None")
         else:
-            chunks.append(f"({ret_type.__name__}) {ret_description}")
+            chunks.append(f"({type_to_str(ret_type)}) {ret_description}")
 
         ############### EXAMPLES ###############
         # TODO: examples need to be parsed...
@@ -341,9 +343,33 @@ def get_tool_signature(
     desc = (docstring.short_description, docstring.long_description, examples)
 
     return args_list, ret, desc, injected_args
+def is_structured_type(arg_type:type|UnionType|GenericAlias) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
+    if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
+        assert not any(is_structured_type(t) for t in arg_type.__args__), f"Unions containing any structured types are not supported. Got {arg_type}"
+        return False
 
-def is_structured_type(arg_type:type) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
+    # handle if type has a generic subscript (e.g. list[str])
+    arg_type = get_origin(arg_type) or arg_type
     return is_dataclass(arg_type) or issubclass(arg_type, BaseModel)
+
+#### HACKY and not working ####
+# from types import UnionType
+# from typing import get_origin
+# def is_structured_type(arg_type:type) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
+
+#     print(f'{arg_type=}, {type(arg_type)}')
+#     if isinstance(arg_type, UnionType):
+#         structured = [is_structured_type(t) for t in arg_type.__args__]
+#         if any(structured):
+#             raise ValueError(f"Union types with structured types are not supported. Got {arg_type}")
+#         return False
+#     if (origin:=get_origin(arg_type)) is not None and origin != arg_type:
+#         if is_dataclass(arg_type) or issubclass(get_origin(arg_type), BaseModel):
+#             raise ValueError(f"Generic types with structured types are not supported. Got {arg_type}")
+#         return False
+
+#     return is_dataclass(arg_type) or issubclass(get_origin(arg_type) or arg_type, BaseModel)
+
 
 def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str, arg_default:Any|None, *, indent:int) -> list[str]:
     """
@@ -425,7 +451,7 @@ def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name
             continue
 
         # add the field description to the chunks
-        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({field_type.__name__}{", optional" if field_default is not None else ""})')
+        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({type_to_str(field_type)}{", optional" if field_default is not None else ""})')
         if field_desc:
             chunks.append(f" {field_desc}.")
         if field_default is not None:
@@ -490,7 +516,7 @@ def get_pydantic_input_description(arg_type:type[BaseModel], arg_name:str, arg_d
             continue
 
         # add the field description to the chunks
-        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({field_type.__name__}{", optional" if field_default is not None else ""})')
+        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({type_to_str(field_type)}{", optional" if field_default is not None else ""})')
         if field_desc:
             chunks.append(f" {field_desc}.")
         if field_default is not None:
@@ -501,7 +527,18 @@ def get_pydantic_input_description(arg_type:type[BaseModel], arg_name:str, arg_d
 
     return chunks
 
-
+def type_to_str(t: type|GenericAlias|UnionType) -> str:
+    # TODO: this could be more robust, there are probably cases it doesn't cover
+    if isinstance(t, type):
+        return t.__name__
+    elif isinstance(t, GenericAlias):
+        return f"{get_origin(t).__name__}[{', '.join(type_to_str(a) for a in get_type_args(t))}]"
+    elif get_origin(t) is Union:
+        return ' | '.join(type_to_str(a) for a in get_type_args(t))
+    elif isinstance(t, UnionType):
+        return str(t)
+    else:
+        raise ValueError(f"Unsupported type {t}")
 
 
 
