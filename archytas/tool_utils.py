@@ -105,41 +105,43 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
 
         # attach usage description to the wrapper function
         args_list, ret, desc, injections = get_tool_signature(func)
+        arg_preprocessor = make_arg_preprocessor(args_list)
 
         func._name = name if name else func.__name__
         func._is_tool = True
         func.autosummarize = autosummarize
 
         async def run(
-            args: tuple[object, dict | list | str | int | float | bool | None],
+            args: dict | list | str | int | float | bool | None,
             tool_context: dict[str, object] = None,
             self_ref: object = None
 
         ):
             """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
-            # Initialise positional and keyword argument holders
-            pargs = []
-            kwargs = {}
-            pdb.set_trace() # need to look at the func signature to determine what to do here...
+
+            # Initialise positional and keyword argument structs
+            pargs, kwargs = arg_preprocessor(args)
+
             if self_ref:
-                pargs.append(self_ref)
+                pargs.insert(0, self_ref)
+
 
             # TODO: make this look at _call_type rather than isinstance to determine what to do
             #      single argument functions that take a dict vs multi-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
-            if args is None:
-                pass
-            elif len(args_list) == 1:
-                pargs.append(args)
-            elif isinstance(args, dict):
-                kwargs.update(args)
-            elif isinstance(args, list):
-                pargs.extend(args)
-            elif isinstance(args, (str, int, float, bool)):
-                pargs.append(args)
-            else:
-                raise TypeError(
-                    f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}"
-                )
+            # if args is None:
+            #     pass
+            # elif len(args_list) == 1:
+            #     pargs.append(args)
+            # elif isinstance(args, dict):
+            #     kwargs.update(args)
+            # elif isinstance(args, list):
+            #     pargs.extend(args)
+            # elif isinstance(args, (str, int, float, bool)):
+            #     pargs.append(args)
+            # else:
+            #     raise TypeError(
+            #         f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}"
+            #     )
 
             # Add injections to kwargs
             for inj_name, inj_type in injections.items():
@@ -343,7 +345,70 @@ def get_tool_signature(
     desc = (docstring.short_description, docstring.long_description, examples)
 
     return args_list, ret, desc, injected_args
+
+
+
+def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | None]]) -> Callable[[Any], tuple[list, dict]]:
+    """
+    Make a preprocessor function that converts the agent's input into a tool into *pargs, **kwargs for the tool function
+
+    Args:
+        args_list: A list of tuples (name, type, description, default) for each argument
+    
+    Returns:
+        preprocessor (args: Any) -> (pargs, kwargs): 
+    """
+
+    def preprocessor(args: dict|str|int|float|bool|None) -> tuple[list, dict]:
+        """
+        Argument preprocessor function for a tool function.
+
+        Args:
+            args (dict|str|int|float|bool|None): The input arguments for the tool function
+        
+        Returns:
+            tuple[list, dict]: The positional arguments and keyword arguments for the tool. i.e. call `func(*pargs, **kwargs)`
+        """
+        # zero argument case
+        if len(args_list) == 0:
+            assert args is None, f"Expected no arguments, got {args}"
+            return [], {}
+        
+        # single argument case
+        if len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
+            assert isinstance(args, (str, int, float, bool)), f"Expected a single argument of type {args_list[0][1]}, got {args}"
+            return [args], {}
+        
+        # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
+        #TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
+        pargs = []
+        kwargs = {}
+        for arg_name, arg_type, _, _ in args_list:
+            if arg_name not in args:
+                continue #function call will fail if the tool doesn't have a default
+
+            if not is_structured_type(arg_type):
+                kwargs[arg_name] = args[arg_name]
+                continue
+            
+            # deserialize the structured type from a dict into the dataclass/pydantic model
+            if is_dataclass(arg_type):
+                pdb.set_trace() # this needs to convert any nested structured types
+                pargs.append(arg_type(**args[arg_name]))
+            elif issubclass(arg_type, BaseModel):
+                pdb.set_trace() # this needs to do validation
+                pargs.append(arg_type(**args[arg_name]))
+            else:
+                raise ValueError(f"Unsupported structured type {arg_type}")
+        
+        pdb.set_trace()
+        return pargs, kwargs
+
+
+    return preprocessor
+
 def is_structured_type(arg_type:type|UnionType|GenericAlias) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
+    """Check if a type is a structured type like a dataclass or pydantic model"""
     if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
         assert not any(is_structured_type(t) for t in arg_type.__args__), f"Unions containing any structured types are not supported. Got {arg_type}"
         return False
@@ -351,24 +416,6 @@ def is_structured_type(arg_type:type|UnionType|GenericAlias) -> 'TypeIs[type[Bas
     # handle if type has a generic subscript (e.g. list[str])
     arg_type = get_origin(arg_type) or arg_type
     return is_dataclass(arg_type) or issubclass(arg_type, BaseModel)
-
-#### HACKY and not working ####
-# from types import UnionType
-# from typing import get_origin
-# def is_structured_type(arg_type:type) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
-
-#     print(f'{arg_type=}, {type(arg_type)}')
-#     if isinstance(arg_type, UnionType):
-#         structured = [is_structured_type(t) for t in arg_type.__args__]
-#         if any(structured):
-#             raise ValueError(f"Union types with structured types are not supported. Got {arg_type}")
-#         return False
-#     if (origin:=get_origin(arg_type)) is not None and origin != arg_type:
-#         if is_dataclass(arg_type) or issubclass(get_origin(arg_type), BaseModel):
-#             raise ValueError(f"Generic types with structured types are not supported. Got {arg_type}")
-#         return False
-
-#     return is_dataclass(arg_type) or issubclass(get_origin(arg_type) or arg_type, BaseModel)
 
 
 def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str, arg_default:Any|None, *, indent:int) -> list[str]:
