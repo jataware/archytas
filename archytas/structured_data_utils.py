@@ -3,7 +3,6 @@ from types import UnionType, GenericAlias
 from typing import Any, get_origin, get_args as get_type_args, Union, TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
-from typing_extensions import TypeIs
 from dataclasses import is_dataclass, asdict, _MISSING_TYPE
 
 from .utils import type_to_str
@@ -79,7 +78,7 @@ def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'Dataclas
     return cls(**body)
 
 
-def is_structured_type(arg_type: type | UnionType | GenericAlias) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
+def is_structured_type(arg_type: type | UnionType | GenericAlias) -> bool:
     """Check if a type is a structured type like a dataclass or pydantic model"""
     if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
         assert not any(is_structured_type(t) for t in get_type_args(arg_type)
