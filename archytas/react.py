@@ -254,7 +254,6 @@ class ReActAgent(Agent):
                         "input": tool_input,
                     }
                 )
-
                 tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
                 self.debug(
                     event_type="react_tool_output",
