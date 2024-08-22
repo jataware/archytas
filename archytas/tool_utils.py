@@ -305,10 +305,11 @@ def get_tool_signature(
         docstring_ret_type = docstring.returns.type_name
     except AttributeError:
         docstring_ret_type = "_empty"
-    if signature_ret_type.__name__ != docstring_ret_type:
-        raise ValueError(
-            f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{signature_ret_type.__name__}' for function '{func.__name__}'"
-        )
+    if type_to_str(signature_ret_type) != docstring_ret_type:# and signature_ret_type.__name__ != docstring_ret_type:
+        logger.warning(f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{type_to_str(signature_ret_type)}' for function '{func.__name__}'")
+        # raise ValueError(
+        #     f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{type_to_str(signature_ret_type)}' for function '{func.__name__}'"
+        # )
 
     # get the return type and description
     if docstring.returns is None:
