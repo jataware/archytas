@@ -49,7 +49,6 @@ def construct_structured_type(arg_type: type, data: dict) -> 'DataclassInstance|
     """
     
     if is_dataclass(arg_type):
-        pdb.set_trace() # this needs to convert any nested structured types
         return construct_dataclass(arg_type, data)
     
     if issubclass(arg_type, BaseModel):
@@ -61,7 +60,7 @@ def construct_structured_type(arg_type: type, data: dict) -> 'DataclassInstance|
     raise ValueError(f"Unsupported structured type {arg_type}")
 
 
-def construct_dataclass(dataclass_type: type, data: dict) -> 'DataclassInstance':
+def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'DataclassInstance':
     """
     Construct (potentially recursively) a dataclass instance from a dictionary.
 
@@ -72,9 +71,15 @@ def construct_dataclass(dataclass_type: type, data: dict) -> 'DataclassInstance'
     Returns:
         DataclassInstance: The constructed dataclass instance
     """
-    pdb.set_trace()
-    ...
-
+    fieldtypes = {f.name: f.type for f in cls.__dataclass_fields__.values()}
+    body = {}
+    for field_name, field_type in fieldtypes.items():
+        if field_name in data:
+            if is_structured_type(field_type):
+                body[field_name] = construct_structured_type(field_type, data[field_name])
+            else:
+                body[field_name] = data[field_name]
+    return cls(**body)
 
 
 def is_structured_type(arg_type:type|UnionType|GenericAlias) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
