@@ -40,8 +40,7 @@ class InstanceMethod:
         return self.func.__get__(instance, owner)
 
 
-
-def type_to_str(t: type|GenericAlias|UnionType|None) -> str:
+def type_to_str(t: type | GenericAlias | UnionType | None) -> str:
     """
     Convert a type to a string representation
     """
