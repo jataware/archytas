@@ -447,8 +447,10 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
             tool_dict[name] = tool
 
         # add each method to the tool dictionary under the name 'class_name.method_name'
-        methods = inspect.getmembers(tool, predicate=lambda member: inspect.ismethod(member)
-                                     or inspect.isfunction(member))
+        methods = inspect.getmembers(
+            tool,
+            predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member)
+        )
         for _, method in methods:
             if is_tool(method):
                 if isinstance(tool, type):
