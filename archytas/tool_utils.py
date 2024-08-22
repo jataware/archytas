@@ -5,14 +5,22 @@ from rich import traceback
 traceback.install(show_locals=True)
 from textwrap import indent
 from types import UnionType, GenericAlias
-from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload, TYPE_CHECKING
-if TYPE_CHECKING:
-    from _typeshed import DataclassInstance # only available to type checkers
-from typing_extensions import TypeIs
-from dataclasses import is_dataclass, asdict, _MISSING_TYPE
+from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload#, TYPE_CHECKING
+# if TYPE_CHECKING:
+#     from _typeshed import DataclassInstance # only available to type checkers
+# from typing_extensions import TypeIs
+# from dataclasses import is_dataclass, asdict, _MISSING_TYPE
 from pydantic import BaseModel
 
+from .structured_data_utils import (
+    is_structured_type, 
+    verify_model_fields, 
+    get_structured_input_description, 
+    construct_structured_type
+)
+from .utils import type_to_str
 from .agent import Agent
+from .constants import TAB
 
 import logging
 logger = logging.getLogger(__name__)
@@ -27,7 +35,7 @@ import pdb
 # man_page:str|None=None
 # wrapper._man_page = man_page
 
-TAB = '    '
+# TAB = '    '
 
 # Class/type definition for types used in dependency injection.
 AgentRef = type("AgentRef", (), {})
@@ -201,13 +209,13 @@ def get_tool_prompt_description(obj: Callable | type | Any):
         if len(args_list) == 0:
             chunks.append("None")
 
-        # 1-argument case for simple types don't need to be wrapped in a json
-        elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
-            arg_name, arg_type, arg_desc, arg_default = args_list[0]
-            chunks.append(f"({arg_type.__name__}")
-            if arg_default:
-                chunks.append(f", optional")
-            chunks.append(f") {arg_desc}")
+        # # 1-argument case for simple types don't need to be wrapped in a json
+        # elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
+        #     arg_name, arg_type, arg_desc, arg_default = args_list[0]
+        #     chunks.append(f"({arg_type.__name__}")
+        #     if arg_default:
+        #         chunks.append(f", optional")
+        #     chunks.append(f") {arg_desc}")
 
         # all other cases have arguments wrapped in a json
         else:
@@ -216,7 +224,11 @@ def get_tool_prompt_description(obj: Callable | type | Any):
                 if is_structured_type(arg_type):
                     chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc, arg_default, indent=2))
                     continue
-
+                
+                # TODO: this doesn't support unions
+                if not is_primitive_type(arg_type):
+                    raise ValueError(f"Unsupported argument type {arg_type}")
+                
                 chunks.append(f'\n{TAB}{TAB}"{arg_name}": ({type_to_str(arg_type)}{", optional" if arg_default else ""}) {arg_desc}')
             chunks.append(f"\n{TAB}}}")
 
@@ -304,7 +316,8 @@ def get_tool_signature(
     # Check if the docstring argument types match the signature argument types
     for arg_name, arg_type in signature_args.items():
         docstring_arg_type, _, _ = docstring_args[arg_name]
-        if docstring_arg_type not in (arg_type.__name__, str(arg_type)):
+        if docstring_arg_type not in (type_to_str(arg_type), type_to_str(get_origin(arg_type))):
+            pdb.set_trace()
             raise ValueError(
                 f"Docstring type '{docstring_arg_type}' does not match function signature type '{arg_type.__name__}' for argument '{arg_name}' for function '{func.__name__}'"
             )
@@ -359,233 +372,84 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
         preprocessor (args: Any) -> (pargs, kwargs): 
     """
 
-    def preprocessor(args: dict|str|int|float|bool|None) -> tuple[list, dict]:
+    def preprocessor(args: dict|None) -> tuple[list, dict]:
         """
         Argument preprocessor function for a tool function.
 
         Args:
-            args (dict|str|int|float|bool|None): The input arguments for the tool function
+            args (dict): The input arguments for the tool function
         
         Returns:
             tuple[list, dict]: The positional arguments and keyword arguments for the tool. i.e. call `func(*pargs, **kwargs)`
         """
+        if not isinstance(args, dict) and args is not None:
+            raise TypeError(f"_input_ must be a dictionary or None. Got {type(args)}")
+
         # zero argument case
         if len(args_list) == 0:
             assert args is None, f"Expected no arguments, got {args}"
             return [], {}
         
-        # single argument case
-        if len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
-            assert isinstance(args, (str, int, float, bool)), f"Expected a single argument of type {args_list[0][1]}, got {args}"
-            return [args], {}
+        # # single argument case
+        # if len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
+        #     assert isinstance(args, (str, int, float, bool)), f"Expected a single argument of type {args_list[0][1]}, got {args}"
+        #     return [args], {}
         
         # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
         #TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
         pargs = []
         kwargs = {}
         for arg_name, arg_type, _, _ in args_list:
+            
+            # potentially a default arg that is already provided.
+            # if not, calling the tool will fail
             if arg_name not in args:
-                continue #function call will fail if the tool doesn't have a default
+                continue
 
-            if not is_structured_type(arg_type):
+            # primitive types can be passed directly
+            if is_primitive_type(arg_type):
                 kwargs[arg_name] = args[arg_name]
                 continue
-            
-            # deserialize the structured type from a dict into the dataclass/pydantic model
-            if is_dataclass(arg_type):
-                pdb.set_trace() # this needs to convert any nested structured types
-                pargs.append(arg_type(**args[arg_name]))
-            elif issubclass(arg_type, BaseModel):
-                pdb.set_trace() # this needs to do validation
-                pargs.append(arg_type(**args[arg_name]))
-            else:
-                raise ValueError(f"Unsupported structured type {arg_type}")
-        
-        pdb.set_trace()
-        return pargs, kwargs
 
+            # structured types are deserialized from a dict into the dataclass/pydantic model
+            if is_structured_type(arg_type):
+                kwargs[arg_name] = construct_structured_type(arg_type, args[arg_name])
+                continue
+            
+            raise ValueError(f"Unsupported structured type {arg_type}")
+        
+        return pargs, kwargs
 
     return preprocessor
 
-def is_structured_type(arg_type:type|UnionType|GenericAlias) -> 'TypeIs[type[BaseModel] | type[DataclassInstance]]':
-    """Check if a type is a structured type like a dataclass or pydantic model"""
-    if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
-        assert not any(is_structured_type(t) for t in arg_type.__args__), f"Unions containing any structured types are not supported. Got {arg_type}"
-        return False
-
-    # handle if type has a generic subscript (e.g. list[str])
-    arg_type = get_origin(arg_type) or arg_type
-    return is_dataclass(arg_type) or issubclass(arg_type, BaseModel)
 
 
-def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str, arg_default:Any|None, *, indent:int) -> list[str]:
+def is_primitive_type(arg_type: type) -> bool:
     """
-    Generate the tool description for a structured argument like a dataclass or pydantic model.
-
-    Args:
-        arg_type (type): The type of the structured argument. currently only supports dataclasses and pydantic models
-        arg_name (str): The name of the argument
-        arg_desc (str): The description of the argument
-        arg_default (Any|None): The default value of the argument. None indicates no default value
-    """
-
-    # convert the default value to a string 
-    if is_dataclass(arg_default):
-        arg_default = str(asdict(arg_default)) # convert dataclass to dict
-    elif isinstance(arg_default, BaseModel):
-        arg_default = str(arg_default.model_dump()) # convert pydantic model to dict
-    else:
-        arg_default = str(arg_default) if arg_default is not None else None
-
-    if is_dataclass(arg_type):
-        return get_dataclass_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
-
-    if issubclass(arg_type, BaseModel):
-        return get_pydantic_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
-
-
-def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
-    """
-    Build the input description for a dataclass, including all of its fields (and potentially their nested fields).
-
-    Args:
-        arg_type (type[DataclassInstance]): The dataclass type to get the input description for
-        arg_name (str): The name of the argument
-        arg_desc (str): The description of the argument
-        arg_default (str): The default value of the argument
-        indent (int): The level of indentation to use for the description
-
-    Returns:
-        list[str]: A list of strings that make up the input description for the dataclass
-    """
-    chunks = []
-    num_fields = len(arg_type.__dataclass_fields__)
-    num_required_fields = sum(1 for field in arg_type.__dataclass_fields__.values() if isinstance(field.default, _MISSING_TYPE) and isinstance(field.default, _MISSING_TYPE))
-    num_optional_fields = num_fields - num_required_fields
+    Check if a type is a primitive type
     
-    # argument name and high level description
-    chunks.append(f'\n{TAB*indent}"{arg_name}":')
-    if arg_desc:
-        chunks.append(f" {arg_desc}.")
-    if arg_default:
-        chunks.append(f" Defaults to {arg_default}.")
-    if num_required_fields == 0:
-        chunks.append(" a json object with zero or more of the following optional fields:\n")
-    elif num_optional_fields > 0:
-        chunks.append(" a json object with the following fields (optional fields may be omitted):\n")
-    else:
-        chunks.append(" a json object with the following fields:\n")
+    Primitive types are `str`, `int`, `float`, `bool`, `list`, and `dict`
+    Additionally list and dict may be parameterized with primitive types. e.g. `list[str]`, `dict[str, int]`
+    Lastly unions are considered primitive if all of their arguments are primitive types. e.g. `str | int`
+    """
     
-    # opening brackets
-    chunks.append(f"{TAB*(indent)}{{")
+    # simplest case
+    if arg_type in (str, int, float, bool, list, dict):
+        return True
+    
+    # list or dict parameterized with primitive types
+    if get_origin(arg_type) in (list, dict):
+        return all(is_primitive_type(a) for a in get_type_args(arg_type))
+    
+    # union of primitive types
+    if get_origin(arg_type) is Union or isinstance(arg_type, UnionType):
+        return all(is_primitive_type(a) for a in get_type_args(arg_type))
+    
+    return False
+    
 
-    # get the description for each field
-    for field_name, field in arg_type.__dataclass_fields__.items():
-        field_type = field.type
-        field_desc = field.metadata.get("description", "")
 
-        # determine the default value of the field
-        if not isinstance(field.default, _MISSING_TYPE):
-            field_default = field.default
-        elif not isinstance(field.default_factory, _MISSING_TYPE):
-            field_default = field.default_factory()
-        else:
-            field_default = None
-        
-        # if the field is a structured type, recursively get the input description
-        if is_structured_type(field_type):
-            chunks.extend(get_structured_input_description(field_type, field_name, field_desc, field_default, indent=indent+1))
-            continue
 
-        # add the field description to the chunks
-        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({type_to_str(field_type)}{", optional" if field_default is not None else ""})')
-        if field_desc:
-            chunks.append(f" {field_desc}.")
-        if field_default is not None:
-            chunks.append(f" Defaults to {field_default}.")
-
-    # closing brackets
-    chunks.append(f"\n{TAB*indent}}}")
-
-    return chunks
-
-def get_pydantic_input_description(arg_type:type[BaseModel], arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
-    """
-    Build the input description for a pydantic model, including all of its fields (and potentially their nested fields).
-
-    Args:
-        arg_type (type[BaseModel]): The pydantic model type to get the input description for
-        arg_name (str): The name of the argument
-        arg_desc (str): The description of the argument
-        arg_default (str): The default value of the argument
-        indent (int): The level of indentation to use for the description
-
-    Returns:
-        list[str]: A list of strings that make up the input description for the pydantic model
-    """
-    chunks = []
-    num_fields = len(arg_type.model_fields)
-    num_required_fields = sum(1 for field in arg_type.model_fields.values() if field.is_required())
-    num_optional_fields = num_fields - num_required_fields
-
-    # argument name and high level description
-    chunks.append(f'\n{TAB*indent}"{arg_name}":')
-    if arg_desc:
-        chunks.append(f" {arg_desc}.")
-    if arg_default:
-        chunks.append(f" Defaults to {arg_default}.")
-    if num_required_fields == 0:
-        chunks.append(" a json object with zero or more of the following optional fields:\n")
-    elif num_optional_fields > 0:
-        chunks.append(" a json object with the following fields (optional fields may be omitted):\n")
-    else:
-        chunks.append(" a json object with the following fields:\n")
-
-    # opening brackets
-    chunks.append(f"{TAB*(indent)}{{")
-
-    # get the description for each field
-    for field_name, field in arg_type.model_fields.items():
-        field_type = field.annotation
-        field_desc = field.description
-
-        # determine the default value of the field
-        field_default = None
-        if not field.is_required():
-            if field.default_factory is not None:
-                field_default = field.default_factory()
-            else:
-                field_default = field.default
-
-        # if the field is a structured type, recursively get the input description
-        if is_structured_type(field_type):
-            chunks.extend(get_structured_input_description(field_type, field_name, field_desc, field_default, indent=indent+1))
-            continue
-
-        # add the field description to the chunks
-        chunks.append(f'\n{TAB*(indent+1)}"{field_name}": ({type_to_str(field_type)}{", optional" if field_default is not None else ""})')
-        if field_desc:
-            chunks.append(f" {field_desc}.")
-        if field_default is not None:
-            chunks.append(f" Defaults to {field_default}.")
-        
-    # closing brackets
-    chunks.append(f"\n{TAB*indent}}}")
-
-    return chunks
-
-def type_to_str(t: type|GenericAlias|UnionType) -> str:
-    # TODO: this could be more robust, there are probably cases it doesn't cover
-    if isinstance(t, type):
-        return t.__name__
-    elif isinstance(t, GenericAlias):
-        return f"{get_origin(t).__name__}[{', '.join(type_to_str(a) for a in get_type_args(t))}]"
-    elif get_origin(t) is Union:
-        return ' | '.join(type_to_str(a) for a in get_type_args(t))
-    elif isinstance(t, UnionType):
-        return str(t)
-    else:
-        raise ValueError(f"Unsupported type {t}")
 
 
 
