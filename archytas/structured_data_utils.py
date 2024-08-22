@@ -12,6 +12,7 @@ from .constants import TAB
 
 import pdb
 
+
 def verify_model_fields(cls: type[BaseModel], data: dict) -> dict:
     """
     Verify that the keys in the data dictionary are valid fields for the model class.
@@ -59,6 +60,7 @@ def construct_structured_type(arg_type: type, data: dict) -> 'DataclassInstance|
     pdb.set_trace()
     raise ValueError(f"Unsupported structured type {arg_type}")
 
+
 def construct_dataclass(dataclass_type: type, data: dict) -> 'DataclassInstance':
     """
     Construct (potentially recursively) a dataclass instance from a dictionary.
@@ -72,8 +74,6 @@ def construct_dataclass(dataclass_type: type, data: dict) -> 'DataclassInstance'
     """
     pdb.set_trace()
     ...
-
-
 
 
 
@@ -114,6 +114,7 @@ def get_structured_input_description(arg_type: type, arg_name:str, arg_desc:str,
         return get_pydantic_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
 
     raise ValueError(f"Unsupported structured type {arg_name}: {arg_type}")
+
 
 def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
     """
@@ -179,6 +180,7 @@ def get_dataclass_input_description(arg_type:'type[DataclassInstance]', arg_name
     chunks.append(f"\n{TAB*indent}}}")
 
     return chunks
+
 
 def get_pydantic_input_description(arg_type:type[BaseModel], arg_name:str, arg_desc:str, arg_default:str, *, indent:int) -> list[str]:
     """

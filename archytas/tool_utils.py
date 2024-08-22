@@ -5,16 +5,10 @@ from rich import traceback
 traceback.install(show_locals=True)
 from textwrap import indent
 from types import UnionType, GenericAlias
-from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload#, TYPE_CHECKING
-# if TYPE_CHECKING:
-#     from _typeshed import DataclassInstance # only available to type checkers
-# from typing_extensions import TypeIs
-# from dataclasses import is_dataclass, asdict, _MISSING_TYPE
-from pydantic import BaseModel
+from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload
 
 from .structured_data_utils import (
     is_structured_type, 
-    verify_model_fields, 
     get_structured_input_description, 
     construct_structured_type
 )
@@ -35,7 +29,6 @@ import pdb
 # man_page:str|None=None
 # wrapper._man_page = man_page
 
-# TAB = '    '
 
 # Class/type definition for types used in dependency injection.
 AgentRef = type("AgentRef", (), {})
@@ -120,7 +113,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
         func.autosummarize = autosummarize
 
         async def run(
-            args: dict | list | str | int | float | bool | None,
+            args: dict | None,
             tool_context: dict[str, object] = None,
             self_ref: object = None
 
@@ -132,24 +125,6 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
 
             if self_ref:
                 pargs.insert(0, self_ref)
-
-
-            # TODO: make this look at _call_type rather than isinstance to determine what to do
-            #      single argument functions that take a dict vs multi-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
-            # if args is None:
-            #     pass
-            # elif len(args_list) == 1:
-            #     pargs.append(args)
-            # elif isinstance(args, dict):
-            #     kwargs.update(args)
-            # elif isinstance(args, list):
-            #     pargs.extend(args)
-            # elif isinstance(args, (str, int, float, bool)):
-            #     pargs.append(args)
-            # else:
-            #     raise TypeError(
-            #         f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}"
-            #     )
 
             # Add injections to kwargs
             for inj_name, inj_type in injections.items():
@@ -208,14 +183,6 @@ def get_tool_prompt_description(obj: Callable | type | Any):
 
         if len(args_list) == 0:
             chunks.append("None")
-
-        # # 1-argument case for simple types don't need to be wrapped in a json
-        # elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
-        #     arg_name, arg_type, arg_desc, arg_default = args_list[0]
-        #     chunks.append(f"({arg_type.__name__}")
-        #     if arg_default:
-        #         chunks.append(f", optional")
-        #     chunks.append(f") {arg_desc}")
 
         # all other cases have arguments wrapped in a json
         else:
@@ -361,7 +328,7 @@ def get_tool_signature(
 
 
 
-def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | None]]) -> Callable[[Any], tuple[list, dict]]:
+def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | None]]) -> Callable[[dict|None], tuple[list, dict]]:
     """
     Make a preprocessor function that converts the agent's input into a tool into *pargs, **kwargs for the tool function
 
@@ -377,7 +344,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
         Argument preprocessor function for a tool function.
 
         Args:
-            args (dict): The input arguments for the tool function
+            args (dict|None): The input arguments for the tool function. None if no arguments are provided.
         
         Returns:
             tuple[list, dict]: The positional arguments and keyword arguments for the tool. i.e. call `func(*pargs, **kwargs)`
@@ -390,13 +357,8 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
             assert args is None, f"Expected no arguments, got {args}"
             return [], {}
         
-        # # single argument case
-        # if len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
-        #     assert isinstance(args, (str, int, float, bool)), f"Expected a single argument of type {args_list[0][1]}, got {args}"
-        #     return [args], {}
-        
         # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
-        #TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
+        # TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
         pargs = []
         kwargs = {}
         for arg_name, arg_type, _, _ in args_list:
@@ -447,10 +409,6 @@ def is_primitive_type(arg_type: type) -> bool:
     
     return False
     
-
-
-
-
 
 
 def collect_tools_from_object(obj: object):
