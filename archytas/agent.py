@@ -17,7 +17,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from typing import Callable, ContextManager, Any
+from typing import Callable, ContextManager, Any, Optional
 from enum import Enum
 
 from rich import print as rprint
@@ -107,6 +107,7 @@ class Agent:
         spinner: Callable[[], ContextManager] | None = cli_spinner,
         rich_print: bool = True,
         verbose: bool = False,
+        messages: Optional[list[Message]] | None = None,
     ):
         """
         Agent class for managing communication with OpenAI's API.
@@ -118,6 +119,7 @@ class Agent:
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
             verbose (bool, optional): Expands the debug output. Includes full query context on requests to the LLM. Defaults to False.
+            messages (list[Message], optional): A list of messages to initialize the agent's conversation history with. Defaults to an empty list.
 
         Raises:
             Exception: If no API key is given.
@@ -129,7 +131,7 @@ class Agent:
         self.verbose = verbose
         self.model = model
         self.system_message = Message(role=Role.system, content=prompt)
-        self.messages: list[Message] = []
+        self.messages: list[Message] = messages if messages is not None else []
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
