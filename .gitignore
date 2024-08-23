@@ -11,5 +11,10 @@ chat_history.txt
 .autoenv
 .autoleave
 
+# editor configuration
+.vscode/
+.zed/
+pyrightconfig.json
+
 # old reference code
 old_react/

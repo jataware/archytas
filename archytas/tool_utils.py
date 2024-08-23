@@ -1,18 +1,23 @@
+import logging
+from .constants import TAB
+from .agent import Agent
+from .utils import type_to_str
+from .structured_data_utils import (
+    is_structured_type,
+    get_structured_input_description,
+    construct_structured_type
+)
+from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload
+from types import UnionType, GenericAlias
+from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
 from rich import traceback
 
 traceback.install(show_locals=True)
-from textwrap import indent
-from types import FunctionType
-from typing import Callable, Any
 
-from .agent import Agent
 
-import logging
 logger = logging.getLogger(__name__)
-
-import pdb
 
 
 # TODO: separate system tools from library tools from user tools
@@ -38,25 +43,38 @@ INJECTION_MAPPING = {
     ReactContextRef: "react_context",
 }
 
+
 def toolset(*args, **kwargs):
     """
     A dummy decorator for backwards compatibility.
     Provides no funcitonality.
     Any class can now contain tools without a decorator.
     """
-    logger.warning("Warning: The usage of the @toolset decorator is deprecated and the decorator will be removed in a future version.")
+    logger.warning(
+        "Warning: The usage of the @toolset decorator is deprecated and the decorator will be removed in a future version.")
+
     def decorator(cls):
         return cls
     return decorator
 
 
-def tool(*, name: str | None = None, autosummarize: bool = False):
+R = TypeVar("R")
+P = ParamSpec("P")
+@overload
+def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
+@overload
+def tool(*, name: str | None = None, autosummarize: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+@overload
+def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False) -> Callable[P, R]: ...
+
+
+def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
     Usage:
     ```
-        @tool()
+        @tool
         def my_tool(arg:type) -> type:
             '''
             Short description of the tool
@@ -77,6 +95,11 @@ def tool(*, name: str | None = None, autosummarize: bool = False):
     ```
     """
 
+    # decorator case where the decorator is used directly on the func
+    # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
+    if func is not None:
+        return tool(name=name, autosummarize=autosummarize)(func)
+
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
         if not inspect.isfunction(func):
@@ -86,41 +109,25 @@ def tool(*, name: str | None = None, autosummarize: bool = False):
 
         # attach usage description to the wrapper function
         args_list, ret, desc, injections = get_tool_signature(func)
+        arg_preprocessor = make_arg_preprocessor(args_list)
 
         func._name = name if name else func.__name__
         func._is_tool = True
         func.autosummarize = autosummarize
 
         async def run(
-            args: tuple[object, dict | list | str | int | float | bool | None],
+            args: dict | None,
             tool_context: dict[str, object] = None,
             self_ref: object = None
 
         ):
             """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
-            # Initialise positional and keyword argument holders
-            pargs = []
-            kwargs = {}
+
+            # Initialise positional and keyword argument structs
+            pargs, kwargs = arg_preprocessor(args)
 
             if self_ref:
-                pargs.append(self_ref)
-
-            # TODO: make this look at _call_type rather than isinstance to determine what to do
-            #      single argument functions that take a dict vs multi-argument functions will both have a dict, but they need to be called differently func(args) vs func(**args)
-            if args is None:
-                pass
-            elif len(args_list) == 1:
-                pargs.append(args)
-            elif isinstance(args, dict):
-                kwargs.update(args)
-            elif isinstance(args, list):
-                pargs.extend(args)
-            elif isinstance(args, (str, int, float, bool)):
-                pargs.append(args)
-            else:
-                raise TypeError(
-                    f"args must be a valid json object type (dict, list, str, int, float, bool, or None). Got {type(args)}"
-                )
+                pargs.insert(0, self_ref)
 
             # Add injections to kwargs
             for inj_name, inj_type in injections.items():
@@ -156,14 +163,9 @@ def is_tool(obj: Callable | type) -> bool:
 
 
 def get_tool_prompt_description(obj: Callable | type | Any):
-    return get_prompt_description(obj)
-
-
-def get_prompt_description(obj: Callable | type | Any):
 
     # get the list of arguments
     chunks = []
-    tab = "    "
     if getattr(obj, '_disabled', False):
         return ""
 
@@ -176,49 +178,46 @@ def get_prompt_description(obj: Callable | type | Any):
         ############### NAME/DESCRIPTION ###############
         chunks.append(f"{obj._name}:\n")
         if short_desc:
-            chunks.append(f"{tab}{short_desc}\n\n")
+            chunks.append(f"{TAB}{short_desc}\n\n")
         if long_desc:
-            chunks.append(f"{indent(long_desc, tab)}\n\n")
+            chunks.append(f"{indent(long_desc, TAB)}\n\n")
 
         #################### INPUT ####################
-        chunks.append("    _input_: ")
+        chunks.append(f"{TAB}_input_: ")
 
         if len(args_list) == 0:
             chunks.append("None")
 
-        # 1-argument case for simple types don't need to be wrapped in a json
-        elif len(args_list) == 1 and args_list[0][1] in (str, int, float, bool):
-            arg_name, arg_type, arg_desc, arg_default = args_list[0]
-            chunks.append(f"({arg_type.__name__}")
-            if arg_default:
-                chunks.append(f", optional")
-            chunks.append(f") {arg_desc}")
-
         # all other cases have arguments wrapped in a json
         else:
-            chunks.append("a json object with the following fields:\n    {")
+            chunks.append(f"a json object with the following fields:\n{TAB}{{")
             for arg_name, arg_type, arg_desc, arg_default in args_list:
-                chunks.append(f'\n        "{arg_name}": # ({arg_type.__name__}')
-                if arg_default:
-                    chunks.append(f", optional")
-                chunks.append(f") {arg_desc}")
-            chunks.append(f"\n{tab}}}")
+                if is_structured_type(arg_type):
+                    chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc, arg_default, indent=2))
+                    continue
+
+                if not is_primitive_type(arg_type):
+                    raise ValueError(f"Unsupported argument type {arg_type}")
+
+                chunks.append(
+                    f'\n{TAB}{TAB}"{arg_name}": ({type_to_str(arg_type)}{", optional" if arg_default else ""}) {arg_desc}')
+            chunks.append(f"\n{TAB}}}")
 
         #################### OUTPUT ####################
         chunks.append("\n    _output_: ")
         if ret_type is None:
             chunks.append("None")
         else:
-            chunks.append(f"({ret_type.__name__}) {ret_description}")
+            chunks.append(f"({type_to_str(ret_type)}) {ret_description}")
 
         ############### EXAMPLES ###############
         # TODO: examples need to be parsed...
     else:
         tool_methods = [
-                tool_method
-                for tool_method in collect_tools_from_object(obj)
-                if not getattr(tool_method, "_disabled", False)
-            ]
+            tool_method
+            for tool_method in collect_tools_from_object(obj)
+            if not getattr(tool_method, "_disabled", False)
+        ]
         if tool_methods:
             ############### NAME/DESCRIPTION ###############
             if inspect.isclass(obj):
@@ -227,13 +226,13 @@ def get_prompt_description(obj: Callable | type | Any):
                 chunks.append(f"{obj.__class__.__name__} (class instance):\n")
             docstring = inspect.getdoc(obj)
             if docstring:
-                chunks.append(f"{indent(docstring, tab)}\n\n")
+                chunks.append(f"{indent(docstring, TAB)}\n\n")
 
             #################### METHODS ####################
-            chunks.append(f"{tab}methods:\n")
+            chunks.append(f"{TAB}methods:\n")
             for method in tool_methods:
-                method_str = get_prompt_description(method)
-                chunks.append(f"{indent(method_str, tab*2)}\n\n")
+                method_str = get_tool_prompt_description(method)
+                chunks.append(f"{indent(method_str, TAB*2)}\n\n")
 
     return "".join(chunks)
 
@@ -256,7 +255,8 @@ def get_tool_signature(
         ret: A tuple (name, type, description) for the return value
         desc: A tuple (short_description, long_description, examples) from the docstring for the function
     """
-    assert inspect.isfunction(func) or inspect.ismethod(func), f"get_tool_signature can only be used on functions or methods. Got {func}"
+    assert inspect.isfunction(func) or inspect.ismethod(
+        func), f"get_tool_signature can only be used on functions or methods. Got {func}"
 
     # get the function signature from the function and the docstring
     docstring = parse_docstring(func.__doc__)
@@ -288,7 +288,7 @@ def get_tool_signature(
     # Check if the docstring argument types match the signature argument types
     for arg_name, arg_type in signature_args.items():
         docstring_arg_type, _, _ = docstring_args[arg_name]
-        if docstring_arg_type not in (arg_type.__name__, str(arg_type)):
+        if docstring_arg_type not in (type_to_str(arg_type), type_to_str(get_origin(arg_type))):
             raise ValueError(
                 f"Docstring type '{docstring_arg_type}' does not match function signature type '{arg_type.__name__}' for argument '{arg_name}' for function '{func.__name__}'"
             )
@@ -309,10 +309,13 @@ def get_tool_signature(
         docstring_ret_type = docstring.returns.type_name
     except AttributeError:
         docstring_ret_type = "_empty"
-    if signature_ret_type.__name__ != docstring_ret_type:
-        raise ValueError(
-            f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{signature_ret_type.__name__}' for function '{func.__name__}'"
+    if type_to_str(signature_ret_type) != docstring_ret_type:  # and signature_ret_type.__name__ != docstring_ret_type:
+        logger.warning(
+            f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{type_to_str(signature_ret_type)}' for function '{func.__name__}'"
         )
+        # raise ValueError(
+        #     f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{type_to_str(signature_ret_type)}' for function '{func.__name__}'"
+        # )
 
     # get the return type and description
     if docstring.returns is None:
@@ -329,6 +332,87 @@ def get_tool_signature(
     desc = (docstring.short_description, docstring.long_description, examples)
 
     return args_list, ret, desc, injected_args
+
+
+def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | None]]) -> Callable[[dict | None], tuple[list, dict]]:
+    """
+    Make a preprocessor function that converts the agent's input into a tool into *pargs, **kwargs for the tool function
+
+    Args:
+        args_list: A list of tuples (name, type, description, default) for each argument
+
+    Returns:
+        preprocessor (args: Any) -> (pargs, kwargs): 
+    """
+
+    def preprocessor(args: dict | None) -> tuple[list, dict]:
+        """
+        Argument preprocessor function for a tool function.
+
+        Args:
+            args (dict|None): The input arguments for the tool function. None if no arguments are provided.
+
+        Returns:
+            tuple[list, dict]: The positional arguments and keyword arguments for the tool. i.e. call `func(*pargs, **kwargs)`
+        """
+        if not isinstance(args, dict) and args is not None:
+            raise TypeError(f"_input_ must be a dictionary or None. Got {type(args)}")
+
+        # zero argument case
+        if len(args_list) == 0:
+            assert args is None, f"Expected no arguments, got {args}"
+            return [], {}
+
+        # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
+        # TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
+        pargs = []
+        kwargs = {}
+        for arg_name, arg_type, _, _ in args_list:
+
+            # potentially a default arg that is already provided.
+            # if not, calling the tool will fail
+            if arg_name not in args:
+                continue
+
+            # primitive types can be passed directly
+            if is_primitive_type(arg_type):
+                kwargs[arg_name] = args[arg_name]
+                continue
+
+            # structured types are deserialized from a dict into the dataclass/pydantic model
+            if is_structured_type(arg_type):
+                kwargs[arg_name] = construct_structured_type(arg_type, args[arg_name])
+                continue
+
+            raise ValueError(f"Unsupported structured type {arg_type}")
+
+        return pargs, kwargs
+
+    return preprocessor
+
+
+def is_primitive_type(arg_type: type) -> bool:
+    """
+    Check if a type is a primitive type
+
+    Primitive types are `str`, `int`, `float`, `bool`, `list`, and `dict`
+    Additionally list and dict may be parameterized with primitive types. e.g. `list[str]`, `dict[str, int]`
+    Lastly unions are considered primitive if all of their arguments are primitive types. e.g. `str | int`
+    """
+
+    # simplest case
+    if arg_type in (str, int, float, bool, list, dict):
+        return True
+
+    # list or dict parameterized with primitive types
+    if get_origin(arg_type) in (list, dict):
+        return all(is_primitive_type(a) for a in get_type_args(arg_type))
+
+    # union of primitive types
+    if get_origin(arg_type) is Union or isinstance(arg_type, UnionType):
+        return all(is_primitive_type(a) for a in get_type_args(arg_type))
+
+    return False
 
 
 def collect_tools_from_object(obj: object):
@@ -363,7 +447,10 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
             tool_dict[name] = tool
 
         # add each method to the tool dictionary under the name 'class_name.method_name'
-        methods = inspect.getmembers(tool, predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member))
+        methods = inspect.getmembers(
+            tool,
+            predicate=lambda member: inspect.ismethod(member) or inspect.isfunction(member)
+        )
         for _, method in methods:
             if is_tool(method):
                 if isinstance(tool, type):
@@ -377,9 +464,11 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
                 tool_dict[method_name] = method
     return tool_dict
 
-def get_tool_names(tools:list[Callable | type | Any]):
+
+def get_tool_names(tools: list[Callable | type | Any]):
     res = list(make_tool_dict(tools).keys())
     return res
+
 
 def test():
     from archytas.tools import ask_user, datetime_tool, timestamp

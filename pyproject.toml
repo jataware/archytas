@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "archytas"
-version = "1.1.9"
+version = "1.2.0"
 description = "A library for pairing LLM agents with tools so they perform open ended tasks"
 authors = ["David Andrew Samson <david.andrew.engineer@gmail.com>", "Matthew Printz <matt@jataware.com>"]
 readme = "README.md"
@@ -22,6 +22,7 @@ docstring-parser = "^0.15"
 pytz = "^2023.3"
 toml = "^0.10.2"
 frozendict = "^2.3.8"
+pydantic = ">=1.9.0" #TODO: not sure what minimum pydantic version to put
 
 [tool.poetry.group.dev.dependencies]
 easyrepl = "^0.1.2"
