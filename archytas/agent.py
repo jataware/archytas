@@ -1,24 +1,17 @@
-import inspect
-import os
-import openai
-import logging
 import asyncio
-from openai import (
-    APITimeoutError,
-    APIError,
-    APIConnectionError,
-    RateLimitError,
-    InternalServerError,
-)
+import inspect
+import logging
+import os
+import warnings
+from enum import Enum
 from tenacity import (
     before_sleep_log,
     retry as tenacity_retry,
-    retry_if_exception_type as retry_if,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 from typing import Callable, ContextManager, Any, Optional
-from enum import Enum
 
 from rich import print as rprint
 from rich.spinner import Spinner
@@ -26,15 +19,32 @@ from rich.live import Live
 
 
 logger = logging.getLogger(__name__)
-retry = tenacity_retry(
-    reraise=True,
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if(
-        (APITimeoutError,APIError,APIConnectionError,RateLimitError,InternalServerError)
-    ),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-)
+
+
+def retry(fn):
+    def is_openai_error(err):
+        import openai
+        # Don't retry auth errors. Assume to be permanent without fixing auth.
+        if isinstance(err, openai.AuthenticationError):
+            return False
+        return isinstance(
+            err,
+            (
+                openai.APITimeoutError,
+                openai.APIError,
+                openai.APIConnectionError,
+                openai.RateLimitError,
+                openai.InternalServerError,
+            )
+        )
+
+    return tenacity_retry(
+        reraise=True,
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception(is_openai_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )(fn)
 
 
 class Role(str, Enum):
@@ -124,6 +134,7 @@ class Agent:
         Raises:
             Exception: If no API key is given.
         """
+        import openai
 
         self.rich_print = bool(
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
@@ -148,9 +159,7 @@ class Agent:
         if api_key is None:
             api_key = os.environ.get("OPENAI_API_KEY", None)
         if not api_key:
-            raise Exception(
-                "No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor."
-            )
+            warnings.warn("No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor.")
         openai.api_key = api_key
 
     def print(self, *args, **kwargs):
@@ -310,6 +319,7 @@ class Agent:
 
     @retry
     async def execute(self, additional_messages: list[Message] = []) -> str:
+        import openai
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
@@ -345,6 +355,7 @@ class Agent:
         Returns:
             str: The agent's response to the user query.
         """
+        import openai
         with self.spinner():
             if self.verbose:
                 self.debug(event_type="llm_oneshot", content=prompt)
