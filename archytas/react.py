@@ -1,11 +1,9 @@
-from archytas.agent import Agent, Message, Role
+from archytas.agent import Agent, BaseMessage, SystemMessage
 from archytas.prompt import build_prompt, build_all_tool_names
 from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 import asyncio
-import inspect
 import json
-import pdb
 import sys
 import logging
 import typing
@@ -38,7 +36,7 @@ class LoopController:
         self.state = 0
 
 
-class AutoSummarizedToolMessage(Message):
+class AutoSummarizedToolMessage(SystemMessage):
     """A message that replaces its full tool output with a summary after the ReAct loop is complete."""
 
     summary_content: str
@@ -46,13 +44,12 @@ class AutoSummarizedToolMessage(Message):
 
     def __init__(
         self,
-        role: Role,
         tool_content: str,
         summary_content: str,
     ):
         self.summarized = False
         self.summary_content = summary_content
-        super().__init__(role, tool_content)
+        super().__init__(tool_content)
 
     async def update_content(self):
         self.update(content=self.summary_content)
@@ -124,7 +121,7 @@ class ReActAgent(Agent):
 
     def update_prompt(self):
         self.prompt = build_prompt(self._raw_tools)
-        self.system_message["content"] = self.prompt
+        self.system_message = SystemMessage(content=self.prompt)
 
     def disable(self, *tool_names):
         if len(tool_names) == 0:
@@ -183,6 +180,7 @@ class ReActAgent(Agent):
                     "action": action_str,
                 }
             )
+            print("\naction:", action_str, "\n")
             # Convert agent output to json
             try:
                 if action_str.startswith('```json'):
@@ -290,7 +288,6 @@ class ReActAgent(Agent):
                 self.display_observation(tool_output)
             if getattr(tool_fn, "autosummarize", False):
                 action_str = await self.handle_message(AutoSummarizedToolMessage(
-                    role=Role.system,
                     tool_content=tool_output,
                     summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
                 ))
@@ -316,7 +313,7 @@ class ReActAgent(Agent):
 
         return thought, tool, tool_input
 
-    def execute(self, additional_messages: list[Message] = []) -> str:
+    def execute(self, additional_messages: list[BaseMessage] = []) -> str:
         """
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.

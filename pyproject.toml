@@ -24,9 +24,11 @@ frozendict = "^2.3.8"
 pydantic = ">=1.9.0" #TODO: not sure what minimum pydantic version to put
 langchain = "^0.3.3"
 langchain-core = "^0.3.9"
+langchain-community = "^0.2.6"
 langchain-openai = "*"
 langchain-anthropic = "^0.2.3"
 langchain-groq = "^0.2.0"
+anthropic = "^0.36.0"
 
 [tool.poetry.group.dev.dependencies]
 easyrepl = "^0.1.2"

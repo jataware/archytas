@@ -66,12 +66,49 @@ def retry(fn):
 
 class AuthenticationError(Exception):
     pass
+from langchain_community.chat_models import ChatOllama
+# from langchain_community.chat_models.anthropic import ChatAnthropic
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage, ToolMessage, FunctionMessage
+from langchain_core.output_parsers import JsonOutputParser
+
+import pydantic
+
+class ToolUsage(pydantic.BaseModel):
+    thought: str = pydantic.Field(description="Thought that led to calling the tool")
+    tool: str = pydantic.Field(description="Tool that will be invoked to satisfy thought")
+    tool_input: str = pydantic.Field(description="Argument(s) to pass in to the tool, if any")
+
+# parser = JsonOutputParser(pydantic_object=ToolUsage)
+# model = ChatOpenAI(model="gpt-4o")
+# model = ChatOllama(model="llama3", base_url="http://172.17.0.1:11434")
+model = ChatOllama(model="mistral", base_url="http://172.17.0.1:11434")
+# model = ChatAnthropic(model_name="claude-3-sonnet-20240229")
+# model = ChatAnthropic(model_name="claude-3-opus-20240229")
+# model = ChatAnthropic(model_name="claude-3-5-sonnet-20240620")
+
+# print("format_instructions: ", parser.get_format_instructions())
+# from langchain_core.prompts import PromptTemplate
 
 
-class Role(str, Enum):
-    system = "system"
-    assistant = "assistant"
-    user = "user"
+# prompt = PromptTemplate(
+#     template="Answer the user query.\n{format_instructions}\n{query}\n",
+#     input_variables=["query"],
+#     partial_variables={"format_instructions": parser.get_format_instructions()},
+# )
+
+# test_chain = prompt | model | parser
+# print(test_chain)
+# print(test_chain.get_graph())
+
+# print(test_chain.invoke({"query": "cats"}))
+
+
+logger = logging.getLogger(__name__)
+
+
+class AuthenticationError(Exception):
+    pass
 
 
 class AssistantMessage(langchain_messages.BaseMessage):
@@ -91,32 +128,25 @@ class Message(dict):
 class ContextMessage(Message):
     """Simple wrapper around a message that adds an id and optional lifetime."""
 
-    def __init__(self, role: Role, content: str, id: int, lifetime: int | None = None):
-        super().__init__(role=role, content=content)
-        self.id = id
-        self.lifetime = lifetime
+    id: int
+    lifetime: int | None = None
 
 
-class AutoContextMessage(Message):
+class AutoContextMessage(SystemMessage):
     """An automatically updating context message that remains towards the top of the message list."""
 
+    default_content: str
     content_updater: Callable[[], str]
 
-    def __init__(
-        self,
-        role: Role,
-        default_content: str,
-        content_updater: Callable[[], str] | None = None,
-    ):
-        super().__init__(role, default_content)
-        self.content_updater = content_updater
+    def __init__(self, default_content: str, content_updater: Callable[[], str], **kwargs):
+        super().__init__(content=default_content, default_content=default_content, content_updater=content_updater, **kwargs)
 
     async def update_content(self):
         if inspect.iscoroutinefunction(self.content_updater):
             result = await self.content_updater()
         else:
             result = self.content_updater()
-        self.update(content=result)
+        self.content = result
 
 
 def cli_spinner():
@@ -136,6 +166,7 @@ def auth(func):
         #     raise AuthenticationError(
         #         "No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor."
         #     )
+        import openai
         try:
             return await func(*args, **kwargs)
         except (openai.AuthenticationError, openai.OpenAIError) as err:
@@ -165,7 +196,7 @@ class Agent:
         messages: Optional[list[Message]] | None = None,
     ):
         """
-        Agent class for managing communication with OpenAI's API.
+        Agent class for managing communication with Language Models mediated by Langchain
 
         Args:
             model (str, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
@@ -186,8 +217,8 @@ class Agent:
         )
         self.verbose = verbose
         self.model = model
-        self.system_message = Message(role=Role.system, content=prompt)
-        self.messages: list[Message] = messages if messages is not None else []
+        self.system_message = SystemMessage(content=prompt)
+        self.messages: list[BaseMessage] = []
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
@@ -201,11 +232,9 @@ class Agent:
         self.auto_update_context = False
 
         # check that an api key was given, and set it
-        if api_key is None:
-            api_key = os.environ.get("OPENAI_API_KEY", None)
-        if not api_key:
-            warnings.warn("No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor.")
-        openai.api_key = api_key
+        # if api_key is None:
+        #     api_key = os.environ.get("OPENAI_API_KEY", None)
+        # openai.api_key = api_key
 
     def print(self, *args, **kwargs):
         if self.rich_print:
@@ -226,7 +255,7 @@ class Agent:
         self._current_context_id += 1
         return self._current_context_id
 
-    async def all_messages(self) -> list[Message]:
+    async def all_messages(self) -> list[BaseMessage]:
         messages = [self.system_message]
         if self.auto_context_message:
             if self.auto_update_context:
@@ -251,7 +280,6 @@ class Agent:
             int: The id of the context message.
         """
         context_message = ContextMessage(
-            role=Role.system,
             content=context,
             id=self.new_context_id(),
             lifetime=lifetime,
@@ -319,7 +347,6 @@ class Agent:
         self.auto_update_context = auto_update
         if not self.auto_context_message:
             self.auto_context_message = AutoContextMessage(
-                role=Role.system,
                 default_content=default_content,
                 content_updater=content_updater,
             )
@@ -329,22 +356,22 @@ class Agent:
                 content_updater=content_updater,
             )
 
-    async def handle_message(self, message: Message):
+    async def handle_message(self, message: BaseMessage):
         """Appends a message to the message list and executes."""
         self.messages.append(message)
         return await self.execute()
 
     async def query(self, message: str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
-        return await self.handle_message(Message(role=Role.user, content=message))
+        return await self.handle_message(HumanMessage(content=message))
 
     async def observe(self, observation: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(Message(role=Role.system, content=observation))
+        return await self.handle_message(HumanMessage(content=observation))
 
     async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
-        return await self.execute([Message(role=Role.system, content=query)])
+        return await self.execute([HumanMessage(content=query)])
 
     async def error(self, error: str, drop_error: bool = True) -> str:
         """
@@ -354,7 +381,7 @@ class Agent:
             error (str): The error message to send to the agent.
             drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
-        result = await self.handle_message(Message(role=Role.system, content=f"ERROR: {error}"))
+        result = await self.handle_message(HumanMessage(content=f"ERROR: {error}"))
 
         # Drop error + LLM's bad input from chat history
         if drop_error:
@@ -363,21 +390,24 @@ class Agent:
         return result
 
     @auth
-    async def execute(self, additional_messages: list[Message] = []) -> str:
-        import openai
+    async def execute(self, additional_messages: list[BaseMessage] = []) -> str:
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
-            completion = openai.chat.completions.create(
-                model=self.model,
-                messages=messages,
+            import pprint
+            print("Messages:")
+            pprint.pprint(messages)
+            completion = model.invoke(
+                input=messages,
                 temperature=0,
             )
+            print("Completion: ", completion)
 
         # grab the response and add it to the chat history
-        result = completion.choices[0].message.content
-        self.messages.append(Message(role=Role.assistant, content=result))
+        # result = completion.choices[0].message.content
+        result = completion.content
+        self.messages.append(AIMessage(content=result))
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
 
@@ -404,22 +434,21 @@ class Agent:
         with self.spinner():
             if self.verbose:
                 self.debug(event_type="llm_oneshot", content=prompt)
-            completion = openai.chat.completions.create(
-                model=self.model,
-                messages=[
-                    Message(role=Role.system, content=prompt),
-                    Message(role=Role.user, content=query),
+            completion = model.invoke(
+                input=[
+                    SystemMessage(content=prompt),
+                    HumanMessage(content=query),
                 ],
                 temperature=0,
             )
 
         # return the agent's response
-        result = completion.choices[0].message.content
+        result = completion.content
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
         return result
 
-    def all_messages_sync(self) -> list[Message]:
+    def all_messages_sync(self) -> list[BaseMessage]:
         """Synchronous wrapper around the asynchronous all_messages method."""
         return asyncio.run(self.all_messages())
 
