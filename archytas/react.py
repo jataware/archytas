@@ -67,7 +67,7 @@ class ReActAgent(Agent):
         max_errors: int | None = 3,
         max_react_steps: int | None = None,
         thought_handler: typing.Callable | None = Undefined,
-        messages: typing.Optional[list[Message]] | None = None,
+        messages: typing.Optional[list[BaseMessage]] | None = None,
         **kwargs,
     ):
         """
@@ -82,7 +82,7 @@ class ReActAgent(Agent):
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
             thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
                     print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
-            messages (list[Message], optional): A list of messages to start the agent with. Defaults to None.
+            messages (list[BaseMessage], optional): A list of messages to start the agent with. Defaults to None.
         """
         # create a dictionary for looking up tools by name
         tools = tools or []
@@ -224,6 +224,8 @@ class ReActAgent(Agent):
                     }
                 )
                 self.current_query = None
+                import pprint
+                pprint.pprint(self.messages)
                 return tool_input
             if tool_name == "fail_task":
                 self.current_query = None

@@ -11,7 +11,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from typing import Callable, ContextManager, Any, Optional
+from typing import Callable, ContextManager, Any, Optional, Literal
 from openai import (
     APITimeoutError,
     APIError,
@@ -28,12 +28,10 @@ from rich.spinner import Spinner
 from rich.live import Live
 
 
-from langchain_openai.chat_models import ChatOpenAI
-from langchain_core import messages as langchain_messages # import HumanMessage, SystemMessage, BaseMessage
-# from langch
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage
 
-# model = ChatOpenAI(model="gpt-4o")
-# print(model)
+from .models.base import BaseArchytasModel
+from .models.openai import OpenAIModel
 
 
 logger = logging.getLogger(__name__)
@@ -68,7 +66,7 @@ def retry(fn):
 class AuthenticationError(Exception):
     pass
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage, ToolMessage, FunctionMessage
+# from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from langchain_core.output_parsers import JsonOutputParser
 
 import pydantic
@@ -78,30 +76,6 @@ class ToolUsage(pydantic.BaseModel):
     tool: str = pydantic.Field(description="Tool that will be invoked to satisfy thought")
     tool_input: str = pydantic.Field(description="Argument(s) to pass in to the tool, if any")
 
-# parser = JsonOutputParser(pydantic_object=ToolUsage)
-model = ChatOpenAI(model="gpt-4o")
-# model = ChatOllama(model="llama3", base_url="http://172.17.0.1:11434")
-# model = ChatOllama(model="mistral", base_url="http://172.17.0.1:11434")
-# model = ChatAnthropic(model_name="claude-3-sonnet-20240229")
-# model = ChatAnthropic(model_name="claude-3-opus-20240229")
-# model = ChatAnthropic(model_name="claude-3-5-sonnet-20240620")
-
-# print("format_instructions: ", parser.get_format_instructions())
-# from langchain_core.prompts import PromptTemplate
-
-
-# prompt = PromptTemplate(
-#     template="Answer the user query.\n{format_instructions}\n{query}\n",
-#     input_variables=["query"],
-#     partial_variables={"format_instructions": parser.get_format_instructions()},
-# )
-
-# test_chain = prompt | model | parser
-# print(test_chain)
-# print(test_chain.get_graph())
-
-# print(test_chain.invoke({"query": "cats"}))
-
 
 logger = logging.getLogger(__name__)
 
@@ -110,21 +84,20 @@ class AuthenticationError(Exception):
     pass
 
 
-class AssistantMessage(langchain_messages.BaseMessage):
+class AgentMessage(BaseMessage):
     """
-    Assistant Message type that plays well with langchain.
+    Agent Message type that plays well with langchain.
     """
-    type = "assistant"
+    type: Literal["agent"] = "agent"
 
 
-class Message(dict):
-    """Message format for communicating with the OpenAI API."""
+class Role(str, Enum):
+    system = "system"
+    agent = "agent"
+    user = "user"
 
-    def __init__(self, role: Role, content: str):
-        super().__init__(role=role.value, content=content)
 
-
-class ContextMessage(Message):
+class ContextMessage(SystemMessage):
     """Simple wrapper around a message that adds an id and optional lifetime."""
 
     id: int
@@ -186,36 +159,41 @@ class Agent:
     def __init__(
         self,
         *,
-        model: str = "gpt-4-1106-preview",
+        model: BaseArchytasModel,
         prompt: str = "You are a helpful assistant.",
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
         rich_print: bool = True,
         verbose: bool = False,
-        messages: Optional[list[Message]] | None = None,
+        messages: Optional[list[BaseMessage]] | None = None,
+        temperature: float = 0.0,
     ):
         """
         Agent class for managing communication with Language Models mediated by Langchain
 
         Args:
-            model (str, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
+            model (BaseArchytasModel, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
             prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
             api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
             verbose (bool, optional): Expands the debug output. Includes full query context on requests to the LLM. Defaults to False.
-            messages (list[Message], optional): A list of messages to initialize the agent's conversation history with. Defaults to an empty list.
+            messages (list[BaseMessage], optional): A list of messages to initialize the agent's conversation history with. Defaults to an empty list.
 
         Raises:
             Exception: If no API key is given.
         """
-        import openai
+        # import openai
 
         self.rich_print = bool(
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
         self.verbose = verbose
-        self.model = model
+        if model is None:
+            self.model = OpenAIModel({"api_key": api_key})
+        else:
+            self.model = model
+        self.model.auth()
         self.system_message = SystemMessage(content=prompt)
         self.messages: list[BaseMessage] = []
         if spinner is not None and self.rich_print:
@@ -234,6 +212,7 @@ class Agent:
         # if api_key is None:
         #     api_key = os.environ.get("OPENAI_API_KEY", None)
         # openai.api_key = api_key
+        self.temperature = temperature
 
     def print(self, *args, **kwargs):
         if self.rich_print:
@@ -366,7 +345,7 @@ class Agent:
 
     async def observe(self, observation: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(HumanMessage(content=observation))
+        return await self.handle_message(AgentMessage(content=observation))
 
     async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
@@ -394,14 +373,11 @@ class Agent:
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
-            import pprint
-            print("Messages:")
-            pprint.pprint(messages)
-            completion = model.invoke(
+            completion = self.model.invoke(
                 input=messages,
-                temperature=0,
+                temperature=self.temperature,
             )
-            print("Completion: ", completion)
+            # print("Completion: ", completion)
 
         # grab the response and add it to the chat history
         # result = completion.choices[0].message.content
@@ -433,12 +409,12 @@ class Agent:
         with self.spinner():
             if self.verbose:
                 self.debug(event_type="llm_oneshot", content=prompt)
-            completion = model.invoke(
+            completion = self.model.invoke(
                 input=[
                     SystemMessage(content=prompt),
                     HumanMessage(content=query),
                 ],
-                temperature=0,
+                temperature=self.temperature,
             )
 
         # return the agent's response
