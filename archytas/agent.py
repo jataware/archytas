@@ -30,9 +30,10 @@ from rich.live import Live
 
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_core import messages as langchain_messages # import HumanMessage, SystemMessage, BaseMessage
+# from langch
 
-model = ChatOpenAI(model="gpt-4o")
-print(model)
+# model = ChatOpenAI(model="gpt-4o")
+# print(model)
 
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,6 @@ def retry(fn):
 
 class AuthenticationError(Exception):
     pass
-from langchain_community.chat_models import ChatOllama
-# from langchain_community.chat_models.anthropic import ChatAnthropic
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage, ToolMessage, FunctionMessage
 from langchain_core.output_parsers import JsonOutputParser
@@ -80,9 +79,9 @@ class ToolUsage(pydantic.BaseModel):
     tool_input: str = pydantic.Field(description="Argument(s) to pass in to the tool, if any")
 
 # parser = JsonOutputParser(pydantic_object=ToolUsage)
-# model = ChatOpenAI(model="gpt-4o")
+model = ChatOpenAI(model="gpt-4o")
 # model = ChatOllama(model="llama3", base_url="http://172.17.0.1:11434")
-model = ChatOllama(model="mistral", base_url="http://172.17.0.1:11434")
+# model = ChatOllama(model="mistral", base_url="http://172.17.0.1:11434")
 # model = ChatAnthropic(model_name="claude-3-sonnet-20240229")
 # model = ChatAnthropic(model_name="claude-3-opus-20240229")
 # model = ChatAnthropic(model_name="claude-3-5-sonnet-20240620")
