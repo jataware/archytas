@@ -1,12 +1,16 @@
-from archytas.agent import Agent, BaseMessage, SystemMessage
-from archytas.prompt import build_prompt, build_all_tool_names
-from archytas.tools import ask_user
-from archytas.tool_utils import make_tool_dict
 import asyncio
 import json
 import sys
 import logging
 import typing
+
+from archytas.agent import Agent, BaseMessage, SystemMessage
+from archytas.prompt import build_prompt, build_all_tool_names
+from archytas.tools import ask_user
+from archytas.tool_utils import make_tool_dict
+from .models.base import BaseArchytasModel
+from .message_schemas import ToolUseRequest, ToolUseResponse, ReActError
+
 
 logger = logging.Logger("archytas")
 
@@ -60,7 +64,7 @@ class ReActAgent(Agent):
     def __init__(
         self,
         *,
-        model: str = "gpt-4-1106-preview",
+        model: BaseArchytasModel | None = None,
         api_key: str | None = None,
         tools: list = None,
         allow_ask_user: bool = True,
@@ -74,7 +78,7 @@ class ReActAgent(Agent):
         Create a ReAct agent
 
         Args:
-            model (str): The model to use. Defaults to 'gpt-4'. Recommended not to change this. gpt-3.5-turbo doesn't follow the prompt format.
+            model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
             api_key (str, optional): The OpenAI API key to use. If not set, defaults to reading the API key from the OPENAI_API_KEY environment variable.
             tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
             allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
@@ -178,7 +182,8 @@ class ReActAgent(Agent):
                 action = reaction
             else:
                 # run the initial user query
-                action = await self.query(query)
+                with self.model.with_structured_output(ToolUseRequest):
+                    action = await self.query(query)
 
             print(dict(
                 event_type="react_action",
@@ -203,13 +208,14 @@ class ReActAgent(Agent):
 
             # verify that action has the correct keys
             try:
-                thought, tool_name, tool_input = self.extract_action(action)
+                thought, tool_name, tool_input, helpful_thought = self.extract_action(action)
                 self.debug(
                     event_type="react_thought",
                     content={
                         "thought": thought,
                         "tool_name": tool_name,
-                        "tool_input": tool_input
+                        "tool_input": tool_input,
+                        "helpful_thought": helpful_thought,
                     }
                 )
                 self.last_tool_name = tool_name  # keep track of the last tool used
@@ -231,8 +237,6 @@ class ReActAgent(Agent):
                     }
                 )
                 self.current_query = None
-                import pprint
-                pprint.pprint(self.messages)
                 return tool_input
             if tool_name == "fail_task":
                 self.current_query = None
@@ -302,7 +306,8 @@ class ReActAgent(Agent):
                     summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
                 ))
             else:
-                reaction = await self.observe(f"The above tool generated the following output:\n```\n{tool_output}\n```")
+                with self.model.with_structured_output(ToolUseRequest):
+                    reaction = await self.observe(f"The above tool generated the following output:\n```\n{tool_output}\n```")
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str]:
@@ -313,15 +318,17 @@ class ReActAgent(Agent):
         assert "thought" in action, "Action json is missing key 'thought'"
         assert "tool" in action, "Action json is missing key 'tool'"
         assert "tool_input" in action, "Action json is missing key 'tool_input'"
-        assert (
-            len(action) == 3
-        ), f"Action must have exactly 3 keys (thought, tool, tool_input), got ({', '.join(action.keys())})"
+        # assert (
+        #     len(action) == 3
+        # ), f"Action must have exactly 3 keys (thought, tool, tool_input), got ({', '.join(action.keys())})"
 
         thought = action["thought"]
         tool = action["tool"]
         tool_input = action["tool_input"]
+        helpful_thought = action.get("helpful_thought", True)
 
-        return thought, tool, tool_input
+
+        return thought, tool, tool_input, helpful_thought
 
     def execute(self, additional_messages: list[BaseMessage] = []) -> str:
         """

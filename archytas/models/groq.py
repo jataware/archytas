@@ -21,7 +21,7 @@ class GroqModel(BaseArchytasModel):
             raise ValueError("No auth credentials found.")
 
     def initialize_model(self, **kwargs):
-        return ChatGroq(model=self.config.get("model_name", "llama3-8b-8192"), api_key=self.api_key).with_structured_output(None, method="json_mode")
+        return ChatGroq(model=self.config.get("model_name", "llama3-8b-8192"), api_key=self.api_key)
 
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         return super().ainvoke(input, config=config, stop=stop, **kwargs)

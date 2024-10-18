@@ -1,6 +1,9 @@
+import json
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 from pydantic import BaseModel as PydanticModel
+from contextlib import contextmanager
+from copy import copy
 
 
 from langchain_core.language_models.base import (
@@ -9,7 +12,7 @@ from langchain_core.language_models.base import (
     LanguageModelInput,
 )
 
-from ..agent import AIMessage
+from ..agent import AIMessage, BaseMessage
 
 class EnvironmentAuth:
     env_settings: dict[str, str]
@@ -57,6 +60,17 @@ class BaseArchytasModel(ABC):
     def initialize_model(self, **kwargs):
         ...
 
+    @contextmanager
+    def with_structured_output(self, schema: list[PydanticModel], **kwargs):
+        self._orig_model = self.model
+        try:
+            self.model = self.model.with_structured_output(schema, **kwargs)
+            yield self.model
+        finally:
+            # pass
+            self.model = self._orig_model
+            del self._orig_model
+
     def invoke(self, input, *, config=None, stop=None, **kwargs):
         return self.model.invoke(
             self._preprocess_messages(input),
@@ -66,6 +80,12 @@ class BaseArchytasModel(ABC):
         )
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+        print("messages")
+        import pprint
+        pprint.pprint(input)
+        processed_input = self._preprocess_messages(input)
+        print("-----")
+        pprint.pprint(processed_input)
         return await self.model.ainvoke(
             self._preprocess_messages(input),
             config,
@@ -76,5 +96,21 @@ class BaseArchytasModel(ABC):
     def _preprocess_messages(self, messages: list[AIMessage]):
         return messages
 
-    def process_result(self, result_message: AIMessage):
-        return result_message.content
+    def process_result(self, response_message: AIMessage):
+        return self._normalize_to_dict(response_message)
+
+    def _normalize_to_dict(self, response: any):
+        if isinstance(response, BaseMessage):
+            response = response.content
+        match response:
+            # TODO: Do we ever have to worry about lists?
+            case dict():  # | list():
+                return response
+            case PydanticModel():
+                return response.model_dump()
+            case str():
+                if response.strip().startswith(('{', '[')):
+                    # Allow exception to bubble to be caught at higher level
+                    return json.loads(response.strip())
+            case _:
+                raise TypeError("Unknown response type from model")

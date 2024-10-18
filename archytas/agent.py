@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import json
 import logging
 import os
 import warnings
@@ -22,6 +23,7 @@ from openai import (
 from enum import Enum
 from functools import wraps
 from typing import Callable, ContextManager, Any
+from pydantic import BaseModel as PydanticModel
 
 from rich import print as rprint
 from rich.spinner import Spinner
@@ -69,12 +71,6 @@ from langchain_anthropic import ChatAnthropic
 # from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from langchain_core.output_parsers import JsonOutputParser
 
-import pydantic
-
-class ToolUsage(pydantic.BaseModel):
-    thought: str = pydantic.Field(description="Thought that led to calling the tool")
-    tool: str = pydantic.Field(description="Tool that will be invoked to satisfy thought")
-    tool_input: str = pydantic.Field(description="Argument(s) to pass in to the tool, if any")
 
 
 logger = logging.getLogger(__name__)
@@ -172,7 +168,7 @@ class Agent:
         Agent class for managing communication with Language Models mediated by Langchain
 
         Args:
-            model (BaseArchytasModel, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
+            model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
             prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
             api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
@@ -372,28 +368,44 @@ class Agent:
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
-            completion = await self.model.ainvoke(
+            raw_result = await self.model.ainvoke(
                 input=messages,
                 temperature=self.temperature,
             )
 
-        # grab the response and add it to the chat history
-        # result = completion.choices[0].message.content
-        print(type(completion), completion)
-        result = self.model.process_result(completion)
+        print('post-execute', type(raw_result), raw_result)
+
+        # Add the raw result to history
+        match raw_result:
+            case BaseMessage():
+                self.messages.append(raw_result)
+            case PydanticModel():
+                self.messages.append(AIMessage(content=json.dumps(raw_result.model_dump())))
+            case dict():
+                self.messages.append(AIMessage(content=json.dumps(raw_result)))
+            case _:
+                raise TypeError(f"Unable to handle agent raw_result of type {type(raw_result)}. {str(raw_result)[:100]}...")
+
+
+        # Return processed result
+        result = self.model.process_result(raw_result)
         print(type(result), result)
-        if isinstance(result, BaseMessage):
-            self.messages.append(result)
-        elif isinstance(result, str):
-            self.messages.append(AIMessage(content=result))
-        elif isinstance(result, dict) and "content" in result:
-            self.messages.append(AIMessage(**result))
-        elif isinstance(result, dict):
-            self.messages.append(AIMessage(content=result))
-        else:
-            raise TypeError(f"Unable to handle agent result of type {type(result)}. {str(result)[:100]}...")
+
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
+
+        # if isinstance(result, BaseMessage):
+        #     self.messages.append(result)
+        # elif isinstance(result, str):
+        #     self.messages.append(AIMessage(content=result))
+        # elif isinstance(result, dict) and "content" in result:
+        #     self.messages.append(AIMessage(**result))
+        # elif isinstance(result, dict):
+        #     self.messages.append(AIMessage(content=result))
+        # else:
+        #     raise TypeError(f"Unable to handle agent result of type {type(result)}. {str(result)[:100]}...")
+        # if self.verbose:
+        #     self.debug(event_type="llm_response", content=result)
 
         # remove any timed contexts that have expired
         self.update_timed_context()
