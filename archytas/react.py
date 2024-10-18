@@ -164,34 +164,40 @@ class ReActAgent(Agent):
         self.errors = 0
         self.steps = 0
 
+        action = None
+        reaction = None
+
         # Set the current query for use in tools, auto context, etc
         self.current_query = query
-
-        # run the initial user query
-        action_str = await self.query(query)
 
         controller = LoopController()
 
         # ReAct loop
         while True:
-            self.debug(
+            if action is not None:
+                action = reaction
+            else:
+                # run the initial user query
+                action = await self.query(query)
+
+            print(dict(
                 event_type="react_action",
                 content={
-                    "action": action_str,
+                    "action": action,
                 }
             )
-            print("\naction:", action_str, "\n")
+            )
             # Convert agent output to json
             try:
-                if action_str.startswith('```json'):
-                    action = json.loads(action_str[7:-3]) # Drop "```json" (7) from start and "```" (3) from end to only get the contents
-                # Other parsing schemes can be added here if they are added in the future
-                else:
-                    action = json.loads(action_str)
-
-            except json.JSONDecodeError:
-                action_str = await self.error(
-                    f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: {action_str}'
+                if isinstance(action, str):
+                    if action.startswith('```json'):
+                        action = json.loads(action[7:-3]) # Drop "```json" (7) from start and "```" (3) from end to only get the contents
+                    # Other parsing schemes can be added here if they are added in the future
+                    else:
+                        action = json.loads(action)
+            except json.JSONDecodeError as err:
+                reaction = await self.error(
+                    f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: ({type(action)}) {action}'
                 )
                 continue
 
@@ -208,7 +214,8 @@ class ReActAgent(Agent):
                 )
                 self.last_tool_name = tool_name  # keep track of the last tool used
             except AssertionError as e:
-                action_str = await self.error(str(e))
+                print("ERRRRROR!!!!!!!!!!\n", e)
+                reaction = await self.error(str(e))
                 continue
 
             if self.thought_handler:
@@ -233,9 +240,10 @@ class ReActAgent(Agent):
 
             # run tool
             try:
+                print(f"Fetching tool [{tool_name}]")
                 tool_fn = self.tools[tool_name]
             except KeyError:
-                action_str = await self.error(f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}')
+                reaction = await self.error(f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}')
                 continue
 
             try:
@@ -264,7 +272,7 @@ class ReActAgent(Agent):
                     }
                 )
             except Exception as e:
-                action_str = await self.error(f'error running tool "{tool_name}": {e}')
+                reaction = await self.error(f'error running tool "{tool_name}": {e}')
 
                 continue
 
@@ -289,12 +297,12 @@ class ReActAgent(Agent):
             if self.verbose:
                 self.display_observation(tool_output)
             if getattr(tool_fn, "autosummarize", False):
-                action_str = await self.handle_message(AutoSummarizedToolMessage(
+                reaction = await self.handle_message(AutoSummarizedToolMessage(
                     tool_content=tool_output,
                     summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
                 ))
             else:
-                action_str = await self.observe(tool_output)
+                reaction = await self.observe(f"The above tool generated the following output:\n```\n{tool_output}\n```")
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str]:

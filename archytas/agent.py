@@ -193,7 +193,6 @@ class Agent:
             self.model = OpenAIModel({"api_key": api_key})
         else:
             self.model = model
-        self.model.auth()
         self.system_message = SystemMessage(content=prompt)
         self.messages: list[BaseMessage] = []
         if spinner is not None and self.rich_print:
@@ -345,7 +344,7 @@ class Agent:
 
     async def observe(self, observation: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(AgentMessage(content=observation))
+        return await self.handle_message(AIMessage(content=observation))
 
     async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
@@ -373,16 +372,26 @@ class Agent:
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
-            completion = self.model.invoke(
+            completion = await self.model.ainvoke(
                 input=messages,
                 temperature=self.temperature,
             )
-            # print("Completion: ", completion)
 
         # grab the response and add it to the chat history
         # result = completion.choices[0].message.content
-        result = completion.content
-        self.messages.append(AIMessage(content=result))
+        print(type(completion), completion)
+        result = self.model.process_result(completion)
+        print(type(result), result)
+        if isinstance(result, BaseMessage):
+            self.messages.append(result)
+        elif isinstance(result, str):
+            self.messages.append(AIMessage(content=result))
+        elif isinstance(result, dict) and "content" in result:
+            self.messages.append(AIMessage(**result))
+        elif isinstance(result, dict):
+            self.messages.append(AIMessage(content=result))
+        else:
+            raise TypeError(f"Unable to handle agent result of type {type(result)}. {str(result)[:100]}...")
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
 

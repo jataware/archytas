@@ -1,24 +1,20 @@
 from langchain_openai.chat_models import ChatOpenAI
 
-from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
+from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig, set_env_auth
 
-
-class OpenAIAuth(EnvironmentAuth):
-    def __init__(self, api_key: str) -> None:
-        super().__init__(OPENAI_API_KEY=api_key)
 
 class OpenAIModel(BaseArchytasModel):
     def __init__(self, config: ModelConfig) -> None:
         super().__init__(config)
 
     def auth(self, **kwargs) -> None:
-        auth_object = None
+        auth_token = None
         if 'api_key' in kwargs:
-            auth_object = OpenAIAuth(kwargs['api_key'])
+            auth_token = kwargs['api_key']
         elif 'api_key' in self.config:
-            auth_object = OpenAIAuth(self.config['api_key'])
-        if auth_object:
-            auth_object.apply()
+            auth_token = self.config['api_key']
+        if auth_token:
+            set_env_auth(OPENAI_API_KEY=auth_token)
         else:
             raise ValueError("No auth credentials found.")
 
