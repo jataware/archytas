@@ -1,17 +1,12 @@
 from langchain_anthropic import ChatAnthropic
 
+from archytas.agent import AIMessage
+
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 
 
-class AnthropicAuth(EnvironmentAuth):
-    def __init__(self, api_key: str) -> None:
-        super().__init__(ANTHROPIC_API_KEY=api_key)
-
 class AnthropicModel(BaseArchytasModel):
     api_key: str = ""
-
-    def __init__(self, config: ModelConfig) -> None:
-        super().__init__(config)
 
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
@@ -37,3 +32,6 @@ class AnthropicModel(BaseArchytasModel):
                 output.append(message)
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
+
+    # def process_result(self, response_message: AIMessage):
+    #     response_message.con

@@ -1,6 +1,7 @@
-from langchain_google_genai.chat_models import ChatGoogleGenerativeAI
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAI, ChatGoogleGenerativeAIError
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig, set_env_auth
+from ..exceptions import AuthenticationError
 
 
 class GeminiModel(BaseArchytasModel):
@@ -15,14 +16,18 @@ class GeminiModel(BaseArchytasModel):
         if auth_token:
             self.api_key = auth_token
         else:
-            raise ValueError("No auth credentials found.")
+            raise AuthenticationError("Gemini API key not provided.")
 
     def initialize_model(self, **kwargs):
         return ChatGoogleGenerativeAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.api_key)
 
-    def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        kwargs.pop("temperature")
-        return super().ainvoke(input, config=config, stop=stop, **kwargs)
+    async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+        try:
+            kwargs.pop("temperature")
+            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+        except ChatGoogleGenerativeAIError as error:
+            if any(('400 API key not valid' in arg for arg in error.args)):
+                raise AuthenticationError("API key invalid.") from error
 
     def _preprocess_messages(self, messages):
         from ..agent import AgentMessage, SystemMessage, AutoContextMessage, AIMessage

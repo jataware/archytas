@@ -1,3 +1,4 @@
+import re
 from langchain_openai.chat_models import ChatOpenAI
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig, set_env_auth
@@ -22,11 +23,11 @@ class OpenAIModel(BaseArchytasModel):
         return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"))
 
     def _preprocess_messages(self, messages):
-        from ..agent import AgentMessage, SystemMessage
+        from ..agent import FunctionMessage
         output = []
         for message in messages:
-            if isinstance(message, AgentMessage):
-                output.append(SystemMessage(message.content))
-            else:
-                output.append(message)
+            if isinstance(message, FunctionMessage):
+                # Function names in OpenAI messages must match the pattern '^[a-zA-Z0-9_-]+$'
+                message.name = re.sub(r'[^a-zA-Z0-9_-]', '_', message.name)
+            output.append(message)
         return output

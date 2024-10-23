@@ -1,5 +1,31 @@
+import json
 from types import GenericAlias, UnionType
 from typing import Any, Union, get_origin, get_args as get_type_args
+
+
+def extract_json(text: str) -> dict | list:
+    """
+    Finds and extracts JSON from a block of text, probably a response from a LLM.
+    """
+    # Convert agent output to json
+    lines = text.splitlines(keepends=True)
+    json_block_starts = [linenum for linenum, line in enumerate(lines) if line.strip().startswith("```json")]
+    if len(json_block_starts) > 1:
+        raise ValueError("More than one JSON block provided. Unable to proceed.")
+    elif len(json_block_starts) == 1:
+        block_start = json_block_starts[0] + 1
+        block_end =  next(linenum for linenum, line in enumerate(lines) if linenum > block_start and line.strip().startswith("```"))
+        json_text = "".join(lines[block_start:block_end])
+    else:
+        json_text = text
+
+    try:
+        result = json.loads(json_text)
+    except json.JSONDecodeError as err:
+        # TODO: Switch this to debug logging
+        print(f"Failed to extract json from ```\n{json_text}\n```")
+        result = None
+    return result
 
 
 def get_local_name(val: Any, locals: dict[str, Any]) -> str:

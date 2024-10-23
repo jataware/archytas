@@ -10,6 +10,7 @@ from archytas.tools import ask_user
 from archytas.tool_utils import make_tool_dict
 from .models.base import BaseArchytasModel
 from .message_schemas import ToolUseRequest, ToolUseResponse, ReActError
+from .utils import extract_json
 
 
 logger = logging.Logger("archytas")
@@ -182,8 +183,7 @@ class ReActAgent(Agent):
                 action = reaction
             else:
                 # run the initial user query
-                with self.model.with_structured_output(ToolUseRequest):
-                    action = await self.query(query)
+                action = await self.query(query)
 
             print(dict(
                 event_type="react_action",
@@ -194,12 +194,7 @@ class ReActAgent(Agent):
             )
             # Convert agent output to json
             try:
-                if isinstance(action, str):
-                    if action.startswith('```json'):
-                        action = json.loads(action[7:-3]) # Drop "```json" (7) from start and "```" (3) from end to only get the contents
-                    # Other parsing schemes can be added here if they are added in the future
-                    else:
-                        action = json.loads(action)
+                action = extract_json(action)
             except json.JSONDecodeError as err:
                 reaction = await self.error(
                     f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: ({type(action)}) {action}'
@@ -306,8 +301,7 @@ class ReActAgent(Agent):
                     summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
                 ))
             else:
-                with self.model.with_structured_output(ToolUseRequest):
-                    reaction = await self.observe(f"The above tool generated the following output:\n```\n{tool_output}\n```")
+                reaction = await self.observe(tool_output, tool_name)
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str]:

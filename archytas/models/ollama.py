@@ -1,4 +1,4 @@
-from langchain_ollama import ChatOllama
+from langchain_ollama import ChatOllama, OllamaLLM
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 

@@ -13,13 +13,6 @@ from tenacity import (
     wait_exponential,
 )
 from typing import Callable, ContextManager, Any, Optional, Literal
-from openai import (
-    APITimeoutError,
-    APIError,
-    APIConnectionError,
-    RateLimitError,
-    InternalServerError,
-)
 from enum import Enum
 from functools import wraps
 from typing import Callable, ContextManager, Any
@@ -32,6 +25,7 @@ from rich.live import Live
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage
 
+from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
 from .models.openai import OpenAIModel
 
@@ -65,19 +59,7 @@ def retry(fn):
     )(fn)
 
 
-class AuthenticationError(Exception):
-    pass
-from langchain_anthropic import ChatAnthropic
-# from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
-from langchain_core.output_parsers import JsonOutputParser
-
-
-
 logger = logging.getLogger(__name__)
-
-
-class AuthenticationError(Exception):
-    pass
 
 
 class AgentMessage(BaseMessage):
@@ -130,14 +112,10 @@ def auth(func):
     """
     @wraps(func)
     async def inner(*args, **kwargs):
-        # if not openai.api_key:
-        #     raise AuthenticationError(
-        #         "No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor."
-        #     )
-        import openai
         try:
             return await func(*args, **kwargs)
-        except (openai.AuthenticationError, openai.OpenAIError) as err:
+        except (AuthenticationError) as err:
+            # Do something better with authentication error?
             raise AuthenticationError(err)
     return inner
 
@@ -338,9 +316,9 @@ class Agent:
         """Send a user query to the agent. Returns the agent's response"""
         return await self.handle_message(HumanMessage(content=message))
 
-    async def observe(self, observation: str) -> str:
+    async def observe(self, observation: str, tool_name: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(AIMessage(content=observation))
+        return await self.handle_message(FunctionMessage(type="function", content=observation, name=tool_name))
 
     async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
@@ -372,40 +350,14 @@ class Agent:
                 input=messages,
                 temperature=self.temperature,
             )
-
-        print('post-execute', type(raw_result), raw_result)
-
+        self.messages.append(raw_result)
         # Add the raw result to history
-        match raw_result:
-            case BaseMessage():
-                self.messages.append(raw_result)
-            case PydanticModel():
-                self.messages.append(AIMessage(content=json.dumps(raw_result.model_dump())))
-            case dict():
-                self.messages.append(AIMessage(content=json.dumps(raw_result)))
-            case _:
-                raise TypeError(f"Unable to handle agent raw_result of type {type(raw_result)}. {str(raw_result)[:100]}...")
-
 
         # Return processed result
         result = self.model.process_result(raw_result)
-        print(type(result), result)
 
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
-
-        # if isinstance(result, BaseMessage):
-        #     self.messages.append(result)
-        # elif isinstance(result, str):
-        #     self.messages.append(AIMessage(content=result))
-        # elif isinstance(result, dict) and "content" in result:
-        #     self.messages.append(AIMessage(**result))
-        # elif isinstance(result, dict):
-        #     self.messages.append(AIMessage(content=result))
-        # else:
-        #     raise TypeError(f"Unable to handle agent result of type {type(result)}. {str(result)[:100]}...")
-        # if self.verbose:
-        #     self.debug(event_type="llm_response", content=result)
 
         # remove any timed contexts that have expired
         self.update_timed_context()
@@ -430,7 +382,7 @@ class Agent:
         with self.spinner():
             if self.verbose:
                 self.debug(event_type="llm_oneshot", content=prompt)
-            completion = self.model.invoke(
+            completion = await self.model.ainvoke(
                 input=[
                     SystemMessage(content=prompt),
                     HumanMessage(content=query),

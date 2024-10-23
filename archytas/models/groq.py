@@ -1,7 +1,7 @@
 import json
 from langchain_groq import ChatGroq
 
-from archytas.agent import AIMessage
+from archytas.agent import AIMessage, HumanMessage, FunctionMessage
 
 from .base import BaseArchytasModel, set_env_auth, ModelConfig
 
@@ -26,15 +26,15 @@ class GroqModel(BaseArchytasModel):
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
-    def _preprocess_messages(self, messages):
-        from ..agent import AgentMessage, SystemMessage, AutoContextMessage, ToolMessage, AIMessage
-        output = []
-        for message in messages:
-            if isinstance(message, AgentMessage):
-                output.append(AIMessage(content=json.dumps({"tool response": message.content})))
-            else:
-                output.append(message)
-        return output
+    # def _preprocess_messages(self, messages):
+    #     from ..agent import AgentMessage, SystemMessage, AutoContextMessage, ToolMessage, AIMessage
+    #     output = []
+    #     for message in messages:
+    #         else:
+    #             output.append(message)
+    #     print("\n----\n".join(map(str, output)))
+    #     print('=================')
+    #     return output
 
     # def process_result(self, result_message: AIMessage):
     #     return result_message.get("content")
