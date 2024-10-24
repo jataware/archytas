@@ -66,12 +66,12 @@ Every response you generate should EXACTLY follow this JSON schema:
 ```
 The tools available are: {quoted_tool_list}
 
-In the response text, you should precede the JSON payload with ```json and follow it with ``` like so:
+In the response text, you should answer using markdown encoding of the json and as such precede the JSON payload with "```json" and follow it with "```" like so:
 ```json
 {{
   "thought": "This is what I'm thinking",
   "tool": "final_answer",
-  "tool_input": "This is my final answer to the user"
+  "tool_input": "This is my final answer to the user",
 }}
 ```
 

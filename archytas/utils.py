@@ -1,30 +1,19 @@
 import json
+import re
+from json.decoder import JSONDecoder
 from types import GenericAlias, UnionType
 from typing import Any, Union, get_origin, get_args as get_type_args
 
+json_regex = re.compile(r'(```)(json)?(.*?)(```)')
 
 def extract_json(text: str) -> dict | list:
     """
     Finds and extracts JSON from a block of text, probably a response from a LLM.
     """
-    # Convert agent output to json
-    lines = text.splitlines(keepends=True)
-    json_block_starts = [linenum + 1 for linenum, line in enumerate(lines) if line.strip().startswith("```json")]
-    if json_block_starts:
-        result = []
-        for block_start in json_block_starts:
-            try:
-                block_end =  next(linenum for linenum, line in enumerate(lines) if linenum > block_start and line.strip().startswith("```"))
-                json_text = "".join(lines[block_start:block_end])
-            except StopIteration:
-                raise ValueError("Unable to determine bounds of triple-backtick delimited text")
-            result.append(json.loads(json_text))
-        if len(result) == 1:
-            return result[0]
-        else:
-            return result
-    else:
-        raise ValueError("Unable to find json block")
+    from langchain_core.utils.json import parse_json_markdown
+    # Take advantage of the functionality in langchain
+    result = parse_json_markdown(text)
+    return result
 
 
 def get_local_name(val: Any, locals: dict[str, Any]) -> str:
