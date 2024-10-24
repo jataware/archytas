@@ -9,6 +9,12 @@ from .base import BaseArchytasModel, set_env_auth, ModelConfig
 class GroqModel(BaseArchytasModel):
     api_key: str = ""
 
+    MODEL_PROMPT_INSTRUCTIONS: str = """\
+When generating JSON, remember to not wrap strings in triple quotes such as \'\'\' or \"\"\". If you want to add newlines \
+to the JSON text, use `\\n` to add newlines.
+Ensure all generated JSON is valid and would pass a JSON validator.
+"""
+
     def __init__(self, config: ModelConfig) -> None:
         super().__init__(config)
 

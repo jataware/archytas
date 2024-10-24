@@ -3,11 +3,13 @@ import json
 import sys
 import logging
 import typing
+import uuid
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, ToolCall
 
-from archytas.agent import Agent, BaseMessage, SystemMessage
-from archytas.prompt import build_prompt, build_all_tool_names
-from archytas.tools import ask_user
-from archytas.tool_utils import make_tool_dict
+from .agent import Agent, BaseMessage, SystemMessage
+from .prompt import build_prompt, build_all_tool_names
+from .tools import ask_user
+from .tool_utils import make_tool_dict, sanitize_toolname
 from .models.base import BaseArchytasModel
 from .message_schemas import ToolUseRequest, ToolUseResponse, ReActError
 from .utils import extract_json
@@ -126,6 +128,8 @@ class ReActAgent(Agent):
 
     def update_prompt(self):
         self.prompt = build_prompt(self._raw_tools)
+        if self.model.MODEL_PROMPT_INSTRUCTIONS:
+            self.prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.system_message = SystemMessage(content=self.prompt)
 
     def disable(self, *tool_names):
@@ -154,6 +158,12 @@ class ReActAgent(Agent):
                 f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n"
             )
 
+    async def react_query(self, query: str):
+        from .agent import AIMessage
+        message = AIMessage(content=query)
+        result = await self.handle_message(message)
+        return result, message
+
     def react(self, query: str, react_context:dict=None) -> str:
         """
         Synchronous wrapper around the asynchronous react_async method.
@@ -165,6 +175,7 @@ class ReActAgent(Agent):
         Asynchronous react loop function.
         Continually calls tools until a satisfactory answer is reached.
         """
+
         # reset error and steps counter
         self.errors = 0
         self.steps = 0
@@ -174,32 +185,39 @@ class ReActAgent(Agent):
 
         # Set the current query for use in tools, auto context, etc
         self.current_query = query
+        action = await self.handle_message(HumanMessage(content=query), save_result=False)
 
         controller = LoopController()
 
         # ReAct loop
         while True:
-            if action is not None:
+            # Start processing last loops reaction as a new action
+            if reaction is not None:
                 action = reaction
-            else:
-                # run the initial user query
-                action = await self.query(query)
 
-            print(dict(
-                event_type="react_action",
-                content={
-                    "action": action,
-                }
-            )
-            )
+            content = action if isinstance(action, str) else json.dumps(action)
+            message: AIMessage = AIMessage(content=content)
+            tool_id = uuid.uuid4().hex
+
+            self.messages.append(message)
+
             # Convert agent output to json
-            try:
-                action = extract_json(action)
-            except json.JSONDecodeError as err:
-                reaction = await self.error(
-                    f'failed to parse action. Action must be a single valid json dictionary {{"thought": ..., "tool": ..., "tool_input": ...}}. There may not be any text or comments outside of the json object. Your input was: ({type(action)}) {action}'
-                )
-                continue
+            if isinstance(action, str):
+                try:
+                    # First, assume it is a ```json ... ``` blocked string. If no blocks found (ValueError), try in case
+                    # the action string is a valid JSON string.
+                    try:
+                        action = extract_json(action)
+                    except ValueError as extract_err:
+                        if "Unable to find json block" in extract_err.args:
+                            action = json.loads(action)
+                        else:
+                            raise
+                except json.JSONDecodeError as decode_err:
+                    reaction = await self.error("Error parsing JSON", decode_err, tool_id=tool_id)
+                    continue
+                except Exception as e:
+                    raise
 
             # verify that action has the correct keys
             try:
@@ -207,6 +225,7 @@ class ReActAgent(Agent):
                 self.debug(
                     event_type="react_thought",
                     content={
+                        "id": tool_id,
                         "thought": thought,
                         "tool_name": tool_name,
                         "tool_input": tool_input,
@@ -215,9 +234,16 @@ class ReActAgent(Agent):
                 )
                 self.last_tool_name = tool_name  # keep track of the last tool used
             except AssertionError as e:
-                print("ERRRRROR!!!!!!!!!!\n", e)
-                reaction = await self.error(str(e))
+                reaction = await self.error("Error", e, tool_id=tool_id)
                 continue
+
+            message.tool_calls.append(
+                ToolCall(
+                    id=tool_id,
+                    name=sanitize_toolname(tool_name),
+                    args={"arg_string": tool_input},
+                )
+            )
 
             if self.thought_handler:
                 self.thought_handler(thought, tool_name, tool_input)
@@ -232,17 +258,24 @@ class ReActAgent(Agent):
                     }
                 )
                 self.current_query = None
+                # Store final answer as response in message,
+                self.messages.append(ToolMessage(content=tool_input, tool_call_id=tool_id))
                 return tool_input
             if tool_name == "fail_task":
                 self.current_query = None
+                # Important to include the error message in the history so the user/agent can try something different.
+                error_message = ToolMessage(
+                    content=f"Unable to complete the requested task. Giving up.",
+                    tool_call_id=tool_id,
+                )
+                self.messages.append(error_message)
                 raise FailedTaskError(tool_input)
 
             # run tool
             try:
-                print(f"Fetching tool [{tool_name}]")
                 tool_fn = self.tools[tool_name]
             except KeyError:
-                reaction = await self.error(f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}')
+                reaction = await self.error(f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}', None, tool_id=tool_id)
                 continue
 
             try:
@@ -271,8 +304,7 @@ class ReActAgent(Agent):
                     }
                 )
             except Exception as e:
-                reaction = await self.error(f'error running tool "{tool_name}": {e}')
-
+                reaction = await self.error(f'error running tool "{tool_name}"', e, tool_id=tool_id)
                 continue
 
             if controller.state != LoopController.PROCEED:
@@ -301,10 +333,17 @@ class ReActAgent(Agent):
                     summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
                 ))
             else:
-                reaction = await self.observe(tool_output, tool_name)
+                # Append AIMessage with tool call prior to analyzing the tool response as this is important to some models
+                reaction = await self.handle_message(
+                    ToolMessage(
+                        content=tool_output,
+                        tool_call_id=tool_id,
+                    ),
+                    save_result=False
+                )
 
     @staticmethod
-    def extract_action(action: dict) -> tuple[str, str, str]:
+    def extract_action(action: dict) -> tuple[str, str, str, bool]:
         """Verify that action has the correct keys. Otherwise, raise an error"""
         assert isinstance(
             action, dict
@@ -324,7 +363,7 @@ class ReActAgent(Agent):
 
         return thought, tool, tool_input, helpful_thought
 
-    def execute(self, additional_messages: list[BaseMessage] = []) -> str:
+    def execute(self, additional_messages: list[BaseMessage] = [], save_result: bool = True) -> str:
         """
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
@@ -334,9 +373,9 @@ class ReActAgent(Agent):
             raise FailedTaskError(
                 f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}"
             )
-        return super().execute(additional_messages)
+        return super().execute(additional_messages, save_result=save_result)
 
-    def error(self, mesg) -> str:
+    def error(self, mesg: str, err: BaseException, tool_id: str | None = None) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
 
         self.errors += 1
@@ -349,7 +388,11 @@ class ReActAgent(Agent):
                 self.print(f"error: {mesg}", file=sys.stderr)
 
         # tell the agent about the error, and get its response (call parent .error method)
-        return super().error(mesg)
+        error_message = ToolMessage(
+            content=f"{mesg}: {err}",
+            tool_call_id=tool_id,
+        )
+        return super().error(error_message)
 
     def display_observation(self, observation):
         """

@@ -3,6 +3,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import warnings
 from enum import Enum
 from tenacity import (
@@ -157,8 +158,6 @@ class Agent:
         Raises:
             Exception: If no API key is given.
         """
-        # import openai
-
         self.rich_print = bool(
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
@@ -167,6 +166,10 @@ class Agent:
             self.model = OpenAIModel({"api_key": api_key})
         else:
             self.model = model
+        if not prompt:
+            prompt = ""
+        if self.model.MODEL_PROMPT_INSTRUCTIONS:
+            prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.system_message = SystemMessage(content=prompt)
         self.messages: list[BaseMessage] = []
         if spinner is not None and self.rich_print:
@@ -307,24 +310,24 @@ class Agent:
                 content_updater=content_updater,
             )
 
-    async def handle_message(self, message: BaseMessage):
+    async def handle_message(self, message: BaseMessage, save_result: bool = True):
         """Appends a message to the message list and executes."""
         self.messages.append(message)
-        return await self.execute()
+        return await self.execute(save_result=save_result)
 
-    async def query(self, message: str) -> str:
+    async def query(self, message: str, save_result: bool = True) -> str:
         """Send a user query to the agent. Returns the agent's response"""
-        return await self.handle_message(HumanMessage(content=message))
+        return await self.handle_message(HumanMessage(content=message), save_result=save_result)
 
-    async def observe(self, observation: str, tool_name: str) -> str:
+    async def observe(self, observation: str, tool_name: str, save_result: bool = True) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(FunctionMessage(type="function", content=observation, name=tool_name))
+        return await self.handle_message(FunctionMessage(type="function", content=observation, name=tool_name), save_result=save_result)
 
-    async def inspect(self, query: str) -> str:
+    async def inspect(self, query: str, save_result: bool = False) -> str:
         """Send one-off system query that is not recorded in history"""
-        return await self.execute([HumanMessage(content=query)])
+        return await self.execute([HumanMessage(content=query)], save_result=save_result)
 
-    async def error(self, error: str, drop_error: bool = True) -> str:
+    async def error(self, error: BaseMessage | str, drop_error: bool = True) -> str:
         """
         Send an error message to the agent. Returns the agent's response.
 
@@ -332,16 +335,14 @@ class Agent:
             error (str): The error message to send to the agent.
             drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
-        result = await self.handle_message(HumanMessage(content=f"ERROR: {error}"))
-
-        # Drop error + LLM's bad input from chat history
-        if drop_error:
-            del self.messages[-3:-1]
+        if not isinstance(error, BaseMessage):
+            error = AIMessage(content=error)
+        result = await self.handle_message(error)
 
         return result
 
     @auth
-    async def execute(self, additional_messages: list[BaseMessage] = []) -> str:
+    async def execute(self, additional_messages: list[BaseMessage] = [], save_result: bool = True) -> str:
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
@@ -350,7 +351,8 @@ class Agent:
                 input=messages,
                 temperature=self.temperature,
             )
-        self.messages.append(raw_result)
+        if save_result:
+            self.messages.append(raw_result)
         # Add the raw result to history
 
         # Return processed result

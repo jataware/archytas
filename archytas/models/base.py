@@ -5,7 +5,7 @@ from pydantic import BaseModel as PydanticModel
 from contextlib import contextmanager
 from copy import copy
 
-
+from langchain_core.messages import ToolMessage, AIMessage, ToolCall, ChatMessage, HumanMessage, FunctionMessage, BaseMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 # from langchain_core.language_models.llms import (
 #     BaseLLM
@@ -41,6 +41,8 @@ class ModelConfig(PydanticModel):
 
 class BaseArchytasModel(ABC):
 
+    MODEL_PROMPT_INSTRUCTIONS: str = """"""
+
     model: BaseChatModel
     config: ModelConfig
 
@@ -69,15 +71,24 @@ class BaseArchytasModel(ABC):
         )
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        return await self.model.ainvoke(
-            self._preprocess_messages(input),
-            config,
-            stop=stop,
-            **kwargs
-        )
+        try:
+            return await self.model.ainvoke(
+                self._preprocess_messages(input),
+                config,
+                stop=stop,
+                **kwargs
+            )
+        except Exception as e:
+            raise
 
     def _preprocess_messages(self, messages: list[AIMessage]):
         return messages
 
     def process_result(self, response_message: AIMessage):
-        return response_message.content
+        content = response_message.content
+        if isinstance(content, list):
+            return "\n".join(item['text'] for item in content if item.get('type', None) == "text")
+        return content
+
+    def handle_invoke_error(error: BaseException):
+        pass

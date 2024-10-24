@@ -20,7 +20,7 @@ You will be provided tools that will allow communication with the user. All comm
 Completing the user's task may require calling several tools in a chain or loop. This is fine. You can call as many tools
 as you feel is necessary to complete the task, within reason. If you cannot make progress towards the task, or if calling
 the provided tools is not getting you closer to completing the task, you should communcate this to the user by failing the
-task.
+task. Only ever run one tool at a time and review the output of running the tool before deciding upon the next tool to call.
 '''
 
 

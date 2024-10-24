@@ -1,4 +1,5 @@
 import logging
+import re
 from .constants import TAB
 from .agent import Agent
 from .utils import type_to_str
@@ -486,6 +487,13 @@ def test():
     ]:
         print(get_tool_prompt_description(t))
         print()
+
+
+def sanitize_toolname(name: str) -> str:
+    # Function/tool names in OpenAI/Anthropic/etc messages must match the pattern '^[a-zA-Z0-9_-]+$'
+    name = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    return name
+
 
 
 if __name__ == "__main__":
