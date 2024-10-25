@@ -7,12 +7,7 @@ from copy import copy
 
 from langchain_core.messages import ToolMessage, AIMessage, ToolCall, ChatMessage, HumanMessage, FunctionMessage, BaseMessage
 from langchain_core.language_models.chat_models import BaseChatModel
-# from langchain_core.language_models.llms import (
-#     BaseLLM
-# )
 
-
-from ..agent import AIMessage, BaseMessage
 
 class EnvironmentAuth:
     env_settings: dict[str, str]
@@ -81,7 +76,7 @@ class BaseArchytasModel(ABC):
         except Exception as e:
             raise
 
-    def _preprocess_messages(self, messages: list[AIMessage]):
+    def _preprocess_messages(self, messages: list[BaseMessage]):
         return messages
 
     def process_result(self, response_message: AIMessage):

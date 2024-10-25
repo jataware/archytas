@@ -327,7 +327,7 @@ class Agent:
         """Send one-off system query that is not recorded in history"""
         return await self.execute([HumanMessage(content=query)], save_result=save_result)
 
-    async def error(self, error: BaseMessage | str, drop_error: bool = True) -> str:
+    async def error(self, error: BaseMessage | str, drop_error: bool = True, save_result: bool = True) -> str:
         """
         Send an error message to the agent. Returns the agent's response.
 
@@ -337,7 +337,7 @@ class Agent:
         """
         if not isinstance(error, BaseMessage):
             error = AIMessage(content=error)
-        result = await self.handle_message(error)
+        result = await self.handle_message(error, save_result=save_result)
 
         return result
 

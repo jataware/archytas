@@ -392,7 +392,7 @@ class ReActAgent(Agent):
             content=f"{mesg}: {err}",
             tool_call_id=tool_id,
         )
-        return super().error(error_message)
+        return super().error(error_message, save_result=False)
 
     def display_observation(self, observation):
         """
