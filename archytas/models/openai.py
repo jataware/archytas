@@ -2,7 +2,8 @@ import re
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
 
-from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig, set_env_auth
+from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError
+from .base import BaseArchytasModel, ModelConfig, set_env_auth
 from ..exceptions import AuthenticationError, ExecutionError
 
 
@@ -34,3 +35,9 @@ class OpenAIModel(BaseArchytasModel):
                     tool_call["name"] = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call["name"])
             output.append(message)
         return output
+
+    def handle_invoke_error(self, error: BaseException):
+        if isinstance(error, OpenAIAuthenticationError):
+            raise AuthenticationError("OpenAI Authentication Error") from error
+        elif isinstance(error, RateLimitError):
+            raise ExecutionError(error.message) from error

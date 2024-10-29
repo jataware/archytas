@@ -1,11 +1,7 @@
 import asyncio
 import inspect
-import json
 import logging
 import os
-import re
-import warnings
-from enum import Enum
 from tenacity import (
     before_sleep_log,
     retry as tenacity_retry,
@@ -13,11 +9,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from typing import Callable, ContextManager, Any, Optional, Literal
-from enum import Enum
-from functools import wraps
-from typing import Callable, ContextManager, Any
-from pydantic import BaseModel as PydanticModel
+from typing import Callable, ContextManager, Any, Optional
 
 from rich import print as rprint
 from rich.spinner import Spinner
@@ -28,7 +20,6 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 
 from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
-from .models.openai import OpenAIModel
 
 
 logger = logging.getLogger(__name__)
@@ -63,19 +54,6 @@ def retry(fn):
 logger = logging.getLogger(__name__)
 
 
-class AgentMessage(BaseMessage):
-    """
-    Agent Message type that plays well with langchain.
-    """
-    type: Literal["agent"] = "agent"
-
-
-class Role(str, Enum):
-    system = "system"
-    agent = "agent"
-    user = "user"
-
-
 class ContextMessage(SystemMessage):
     """Simple wrapper around a message that adds an id and optional lifetime."""
 
@@ -108,20 +86,6 @@ def cli_spinner():
     )
 
 
-def auth(func):
-    """
-    """
-    @wraps(func)
-    async def inner(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except (AuthenticationError) as err:
-            # Do something better with authentication error?
-            raise AuthenticationError(err)
-    return inner
-
-
-
 class no_spinner:
     def __enter__(self):
         pass
@@ -149,7 +113,7 @@ class Agent:
         Args:
             model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
             prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
-            api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
+            api_key (str, optional): The LLM provider API key to use. Defaults to None. If None, the provider will use the default environment variable (e.g. OPENAI_API_KEY).
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
             verbose (bool, optional): Expands the debug output. Includes full query context on requests to the LLM. Defaults to False.
@@ -163,6 +127,8 @@ class Agent:
         )
         self.verbose = verbose
         if model is None:
+            # Importing OpenAI is slow, so limit import to only when it is needed.
+            from .models.openai import OpenAIModel
             self.model = OpenAIModel({"api_key": api_key})
         else:
             self.model = model
@@ -172,6 +138,8 @@ class Agent:
             prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.system_message = SystemMessage(content=prompt)
         self.messages: list[BaseMessage] = []
+        if messages:
+            self.messages.extend(messages)
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
@@ -184,10 +152,6 @@ class Agent:
         self.auto_context_message = None
         self.auto_update_context = False
 
-        # check that an api key was given, and set it
-        # if api_key is None:
-        #     api_key = os.environ.get("OPENAI_API_KEY", None)
-        # openai.api_key = api_key
         self.temperature = temperature
 
     def print(self, *args, **kwargs):
@@ -341,7 +305,6 @@ class Agent:
 
         return result
 
-    @auth
     async def execute(self, additional_messages: list[BaseMessage] = [], save_result: bool = True) -> str:
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
@@ -352,8 +315,8 @@ class Agent:
                 temperature=self.temperature,
             )
         if save_result:
+            # Add the raw result to history
             self.messages.append(raw_result)
-        # Add the raw result to history
 
         # Return processed result
         result = self.model.process_result(raw_result)
@@ -366,7 +329,6 @@ class Agent:
 
         return result
 
-    @auth
     async def oneshot(self, prompt: str, query: str) -> str:
         """
         Send a user query to the agent. Returns the agent's response.
@@ -380,7 +342,6 @@ class Agent:
         Returns:
             str: The agent's response to the user query.
         """
-        import openai
         with self.spinner():
             if self.verbose:
                 self.debug(event_type="llm_oneshot", content=prompt)

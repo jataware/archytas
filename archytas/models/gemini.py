@@ -22,15 +22,12 @@ class GeminiModel(BaseArchytasModel):
         return ChatGoogleGenerativeAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.api_key)
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        try:
-            kwargs.pop("temperature")
-            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
-        except ChatGoogleGenerativeAIError as error:
-            if any(('400 API key not valid' in arg for arg in error.args)):
-                raise AuthenticationError("API key invalid.") from error
+        # Gemini doesn't accept a temperature keyword on invoke
+        kwargs.pop("temperature")
+        return await super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     def _preprocess_messages(self, messages):
-        from ..agent import AgentMessage, SystemMessage, AutoContextMessage, AIMessage
+        from ..agent import SystemMessage, AutoContextMessage
         output = []
         system_messages = []
         for message in messages:
@@ -40,3 +37,8 @@ class GeminiModel(BaseArchytasModel):
                 output.append(message)
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
+
+    def handle_invoke_error(self, error: BaseException):
+        if isinstance(error, ChatGoogleGenerativeAIError):
+            if any(('400 API key not valid' in arg for arg in error.args)):
+                raise AuthenticationError("API key invalid.") from error

@@ -54,9 +54,6 @@ Ensure all generated JSON is valid and would pass a JSON validator.
                     if msg.tool_calls:
                         msg.tool_calls.clear()
                     output.append(msg)
-                # case ToolMessage():
-                    # msg = HumanMessage(content=message.content)
-                    # output.append(msg)
                 case _:
                     output.append(message)
         # Condense all context/system messages into a single first message as required by Anthropic
@@ -64,5 +61,6 @@ Ensure all generated JSON is valid and would pass a JSON validator.
         return output
 
     def process_result(self, response_message: AIMessage):
+        # This model has a bad habit of using """ in JSON results as if it were Python
         text = super().process_result(response_message)
         return text.replace('"""', '"')

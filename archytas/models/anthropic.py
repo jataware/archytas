@@ -1,4 +1,5 @@
 import json
+from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError
 from langchain_anthropic.chat_models import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
 from pydantic import BaseModel as PydanticModel, Field
@@ -6,6 +7,7 @@ from pydantic import BaseModel as PydanticModel, Field
 from archytas.agent import AIMessage
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
+from ..exceptions import AuthenticationError, ExecutionError
 from ..utils import extract_json
 
 class DummyTool(PydanticModel):
@@ -62,3 +64,9 @@ class AnthropicModel(BaseArchytasModel):
         except Exception as e:
             result = content
         return result
+
+    def handle_invoke_error(self, error: BaseException):
+        if isinstance(error, AnthropicAuthenticError):
+            raise AuthenticationError("Anthropic Authentication Error") from error
+        elif isinstance(error, RateLimitError):
+            raise

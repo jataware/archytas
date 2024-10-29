@@ -48,11 +48,6 @@ fail_task
 """.strip()
 
 
-# {{
-#   "thought",    : # you should always think about what you need to do
-#   "tool",       : # the name of the tool. This must be one of: {{{tools_list}}}
-#   "tool_input", : # the input to the tool
-# }}
 # TODO: there should be some way to give an example relevant to the environment/tools...
 #      or use a system tool for the example
 def formatting(tool_names: list[str], *, ask_user: bool) -> str:

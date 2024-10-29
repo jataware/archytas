@@ -11,7 +11,6 @@ from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, sanitize_toolname
 from .models.base import BaseArchytasModel
-from .message_schemas import ToolUseRequest, ToolUseResponse, ReActError
 from .utils import extract_json
 
 
@@ -82,7 +81,7 @@ class ReActAgent(Agent):
 
         Args:
             model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
-            api_key (str, optional): The OpenAI API key to use. If not set, defaults to reading the API key from the OPENAI_API_KEY environment variable.
+            api_key (str, optional): The LLM provider API key to use. Defaults to None. If None, the provider will use the default environment variable (e.g. OPENAI_API_KEY).
             tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
             allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
@@ -351,9 +350,6 @@ class ReActAgent(Agent):
         assert "thought" in action, "Action json is missing key 'thought'"
         assert "tool" in action, "Action json is missing key 'tool'"
         assert "tool_input" in action, "Action json is missing key 'tool_input'"
-        # assert (
-        #     len(action) == 3
-        # ), f"Action must have exactly 3 keys (thought, tool, tool_input), got ({', '.join(action.keys())})"
 
         thought = action["thought"]
         tool = action["tool"]
