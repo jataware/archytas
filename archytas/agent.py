@@ -21,6 +21,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
 
+from .exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,10 @@ class Agent:
         Function at this level so it can be overridden in a subclass.
         """
         logger.debug(event_type, content)
+
+    def set_openai_key(self, key):
+        import openai
+        openai.api_key = key
 
     def new_context_id(self) -> int:
         """Generate a new context id."""
