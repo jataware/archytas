@@ -17,6 +17,7 @@ from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
 
+from .exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,10 @@ class Agent:
         """
         logger.debug(event_type, content)
 
+    def set_openai_key(self, key):
+        import openai
+        openai.api_key = key
+
     def new_context_id(self) -> int:
         """Generate a new context id."""
         self._current_context_id += 1
@@ -320,15 +325,23 @@ class Agent:
     @retry
     async def execute(self, additional_messages: list[Message] = []) -> str:
         import openai
-        with self.spinner():
-            messages = (await self.all_messages()) + additional_messages
-            if self.verbose:
-                self.debug(event_type="llm_request", content=messages)
-            completion = openai.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0,
-            )
+        try:
+            with self.spinner():
+                messages = (await self.all_messages()) + additional_messages
+                if self.verbose:
+                    self.debug(event_type="llm_request", content=messages)
+                completion = openai.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0,
+                )
+        except openai.AuthenticationError as err:
+            raise AuthenticationError(*err.args) from err
+        except openai.OpenAIError as err:
+            if 'The api_key client option must be set' in str(err):
+                raise AuthenticationError(*err.args) from err
+            else:
+                raise
 
         # grab the response and add it to the chat history
         result = completion.choices[0].message.content
@@ -356,17 +369,20 @@ class Agent:
             str: The agent's response to the user query.
         """
         import openai
-        with self.spinner():
-            if self.verbose:
-                self.debug(event_type="llm_oneshot", content=prompt)
-            completion = openai.chat.completions.create(
-                model=self.model,
-                messages=[
-                    Message(role=Role.system, content=prompt),
-                    Message(role=Role.user, content=query),
-                ],
-                temperature=0,
-            )
+        try:
+            with self.spinner():
+                if self.verbose:
+                    self.debug(event_type="llm_oneshot", content=prompt)
+                completion = openai.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        Message(role=Role.system, content=prompt),
+                        Message(role=Role.user, content=query),
+                    ],
+                    temperature=0,
+                )
+        except openai.AuthenticationError as err:
+            raise AuthenticationError(*err.args) from err
 
         # return the agent's response
         result = completion.choices[0].message.content
