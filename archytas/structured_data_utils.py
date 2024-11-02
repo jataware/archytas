@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from dataclasses import is_dataclass, asdict, _MISSING_TYPE
 
-from .utils import type_to_str
+from .archytypes import normalize_type, NormalizedType
 from .constants import TAB
 
 
@@ -78,7 +78,7 @@ def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'Dataclas
     return cls(**body)
 
 
-def is_structured_type(arg_type: type | UnionType | GenericAlias) -> bool:
+def is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
     """Check if a type is a structured type like a dataclass or pydantic model"""
     if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
         assert not any(is_structured_type(t) for t in get_type_args(arg_type)
@@ -175,7 +175,7 @@ def get_dataclass_input_description(arg_type: 'type[DataclassInstance]', arg_nam
 
         # add the field description to the chunks
         chunks.append(
-            f'\n{TAB*(indent+1)}"{field_name}": ({type_to_str(field_type)}{", optional" if field_default is not None else ""})')
+            f'\n{TAB*(indent+1)}"{field_name}": ({normalize_type(field_type)}{", optional" if field_default is not None else ""})')
         if field_desc:
             chunks.append(f" {field_desc}.")
         if field_default is not None:
