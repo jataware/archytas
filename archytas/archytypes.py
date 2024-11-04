@@ -2,6 +2,10 @@ from types import GenericAlias, UnionType, NoneType, EllipsisType
 from typing import Any, Optional, Union, List, Dict, Tuple, Iterable, get_origin, get_args, overload
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 import pdb
 
@@ -188,21 +192,50 @@ class None_t(NormalizedType):
     def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
         return isinstance(other, None_t)
 
+
+@dataclass(frozen=True)
+class Literal_t(NormalizedType): ...
+
 @dataclass(frozen=True)
 class Dataclass_t(NormalizedType): ...
 
 @dataclass(frozen=True)
 class PydanticModel_t(NormalizedType): ...
 
+
+
+# @dataclass(frozen=True)
+# class Object_t(NormalizedType):
+#     def __post_init__(self):
+#         logger.warning("Object_t should not be used as a type for @tools")
+#     def __str__(self) -> str:
+#         return 'object'
+#     def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+#         return True
+
+
 def is_optional(annotation):
     """Check if the annotation is typing.Optional[T]"""
     return get_origin(annotation) is Union and type(None) in get_args(annotation)
 
 def normalize_type(t: Any) -> NormalizedType:
+
+    ### main error cases ###
+
+    # Optional without a parameter doesn't make sense
+    if t is Optional:
+        raise ValueError("Underspecified type for tool. Optional should contain a type, e.g. Optional[int]. Note that Optional[T] is equivalent to Union[T, None]")
+    
+    # Object_t shouldn't be used! It's not really useful for agent instructions
+    if t is object:
+        # return Object_t()
+        raise ValueError("Underspecified type annotation for tool. `object` does not provide enough information for the agent to create an instance of the argument to the tool.")
+
+
     # Optional[a]
     if is_optional(t):
         return Union_t(normalize_type(a) for a in get_args(t))
-
+    
     # a | b
     if isinstance(t, UnionType):
         return Union_t(normalize_type(a) for a in t.__args__)
@@ -230,7 +263,7 @@ def normalize_type(t: Any) -> NormalizedType:
     #List[a], List, list
     #Dict[a, b], Dict, dict
 
-    
+
     pdb.set_trace()
     ...
     raise NotImplementedError("TODO")
@@ -246,10 +279,10 @@ def normalize_type(t: Any) -> NormalizedType:
 def evaluate_type_str(type_str: str, globals: dict[str, Any]) -> NormalizedType:
     try:
         t = eval(type_str, globals)
-        return normalize_type(t)
     except Exception as e:
         raise ValueError(f"Could not evaluate type string '{type_str}'") from e
 
+    return normalize_type(t)
 
 # Some debug testing
 if __name__ == '__main__':
