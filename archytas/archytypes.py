@@ -77,8 +77,10 @@ class Union_t(NormalizedType):
         return f"Union_t({set(self.types)})" # wrap with set() to print it nicer
     
     def __eq__(self, other):
+        if not isinstance(other, Union_t):
+            return NotImplemented
         return isinstance(other, Union_t) and self.types == other.types
-    
+
     def __hash__(self):
         return hash(self.types)
 
@@ -160,8 +162,6 @@ class Dataclass_t(NormalizedType):
         ...
     def __str__(self) -> str:
         return self.cls.__name__
-    # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-    #     return isinstance(other, Dataclass_t) and self.cls == other.cls
 
 @dataclass(frozen=True)
 class PydanticModel_t(NormalizedType):
@@ -171,8 +171,6 @@ class PydanticModel_t(NormalizedType):
         ...
     def __str__(self) -> str:
         return self.cls.__name__
-    # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-    #     return isinstance(other, PydanticModel_t) and self.cls == other.cls
 
 
 
@@ -182,16 +180,13 @@ class PydanticModel_t(NormalizedType):
 #         logger.warning("Object_t should not be used as a type for @tools")
 #     def __str__(self) -> str:
 #         return 'object'
-#     # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-#     #     return True
 
 
+# Any should compare equal to all types
 @dataclass(frozen=True)
 class Any_t(NormalizedType):
     def __str__(self) -> str:
         return 'Any'
-    # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-    #     return True
     def __eq__(self, other):
         return True
     def __req__(self, other):
@@ -203,7 +198,7 @@ def is_optional(annotation):
 
 def normalize_type(t: Any) -> NormalizedType:
 
-    ### main error cases ###
+    #### main error cases ####
 
     # Optional without a parameter doesn't make sense
     if t is Optional:
