@@ -1,5 +1,7 @@
 from types import GenericAlias, UnionType, NoneType, EllipsisType
-from typing import Any, Optional, Union, List, Dict, Tuple, Iterable, get_origin, get_args, overload
+from typing import Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance  # only available to type checkers
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, is_dataclass
 from pydantic import BaseModel
@@ -72,7 +74,7 @@ class Union_t(NormalizedType):
         return ' | '.join(str(t) for t in self.types)
     
     def __repr__(self) -> str:
-        return f"Union_t({set(self.types)})"
+        return f"Union_t({set(self.types)})" # wrap with set() to print it nicer
     
     def __eq__(self, other):
         return isinstance(other, Union_t) and self.types == other.types
@@ -150,9 +152,6 @@ class None_t(NormalizedType):
 @dataclass(frozen=True)
 class Literal_t(NormalizedType): ... #TODO:
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from _typeshed import DataclassInstance  # only available to type checkers
 @dataclass(frozen=True)
 class Dataclass_t(NormalizedType):
     cls: 'type[DataclassInstance]'
@@ -219,6 +218,20 @@ def normalize_type(t: Any) -> NormalizedType:
     if t is Any:
         raise ValueError("Underspecified type annotation for tool. `Any` does not provide enough information for the agent to create an instance of the argument to the tool.")
 
+
+    # Primitive types
+    if t is str:
+        return Str_t()
+    if t is int:
+        return Int_t()
+    if t is float:
+        return Float_t()
+    if t is bool:
+        return Bool_t()
+    if t is None or t is NoneType:
+        return None_t()
+    
+
     # Optional[a]
     if is_optional(t):
         return Union_t(normalize_type(a) for a in get_args(t))
@@ -231,19 +244,10 @@ def normalize_type(t: Any) -> NormalizedType:
         return Union_t(normalize_type(a) for a in get_args(t))
 
     # Literal[a, b, c]
-    # if get_origin(t) is Literal:
-    #     return Literal_t()
-
-    if t is str:
-        return Str_t()
-    if t is int:
-        return Int_t()
-    if t is float:
-        return Float_t()
-    if t is bool:
-        return Bool_t()
-    if t is None or t is NoneType:
-        return None_t()
+    if get_origin(t) is Literal:
+        raise NotImplementedError("Literal type annotation is not yet supported")
+        pdb.set_trace()
+        # return Literal_t()
     
     #Tuple[a, b, c], Tuple, tuple
     if t is tuple or t is Tuple:
@@ -272,9 +276,11 @@ def normalize_type(t: Any) -> NormalizedType:
 
 
     if isinstance(t, type) and is_dataclass(t): # is_dataclass also return True for dataclass instances, which we don't want to match
+        #TODO: TBD if the inner types should be normalized...
         return Dataclass_t(t)
 
     if isinstance(t, type) and issubclass(t, BaseModel):
+        #TODO: TBD if the inner types should be normalized...
         return PydanticModel_t(t)
 
 
