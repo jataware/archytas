@@ -78,7 +78,8 @@ def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'Dataclas
     return cls(**body)
 
 
-def is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
+# def is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
+def is_structured_type(arg_type: type | UnionType | GenericAlias) -> bool:
     """Check if a type is a structured type like a dataclass or pydantic model"""
     if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
         assert not any(is_structured_type(t) for t in get_type_args(arg_type)

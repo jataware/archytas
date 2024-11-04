@@ -1,7 +1,8 @@
 from types import GenericAlias, UnionType, NoneType, EllipsisType
 from typing import Any, Optional, Union, List, Dict, Tuple, Iterable, get_origin, get_args, overload
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
+from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,14 @@ class NotProvided:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+    def __repr__(self):
+        return 'NotProvided'
+    def __str__(self):
+        return 'NotProvided'
+    def __eq__(self, other):
+        return isinstance(other, NotProvided)
+    def __hash__(self):
+        return hash(NotProvided)
 
 # instance of the singleton
 notprovided = NotProvided()
@@ -97,20 +106,9 @@ class List_t(NormalizedType):
         if not strict:
             return True
 
-        # both are not parametrized
-        if self.element_type is notprovided and other.element_type is notprovided:
-            return True
-        
-        # one is parametrized and the other is not, means no match since strict=True
-        if self.element_type is notprovided or other.element_type is notprovided:
-            return False
-        
-        # just making the type checker happy. This should always be true
-        assert not isinstance(self.element_type, NotProvided) and not isinstance(other.element_type, NotProvided)
+        # strict matching of parameters
+        return self.element_type == other.element_type
 
-        # match if parametrized types match
-        return self.element_type.matches(other.element_type, strict)
-    
 @dataclass(frozen=True)
 class Tuple_t(NormalizedType):
     component_types: tuple[NormalizedType, ...] | tuple[NormalizedType, EllipsisType] | NotProvided = notprovided
@@ -129,22 +127,8 @@ class Tuple_t(NormalizedType):
         if not strict:
             return True
 
-        # both are not parametrized
-        if self.component_types is notprovided and other.component_types is notprovided:
-            return True
-
-        # one is parametrized and the other is not, means no match since strict=True
-        if self.component_types is notprovided or other.component_types is notprovided:
-            return False
-
-        # just making the type checker happy. This should always be true
-        assert not isinstance(self.component_types, NotProvided) and not isinstance(other.component_types, NotProvided)
-
-        # match if parametrized types match
-        if len(self.component_types) != len(other.component_types):
-            return False
-
-        return all(a == b for a, b in zip(self.component_types, other.component_types))
+        # strict matching of parameters
+        return self.component_types == other.component_types
 
 @dataclass(frozen=True)
 class Dict_t(NormalizedType):
@@ -152,10 +136,27 @@ class Dict_t(NormalizedType):
     #      e.g. could be params: tuple[NormalizedType, NormalizedType] | NotProvided
     key_type: NormalizedType | NotProvided = notprovided
     value_type: NormalizedType | NotProvided = notprovided
-    def __post_init__(self):
-        # TODO: if key_type is not provided, value_type must also not be provided
-        pdb.set_trace()
-        ...
+
+    def __str__(self) -> str:
+        if isinstance(self.key_type, NotProvided) and isinstance(self.value_type, NotProvided):
+            return 'dict'
+        if isinstance(self.key_type, NotProvided):
+            return f'dict[?, {self.value_type}]'
+        if isinstance(self.value_type, NotProvided):
+            return f'dict[{self.key_type}, ?]'
+        return f'dict[{self.key_type}, {self.value_type}]'
+
+    def matches(self, other, strict: bool = False) -> bool:
+        # other is not a Dict_t
+        if not isinstance(other, Dict_t):
+            return False
+
+        # non-strict means don't compare parameters e.g. Dict[int, str] can match Dict
+        if not strict:
+            return True
+
+        # strict matching of parameters
+        return self.key_type == other.key_type and self.value_type == other.value_type
 
 @dataclass(frozen=True)
 class Int_t(NormalizedType):
@@ -196,11 +197,30 @@ class None_t(NormalizedType):
 @dataclass(frozen=True)
 class Literal_t(NormalizedType): ...
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance  # only available to type checkers
 @dataclass(frozen=True)
-class Dataclass_t(NormalizedType): ...
+class Dataclass_t(NormalizedType):
+    cls: 'type[DataclassInstance]'
+    def __post_init__(self):
+        # TODO: check/normalize members?
+        ...
+    def __str__(self) -> str:
+        return self.cls.__name__
+    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+        return isinstance(other, Dataclass_t) and self.cls == other.cls
 
 @dataclass(frozen=True)
-class PydanticModel_t(NormalizedType): ...
+class PydanticModel_t(NormalizedType):
+    cls: 'type[BaseModel]'
+    def __post_init__(self):
+        # TODO: check/normalize members?
+        ...
+    def __str__(self) -> str:
+        return self.cls.__name__
+    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+        return isinstance(other, PydanticModel_t) and self.cls == other.cls
 
 
 
@@ -261,7 +281,30 @@ def normalize_type(t: Any) -> NormalizedType:
         return Tuple_t(tuple(normalize_type(a) for a in get_args(t)))
     
     #List[a], List, list
+    if t is list or t is List:
+        return List_t()
+    if get_origin(t) is list:
+        args = get_args(t)
+        if len(args) != 1:
+            raise ValueError(f"List type annotation should have exactly one argument, found {len(args)}")
+        return List_t(normalize_type(args[0]))
+
+
     #Dict[a, b], Dict, dict
+    if t is dict or t is Dict:
+        return Dict_t()
+    if get_origin(t) is dict:
+        args = get_args(t)
+        if len(args) != 2:
+            raise ValueError(f"Dict type annotation should have exactly two arguments, found {len(args)}")
+        return Dict_t(normalize_type(args[0]), normalize_type(args[1]))
+
+
+    if isinstance(t, type) and is_dataclass(t): # is_dataclass would return True for dataclass instances too, which we don't want to match
+        return Dataclass_t(t)
+
+    if isinstance(t, type) and issubclass(t, BaseModel):
+        return PydanticModel_t(t)
 
 
     pdb.set_trace()
