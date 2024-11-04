@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from dataclasses import is_dataclass, asdict, _MISSING_TYPE
 
-from .archytypes import normalize_type, NormalizedType
+from .archytypes import normalize_type, NormalizedType, Dataclass_t, PydanticModel_t
 from .constants import TAB
 
 
@@ -78,18 +78,10 @@ def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'Dataclas
     return cls(**body)
 
 
-# def is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
-def is_structured_type(arg_type: NormalizedType) -> bool: #type | UnionType | GenericAlias) -> bool:
+# def raw_is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
+def is_structured_type(arg_type: NormalizedType) -> bool:
     """Check if a type is a structured type like a dataclass or pydantic model"""
-    import pdb; pdb.set_trace()
-    if isinstance(arg_type, UnionType) or get_origin(arg_type) is Union:
-        assert not any(is_structured_type(t) for t in get_type_args(arg_type)
-                       ), f"Unions containing any structured types are not supported. Got {arg_type}"
-        return False
-
-    # handle if type has a generic subscript (e.g. list[str])
-    arg_type = get_origin(arg_type) or arg_type
-    return is_dataclass(arg_type) or issubclass(arg_type, BaseModel)
+    return isinstance(arg_type, Dataclass_t) or isinstance(arg_type, PydanticModel_t)
 
 
 def get_structured_input_description(arg_type: type, arg_name: str, arg_desc: str, arg_default: Any | None, *, indent: int) -> list[str]:
