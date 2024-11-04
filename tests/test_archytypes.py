@@ -12,36 +12,42 @@ import pdb
 
 
 def test_annotation_normalization():
-    from archytas.archytypes import Int_t, Float_t, Str_t, Bool_t, None_t, Union_t, List_t, Tuple_t, Dict_t
+    from archytas.archytypes import Int_t, Float_t, Str_t, Bool_t, None_t, Union_t, List_t, Tuple_t, Dict_t, Any_t
     from types import NoneType
 
     # int | None
     t = Union_t(Int_t(), None_t())
-    assert normalize_type(Optional[int]).matches(t)
-    assert normalize_type(int | None).matches(t)
-    assert normalize_type(Optional[int] | None).matches(t)
-    assert normalize_type(Optional[int] | None | NoneType).matches(t)
-    assert normalize_type(Union[int, None]).matches(t)
-    assert normalize_type(Union[int, Union[None, NoneType]]).matches(t)
-    assert normalize_type(Union[int, Union[None, Union[None, NoneType]]]).matches(t)
+    assert t.matches(normalize_type(Optional[int]))
+    assert t.matches(normalize_type(int | None))
+    assert t.matches(normalize_type(Optional[int] | None))
+    assert t.matches(normalize_type(Optional[int] | None | NoneType))
+    assert t.matches(normalize_type(Union[int, None]))
+    assert t.matches(normalize_type(Union[int, Union[None, NoneType]]))
+    assert t.matches(normalize_type(Union[int, Union[None, Union[None, NoneType]]]))
 
     # int | float | str   # also testing nested unions and duplicates
     t = Union_t(Int_t(), Float_t(), Str_t())
-    assert normalize_type(Union[int, Union[int, Union[str, Union[float, int]]]]).matches(t)
-    assert normalize_type(int | float | str).matches(t)
-    assert normalize_type(int | float | str | float | str | int).matches(t)
+    assert t.matches(normalize_type(Union[int, Union[int, Union[str, Union[float, int]]]]))
+    assert t.matches(normalize_type(int | float | str))
+    assert t.matches(normalize_type(int | float | str | float | str | int))
     
 
     # tuple[int, str]
     t = Tuple_t((Int_t(), Str_t()))
-    assert normalize_type(tuple[int, str]).matches(t, strict=True)
-    assert normalize_type(Tuple[int, str]).matches(t, strict=True)
+    assert t == normalize_type(tuple[int, str])
+    assert t == normalize_type(Tuple[int, str])
 
     # tuple[int, ...]
     t = Tuple_t((Int_t(), ...))
 
     # list[int]
     t = List_t(Int_t())
+
+    # dict[str, int]
+
+    # any
+    
+    
     #TODO:...
 
 

@@ -75,7 +75,7 @@ def tool(*, name: str | None = None, autosummarize: bool = False) -> Callable[[C
 def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False) -> Callable[P, R]: ...
 
 
-def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
+def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, debug_mode: bool = False):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
@@ -121,6 +121,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
         func._name = name if name else func.__name__
         func._is_tool = True
         func.autosummarize = autosummarize
+        func.debug_mode = debug_mode
 
         async def run(
             args: dict | None,

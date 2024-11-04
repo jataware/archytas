@@ -77,10 +77,11 @@ class Union_t(NormalizedType):
     def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
         if isinstance(other, Union_t):
             return all(any(t.matches(o, strict) for o in other.types) for t in self.types)
-        
+
+        return False
         #TODO: probably actually remove this case. matches are looking for docstring matches signature, 
         #      not a single type matches one of the options
-        return any(t.matches(other, strict) for t in self.types)
+        # return any(t.matches(other, strict) for t in self.types)
 
     def __eq__(self, other):
         return isinstance(other, Union_t) and self.types == other.types
@@ -234,6 +235,17 @@ class PydanticModel_t(NormalizedType):
 #         return True
 
 
+@dataclass(frozen=True)
+class Any_t(NormalizedType):
+    def __str__(self) -> str:
+        return 'Any'
+    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+        return True
+    def __eq__(self, other):
+        return True
+    def __req__(self, other):
+        return True
+
 def is_optional(annotation):
     """Check if the annotation is typing.Optional[T]"""
     return get_origin(annotation) is Union and type(None) in get_args(annotation)
@@ -317,8 +329,9 @@ def normalize_type(t: Any) -> NormalizedType:
 #      to them through the the function the docstring is attached to, e.g. `func.__globals__`
 #      TBD on how necessary since generally we should be in control of the docstrings
 #      and if we're not, the user would be able to execute arbitrary code anyways
-# Other possible long-term solution is to just not typecheck. So long as the argnames match up
-#      in the docstring vs in the signature, we should just assume it's a valid match
+# For now, the main mitigation is the debug=False flag in the @tool decorator. Production code
+#      should always have this set to False (forcing all docstring types to Any_t). When true,
+#      this function will be called on the docstring's type annotations to normalize them.
 def evaluate_type_str(type_str: str, globals: dict[str, Any]) -> NormalizedType:
     try:
         t = eval(type_str, globals)
@@ -326,29 +339,3 @@ def evaluate_type_str(type_str: str, globals: dict[str, Any]) -> NormalizedType:
         raise ValueError(f"Could not evaluate type string '{type_str}'") from e
 
     return normalize_type(t)
-
-# Some debug testing
-if __name__ == '__main__':
-    from .test import my_fn, B
-    from docstring_parser import parse as parse_docstring
-    import inspect
-
-    # func = my_fn
-    func = B.my_fn
-
-    assert func.__doc__ is not None, f"Function '{func.__name__}' has no docstring. All tools must have a docstring that matches the function signature."
-    docstring = parse_docstring(func.__doc__)
-    signature = inspect.signature(func)
-
-    # Extract argument information from the docstring
-    docstring_args: dict[str, tuple[NormalizedType, str, str]] = {
-        arg.arg_name: (
-            evaluate_type_str(arg.type_name or '', func.__globals__), 
-            arg.description or '', 
-            arg.default or ''
-        )
-        for arg in docstring.params
-    }
-
-    pdb.set_trace()
-    ...
