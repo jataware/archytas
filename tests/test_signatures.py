@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 from archytas.tool_utils import tool
+from typing import Union, List, Optional
 
 import pytz
 from datetime import datetime
@@ -44,6 +45,51 @@ class M2(BaseModel):
 class M3(BaseModel):
     a: M1 = Field(default_factory=M1, description="description of a")
     b: M2 = Field(default_factory=M2, description="description of b")
+
+
+
+class GenericModelA(BaseModel):
+    param_a: float = Field(default=1.0, description="A general float parameter for customization")
+    param_b: float = Field(default=31.0, description="A general float parameter for analysis")
+    param_c: float = Field(default=25.0, description="Another general float parameter with a specific use")
+    param_d: float = Field(default=4.7, description="float parameter for model input")
+    param_e: float = Field(default=80.0, description="metric for generic modeling")
+    count_x: int = Field(default=5, description="Integer parameter representing a count or quantity")
+    rate_y: float = Field(default=70.0, description="Rate parameter for process evaluation")
+    cost_adjuster_1: float = Field(default=100.0, description="Adjuster for cost or pricing analysis")
+    multiplier_z: float = Field(default=1.2, description="Multiplier factor for cost or scaling")
+    length_param: float = Field(default=1000.0, description="Length parameter for model calculations")
+    declination_factor: Union[float, List[float]] = Field(default=1.0, description="Declination rate or factors for modeling")
+    size_param: float = Field(default=0.16256, description="Size-related float parameter")
+    count_y: int = Field(default=5, description="Secondary integer count parameter")
+    coeff_param: float = Field(default=2500.0, description="Coefficient for analysis")
+    import_rate: float = Field(default=0.07, description="Import rate for modeling")
+    distance_metric: float = Field(default=1.0, description="Distance or proximity measurement")
+    time_frame_1: int = Field(default=2, description="Time frame for process")
+    buffer_time: int = Field(default=1, description="Buffer or preparation time in the process")
+
+
+class GenericModelB(BaseModel):
+    operator_a: float = Field(default=1.0, description="A general float operator for customization")
+    operator_b: float = Field(default=31.0, description="A general float operator for analysis")
+    operator_c: float = Field(default=25.0, description="Another general float operator with a specific use")
+    operator_d: float = Field(default=4.7, description="float operator for model input")
+    operator_e: float = Field(default=80.0, description="metric for generic modeling")
+    count_x: int = Field(default=5, description="Integer parameter representing a count or quantity")
+    rate_y: float = Field(default=70.0, description="Rate parameter for process evaluation")
+    cost_adjuster_1: float = Field(default=100.0, description="Adjuster for cost or pricing analysis")
+    multiplier_z: float = Field(default=1.2, description="Multiplier factor for cost or scaling")
+    length_param: float = Field(default=1000.0, description="Length parameter for model calculations")
+    declination_factor: Union[float, List[float]] = Field(default=1.0, description="Declination rate or factors for modeling")
+    optional_param: Optional[str] = Field(default=None, description="Optional parameter for customization")
+    size_param: float = Field(default=0.16256, description="Size-related float parameter")
+    count_y: int = Field(default=5, description="Secondary integer count parameter")
+    coeff_param: float = Field(default=2500.0, description="Coefficient for analysis")
+    import_rate: float = Field(default=0.07, description="Import rate for modeling")
+    distance_metric: float = Field(default=1.0, description="Distance or proximity measurement")
+    time_frame_1: int = Field(default=2, description="Time frame for process")
+    buffer_time: int = Field(default=1, description="Buffer or preparation time in the process")
+
 
 
 @tool
@@ -155,29 +201,29 @@ def tool9(item: M3, a: A, c: C):
 
 
 @tool
-def tool10(app: CoolAppDTO):
+def tool10(app: GenericModelA):
     """
     Args:
-        app (CoolAppDTO): Description of the argument `app`
+        app (GenericModelA): Description of the argument `app`
     """
     raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
 
 @tool
-def tool11(heat: HeatAppDTO, cool: CoolAppDTO):
+def tool11(heat: GenericModelA, cool: GenericModelB):
     """
     Args:
-        heat (HeatAppDTO): Description of the argument `heat`
-        cool (CoolAppDTO): Description of the argument `cool`
+        heat (GenericModelA): Description of the argument `heat`
+        cool (GenericModelB): Description of the argument `cool`
     """
     raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
 
 @tool
-def tool12(app: PowerAppDTO, a: A, c: C, i: int = 5, l: list = None):
+def tool12(app: GenericModelA, a: A, c: C, i: int = 5, l: list = None):
     """
     Args:
-        app (PowerAppDTO): Description of the argument `app`
+        app (GenericModelA): Description of the argument `app`
         a (A): Description of the argument `a`
         c (C): Description of the argument `c`
         i (int): Description of the argument `i`. Defaults to 5
