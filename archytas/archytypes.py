@@ -40,9 +40,6 @@ class NormalizedType(ABC):
     @abstractmethod
     def __str__(self) -> str: ...
 
-    @abstractmethod
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool: ...
-
 # Too much of a hassle to make this one a dataclass since we need to flatten nested Union_t types
 class Union_t(NormalizedType):
     # Union_t can take either an Iterable[NormalizedType] or multiple NormalizedType as arguments
@@ -77,21 +74,12 @@ class Union_t(NormalizedType):
     def __repr__(self) -> str:
         return f"Union_t({set(self.types)})"
     
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        if isinstance(other, Union_t):
-            return all(any(t.matches(o, strict) for o in other.types) for t in self.types)
-
-        return False
-        #TODO: probably actually remove this case. matches are looking for docstring matches signature, 
-        #      not a single type matches one of the options
-        # return any(t.matches(other, strict) for t in self.types)
-
     def __eq__(self, other):
         return isinstance(other, Union_t) and self.types == other.types
     
     def __hash__(self):
         return hash(self.types)
-    
+
 @dataclass(frozen=True)
 class List_t(NormalizedType):
     element_type: NormalizedType | NotProvided = notprovided
@@ -100,18 +88,7 @@ class List_t(NormalizedType):
         if isinstance(self.element_type, NotProvided):
             return 'list'
         return f'list[{self.element_type}]'
-    
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        # other is not a List_t
-        if not isinstance(other, List_t):
-            return False
-        
-        # non-strict means don't compare parameters e.g. List[int] can match List
-        if not strict:
-            return True
 
-        # strict matching of parameters
-        return self.element_type == other.element_type
 
 @dataclass(frozen=True)
 class Tuple_t(NormalizedType):
@@ -121,18 +98,7 @@ class Tuple_t(NormalizedType):
         if isinstance(self.component_types, NotProvided):
             return 'tuple'
         return f'tuple[{", ".join(str(t) for t in self.component_types)}]'
-    
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        # other is not a Tuple_t
-        if not isinstance(other, Tuple_t):
-            return False
 
-        # non-strict means don't compare parameters e.g. Tuple[int, str] can match Tuple
-        if not strict:
-            return True
-
-        # strict matching of parameters
-        return self.component_types == other.component_types
 
 @dataclass(frozen=True)
 class Dict_t(NormalizedType):
@@ -150,56 +116,39 @@ class Dict_t(NormalizedType):
             return f'dict[{self.key_type}, ?]'
         return f'dict[{self.key_type}, {self.value_type}]'
 
-    def matches(self, other, strict: bool = False) -> bool:
-        # other is not a Dict_t
-        if not isinstance(other, Dict_t):
-            return False
-
-        # non-strict means don't compare parameters e.g. Dict[int, str] can match Dict
-        if not strict:
-            return True
-
-        # strict matching of parameters
-        return self.key_type == other.key_type and self.value_type == other.value_type
 
 @dataclass(frozen=True)
 class Int_t(NormalizedType):
     def __str__(self) -> str:
         return 'int'
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool: 
-        return isinstance(other, Int_t)
+
 
 @dataclass(frozen=True)
 class Float_t(NormalizedType):
     def __str__(self) -> str:
         return 'float'
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool: 
-        return isinstance(other, Float_t)
+
 
 @dataclass(frozen=True)
 class Str_t(NormalizedType):
     def __str__(self) -> str:
         return 'str'
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        return isinstance(other, Str_t)
+
 
 @dataclass(frozen=True)
 class Bool_t(NormalizedType):
     def __str__(self) -> str:
         return 'bool'
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        return isinstance(other, Bool_t)
+
 
 @dataclass(frozen=True)
 class None_t(NormalizedType):
     def __str__(self) -> str:
         return 'None'
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        return isinstance(other, None_t)
 
 
 @dataclass(frozen=True)
-class Literal_t(NormalizedType): ...
+class Literal_t(NormalizedType): ... #TODO:
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -212,8 +161,8 @@ class Dataclass_t(NormalizedType):
         ...
     def __str__(self) -> str:
         return self.cls.__name__
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        return isinstance(other, Dataclass_t) and self.cls == other.cls
+    # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+    #     return isinstance(other, Dataclass_t) and self.cls == other.cls
 
 @dataclass(frozen=True)
 class PydanticModel_t(NormalizedType):
@@ -223,8 +172,8 @@ class PydanticModel_t(NormalizedType):
         ...
     def __str__(self) -> str:
         return self.cls.__name__
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        return isinstance(other, PydanticModel_t) and self.cls == other.cls
+    # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+    #     return isinstance(other, PydanticModel_t) and self.cls == other.cls
 
 
 
@@ -234,16 +183,16 @@ class PydanticModel_t(NormalizedType):
 #         logger.warning("Object_t should not be used as a type for @tools")
 #     def __str__(self) -> str:
 #         return 'object'
-#     def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-#         return True
+#     # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+#     #     return True
 
 
 @dataclass(frozen=True)
 class Any_t(NormalizedType):
     def __str__(self) -> str:
         return 'Any'
-    def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
-        return True
+    # def matches(self, other: 'NormalizedType', strict: bool = False) -> bool:
+    #     return True
     def __eq__(self, other):
         return True
     def __req__(self, other):
@@ -280,6 +229,10 @@ def normalize_type(t: Any) -> NormalizedType:
     # Union[a, b]
     if get_origin(t) is Union:
         return Union_t(normalize_type(a) for a in get_args(t))
+
+    # Literal[a, b, c]
+    # if get_origin(t) is Literal:
+    #     return Literal_t()
 
     if t is str:
         return Str_t()
@@ -318,7 +271,7 @@ def normalize_type(t: Any) -> NormalizedType:
         return Dict_t(normalize_type(args[0]), normalize_type(args[1]))
 
 
-    if isinstance(t, type) and is_dataclass(t): # is_dataclass would return True for dataclass instances too, which we don't want to match
+    if isinstance(t, type) and is_dataclass(t): # is_dataclass also return True for dataclass instances, which we don't want to match
         return Dataclass_t(t)
 
     if isinstance(t, type) and issubclass(t, BaseModel):
