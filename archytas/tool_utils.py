@@ -303,7 +303,7 @@ def get_tool_signature(
     # Check if the docstring argument types match the signature argument types
     for arg_name, arg_type in signature_args.items():
         docstring_arg_type, _, _ = docstring_args[arg_name]
-        if not arg_type.matches(docstring_arg_type):
+        if arg_type != docstring_arg_type:
             logger.warning((
                 f"Docstring type '{docstring_arg_type}' does not match function signature type '{arg_type}' "
                 f"for argument '{arg_name}' for function '{func.__name__}'"
@@ -329,7 +329,7 @@ def get_tool_signature(
 
     ret = (docstring_return_name, ret_type, docstring_return_description)
 
-    if not ret_type.matches(docstring_ret_type):
+    if ret_type != docstring_ret_type:
         logger.warning(
             f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{ret_type}' for function '{func.__name__}'"
         )

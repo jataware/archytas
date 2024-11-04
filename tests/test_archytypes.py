@@ -17,19 +17,19 @@ def test_annotation_normalization():
 
     # int | None
     t = Union_t(Int_t(), None_t())
-    assert t.matches(normalize_type(Optional[int]))
-    assert t.matches(normalize_type(int | None))
-    assert t.matches(normalize_type(Optional[int] | None))
-    assert t.matches(normalize_type(Optional[int] | None | NoneType))
-    assert t.matches(normalize_type(Union[int, None]))
-    assert t.matches(normalize_type(Union[int, Union[None, NoneType]]))
-    assert t.matches(normalize_type(Union[int, Union[None, Union[None, NoneType]]]))
+    assert t == normalize_type(Optional[int])
+    assert t == normalize_type(int | None)
+    assert t == normalize_type(Optional[int] | None)
+    assert t == normalize_type(Optional[int] | None | NoneType)
+    assert t == normalize_type(Union[int, None])
+    assert t == normalize_type(Union[int, Union[None, NoneType]])
+    assert t == normalize_type(Union[int, Union[None, Union[None, NoneType]]])
 
     # int | float | str   # also testing nested unions and duplicates
     t = Union_t(Int_t(), Float_t(), Str_t())
-    assert t.matches(normalize_type(Union[int, Union[int, Union[str, Union[float, int]]]]))
-    assert t.matches(normalize_type(int | float | str))
-    assert t.matches(normalize_type(int | float | str | float | str | int))
+    assert t == normalize_type(Union[int, Union[int, Union[str, Union[float, int]]]])
+    assert t == normalize_type(int | float | str)
+    assert t == normalize_type(int | float | str | float | str | int)
     
 
     # tuple[int, str]
