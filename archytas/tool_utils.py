@@ -70,12 +70,12 @@ P = ParamSpec("P")
 @overload
 def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
 @overload
-def tool(*, name: str | None = None, autosummarize: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+def tool(*, name: str | None = None, autosummarize: bool = False, devmode: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 @overload
-def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False) -> Callable[P, R]: ...
+def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False) -> Callable[P, R]: ...
 
 
-def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, debug_mode: bool = False):
+def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
@@ -105,7 +105,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
     # decorator case where the decorator is used directly on the func
     # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
     if func is not None:
-        return tool(name=name, autosummarize=autosummarize)(func)
+        return tool(name=name, autosummarize=autosummarize, devmode=devmode)(func)
 
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
@@ -114,14 +114,14 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
                 f"tool decorator can only be applied to functions or classes. Got {func} of type {type(func)}"
             )
 
-        # attach usage description to the wrapper function
-        args_list, ret, desc, injections = get_tool_signature(func)
-        arg_preprocessor = make_arg_preprocessor(args_list)
-
         func._name = name if name else func.__name__
         func._is_tool = True
         func.autosummarize = autosummarize
-        func.debug_mode = debug_mode
+        func._devmode = devmode
+
+        # attach usage description to the wrapper function
+        args_list, ret, desc, injections = get_tool_signature(func)
+        arg_preprocessor = make_arg_preprocessor(args_list)
 
         async def run(
             args: dict | None,
@@ -276,7 +276,7 @@ def get_tool_signature(
     # Extract argument information from the docstring
     docstring_args: dict[str, tuple[NormalizedType, str|None, str|None]] = {
         arg.arg_name: (
-            evaluate_type_str(arg.type_name or '', func.__globals__), # type: ignore
+            evaluate_type_str(arg.type_name or '', func.__globals__, devmode=func._devmode), # type: ignore
             arg.description,
             arg.default
         )
@@ -323,7 +323,7 @@ def get_tool_signature(
         docstring_return_name = None
         docstring_return_description = None
     else:
-        docstring_ret_type = evaluate_type_str(docstring.returns.type_name or '', func.__globals__) # type: ignore
+        docstring_ret_type = evaluate_type_str(docstring.returns.type_name or '', func.__globals__, devmode=func._devmode) # type: ignore
         docstring_return_name = docstring.returns.return_name
         docstring_return_description = docstring.returns.description
 
