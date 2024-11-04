@@ -316,7 +316,7 @@ def get_tool_signature(
     ]
 
     # get the return type and description/name if they exist
-    ret_type = normalize_type(signature.return_annotation)
+    ret_type = normalize_type(signature.return_annotation if signature.return_annotation != inspect._empty else None)
     if docstring.returns is None:
         docstring_ret_type = normalize_type(None)
         docstring_return_name = None
