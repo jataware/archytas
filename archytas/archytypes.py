@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 import pdb
 
 
+class TypeNormalizationError(Exception):
+    pass
+
 
 class NotProvided:
     """sentinel for optional parameters"""
@@ -264,6 +267,9 @@ def normalize_type(t: Any) -> NormalizedType:
         raise ValueError("Underspecified type annotation for tool. `object` does not provide enough information for the agent to create an instance of the argument to the tool.")
 
 
+    if t is Any:
+        raise ValueError("Underspecified type annotation for tool. `Any` does not provide enough information for the agent to create an instance of the argument to the tool.")
+
     # Optional[a]
     if is_optional(t):
         return Union_t(normalize_type(a) for a in get_args(t))
@@ -329,10 +335,24 @@ def normalize_type(t: Any) -> NormalizedType:
 #      to them through the the function the docstring is attached to, e.g. `func.__globals__`
 #      TBD on how necessary since generally we should be in control of the docstrings
 #      and if we're not, the user would be able to execute arbitrary code anyways
-# For now, the main mitigation is the debug=False flag in the @tool decorator. Production code
-#      should always have this set to False (forcing all docstring types to Any_t). When true,
-#      this function will be called on the docstring's type annotations to normalize them.
-def evaluate_type_str(type_str: str, globals: dict[str, Any]) -> NormalizedType:
+# For now, the main mitigation is the devmode=False flag. Production code should always
+#      have this set to False (forcing all docstring types to Any_t). When true, this
+#      function will be called on the docstring's type annotations to normalize them.
+def evaluate_type_str(type_str: str, globals: dict[str, Any], *, devmode: bool) -> NormalizedType:
+    """
+    Convert a string type annotation (i.e. from a docstring) into the actual normalized type object
+
+    Args:
+        type_str (str): the string type annotation
+        globals (dict[str, Any]): the globals from the function that the annotation is attached to.
+        devmode (bool): Only perform evaluation in devmode mode. If False (i.e. production), returns Any_t.
+
+    Returns:
+        NormalizedType: the normalized type object. If devmode is False, this will always be Any_t.
+    """
+    if not devmode:
+        return Any_t()
+
     try:
         t = eval(type_str, globals)
     except Exception as e:

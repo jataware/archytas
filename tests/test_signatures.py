@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 from archytas.tool_utils import tool
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Any
 
 import pytz
 from datetime import datetime
+
+import pytest
 
 import pdb
 
@@ -91,294 +93,311 @@ class GenericModelB(BaseModel):
     buffer_time: int = Field(default=1, description="Buffer or preparation time in the process")
 
 
-
-@tool
-def tool0(a: list[int], b:list[float]):
-    """
-    Args:
-        a (list): Description of the argument `a`
-        b (list): Description of the argument `b`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
-
-
-@tool
-def tool1(item: A):
-    """
-    Args:
-        item (A): Description of the argument `item`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+@pytest.mark.xfail(reason="Any not allowed in docstring type annotations")
+def test_mytool():
+    @tool
+    def mytool(a: list[int], b:list[float]):
+        """
+        Args:
+            a (Any): Description of the argument `a`
+            b (Any): Description of the argument `b`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
 
-@tool()
-def tool2(item: B, i: int):
-    """
-    Args:
-        item (B): Description of the argument `item`
-        i (int): Description of the argument `i`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+def test_tool0():
+    @tool
+    def tool0(a: list[int], b:list[float]):
+        """
+        Args:
+            a (list): Description of the argument `a`
+            b (list): Description of the argument `b`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
 
-@tool
-def tool3(a: A, b: B):
-    """
-    Args:
-        a (A): Description of the argument `a`
-        b (B): Description of the argument `b`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+def test_tool1():
+    @tool
+    def tool1(item: A):
+        """
+        Args:
+            item (A): Description of the argument `item`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+
+def test_tool2():
+    @tool()
+    def tool2(item: B, i: int):
+        """
+        Args:
+            item (B): Description of the argument `item`
+            i (int): Description of the argument `i`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+
+def test_tool3():
+    @tool
+    def tool3(a: A, b: B):
+        """
+        Args:
+            a (A): Description of the argument `a`
+            b (B): Description of the argument `b`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+
+def test_tool4():
+    @tool(name='apple')
+    def tool4(item: C):
+        """
+        Args:
+            item (C): Description of the argument `item`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+
+def test_tool5():
+    @tool
+    def tool5(a: A, b: B, c: C, l: list = None):
+        """
+        Args:
+            a (A): Description of the argument `a`
+            b (B): Description of the argument `b`
+            c (C): Description of the argument `c`
+            l (list, optional): Description of the argument `l`. Defaults to [].
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
 
-@tool(name='apple')
-def tool4(item: C):
-    """
-    Args:
-        item (C): Description of the argument `item`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+@pytest.mark.xfail(reason="Union of structs not supported")
+def test_tool5a():
+    # This tool should fail because it contains a union of structs, which is currently not supported
+    @tool
+    def tool5a(d: D):
+        """
+        Args:
+            d (D): Description of the argument `d`
+        """
+        print(d)
 
+def test_tool6():
+    @tool(autosummarize=True)
+    def tool6(item: M1):
+        """
+        Args:
+            item (M1): Description of the argument `item`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
-@tool
-def tool5(a: A, b: B, c: C, l: list = None):
-    """
-    Args:
-        a (A): Description of the argument `a`
-        b (B): Description of the argument `b`
-        c (C): Description of the argument `c`
-        l (list, optional): Description of the argument `l`. Defaults to [].
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+def test_tool7():
+    @tool
+    def tool7(item: M2):
+        """
+        Args:
+            item (M2): Description of the argument `item`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
+def test_tool8():
+    @tool
+    def tool8(item: M3):
+        """
+        Args:
+            item (M3): Description of the argument `item`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
-# # This tool should fail because it contains a union of structs, which is currently not supported
-# @tool
-# def tool5a(d: D):
-#     """
-#     Args:
-#         d (D): Description of the argument `d`
-#     """
-#     print(d)
+def test_tool9():
+    @tool
+    def tool9(item: M3, a: A, c: C):
+        """
+        Args:
+            item (M3): Description of the argument `item`
+            a (A): Description of the argument `a`
+            c (C): Description of the argument `c`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
+def test_tool10():
+    @tool
+    def tool10(app: GenericModelA):
+        """
+        Args:
+            app (GenericModelA): Description of the argument `app`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
-@tool(autosummarize=True)
-def tool6(item: M1):
-    """
-    Args:
-        item (M1): Description of the argument `item`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+def test_tool11():
+    @tool
+    def tool11(heat: GenericModelA, cool: GenericModelB):
+        """
+        Args:
+            heat (GenericModelA): Description of the argument `heat`
+            cool (GenericModelB): Description of the argument `cool`
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
+def test_tool12():
+    @tool
+    def tool12(app: GenericModelA, a: A, c: C, i: int = 5, l: list = None):
+        """
+        Args:
+            app (GenericModelA): Description of the argument `app`
+            a (A): Description of the argument `a`
+            c (C): Description of the argument `c`
+            i (int): Description of the argument `i`. Defaults to 5
+            l (list): Description of the argument `l`. Defaults to None
+        """
+        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
-@tool
-def tool7(item: M2):
-    """
-    Args:
-        item (M2): Description of the argument `item`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+def test_datetime_tool():
+    @tool(name="datetime")
+    def datetime_tool(format: str = "%Y-%m-%d %H:%M:%S %Z", timezone: str = "UTC") -> str:
+        """
+        Get the current date and time.
 
+        Args:
+            format (str, optional): The format to return the date and time in. Defaults to '%Y-%m-%d %H:%M:%S %Z'.
+            timezone (str, optional): The timezone to return the date and time in. Defaults to 'UTC'.
 
-@tool
-def tool8(item: M3):
-    """
-    Args:
-        item (M3): Description of the argument `item`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        Returns:
+            str: The current date and time in the specified format
+        """
+        tz = pytz.timezone(timezone)
+        return datetime.now(tz).strftime(format)
 
+def test_datetime_simple():
+    @tool#(name="datetime")
+    def datetime_simple() -> str:
+        """
+        Get the current date and time.
 
-@tool
-def tool9(item: M3, a: A, c: C):
-    """
-    Args:
-        item (M3): Description of the argument `item`
-        a (A): Description of the argument `a`
-        c (C): Description of the argument `c`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        Returns:
+            str: The current date and time in UTC
+        """
+        return datetime.now(pytz.timezone('UTC')).strftime("%Y-%m-%d %H:%M:%S %Z")
 
+def test_single_int():
+    @tool
+    def single_int(i: int) -> int:
+        """
+        test tool that takes a single integer
 
-@tool
-def tool10(app: GenericModelA):
-    """
-    Args:
-        app (GenericModelA): Description of the argument `app`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        Args:
+            i (int): Description of the argument `i`
 
+        Returns:
+            int: The integer you gave me
+        """
+        return i
 
-@tool
-def tool11(heat: GenericModelA, cool: GenericModelB):
-    """
-    Args:
-        heat (GenericModelA): Description of the argument `heat`
-        cool (GenericModelB): Description of the argument `cool`
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+def test_list_of_ints():
+    @tool
+    def list_of_ints(l: list[int]) -> list[int]:
+        """
+        test tool that takes a list of integers
 
+        Args:
+            l (list): Description of the argument `l`
 
-@tool
-def tool12(app: GenericModelA, a: A, c: C, i: int = 5, l: list = None):
-    """
-    Args:
-        app (GenericModelA): Description of the argument `app`
-        a (A): Description of the argument `a`
-        c (C): Description of the argument `c`
-        i (int): Description of the argument `i`. Defaults to 5
-        l (list): Description of the argument `l`. Defaults to None
-    """
-    raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        Returns:
+            list: The list of integers you gave me
+        """
+        return l
 
+def test_dict_of_ints():
+    @tool
+    def dict_of_ints(d: dict[str, int]) -> dict[str, int]:
+        """
+        test tool that takes a dictionary of integers
 
-@tool(name="datetime")
-def datetime_tool(format: str = "%Y-%m-%d %H:%M:%S %Z", timezone: str = "UTC") -> str:
-    """
-    Get the current date and time.
+        Args:
+            d (dict): Description of the argument `d`
 
-    Args:
-        format (str, optional): The format to return the date and time in. Defaults to '%Y-%m-%d %H:%M:%S %Z'.
-        timezone (str, optional): The timezone to return the date and time in. Defaults to 'UTC'.
+        Returns:
+            dict[str, int]: The dictionary of integers you gave me
+        """
+        return d
 
-    Returns:
-        str: The current date and time in the specified format
-    """
-    tz = pytz.timezone(timezone)
-    return datetime.now(tz).strftime(format)
+def test_union_int_str():
+    @tool
+    def union_int_str(x: int | str) -> str:
+        """
+        test tool that takes an int or a string
 
+        Args:
+            x (int | str): Description of the argument `x`
 
-@tool#(name="datetime")
-def datetime_simple() -> str:
-    """
-    Get the current date and time.
+        Returns:
+            str: The type of the argument you gave me
+        """
+        if isinstance(x, int):
+            return 'you gave me an int'
+        elif isinstance(x, str):
+            return 'you gave me a string'
+        else:
+            raise ValueError('I only accept ints and strings')
 
-    Returns:
-        str: The current date and time in UTC
-    """
-    return datetime.now(pytz.timezone('UTC')).strftime("%Y-%m-%d %H:%M:%S %Z")
+def test_positional_only():
+    @tool
+    def positional_only(a: int, b: B, /) -> tuple[int, B]:
+        """
+        test tool that has positional only arguments
 
+        Args:
+            a (int): Description of the argument `a`
+            b (B): Description of the argument `b`
 
-@tool
-def single_int(i: int) -> int:
-    """
-    test tool that takes a single integer
+        Returns:
+            tuple[int, B]: The arguments you gave me
+        """
+        return a, b
 
-    Args:
-        i (int): Description of the argument `i`
+def test_returns_union():
+    import random
+    @tool
+    def returns_union() -> int | str:
+        """
+        test tool that returns an int or a string
+        
+        Returns:
+            int|str: The type of the return value
+        """
+        if random.random() < 0.5:
+            return 'I am a string'
+        return 1
 
-    Returns:
-        int: The integer you gave me
-    """
-    return i
+# def test_agent():
+#     if __name__ == '__main__':
+#         from archytas.react import ReActAgent, Role
+#         from easyrepl import REPL
 
-@tool
-def list_of_ints(l: list[int]) -> list[int]:
-    """
-    test tool that takes a list of integers
+#         tools = [
+#             tool0,
+#             tool1,
+#             tool2,
+#             tool3,
+#             tool4,
+#             tool5,
+#             # tool5a,
+#             tool6,
+#             tool7,
+#             tool8,
+#             tool9,
+#             datetime_tool,
+#             datetime_simple,
+#             single_int,
+#             list_of_ints,
+#             dict_of_ints,
+#             union_int_str,
+#             tool10,
+#             tool11,
+#             tool12,
+#             positional_only,
+#             returns_union,
+#         ]
 
-    Args:
-        l (list): Description of the argument `l`
+#         agent = ReActAgent(model='gpt-4o-mini', tools=tools, verbose=True)
+#         print(f'prompt:\n```\n{agent.prompt}\n```')
 
-    Returns:
-        list: The list of integers you gave me
-    """
-    return l
-
-
-@tool
-def dict_of_ints(d: dict[str, int]) -> dict[str, int]:
-    """
-    test tool that takes a dictionary of integers
-
-    Args:
-        d (dict): Description of the argument `d`
-
-    Returns:
-        dict[str, int]: The dictionary of integers you gave me
-    """
-    return d
-
-
-@tool
-def union_int_str(x: int | str) -> str:
-    """
-    test tool that takes an int or a string
-
-    Args:
-        x (int | str): Description of the argument `x`
-
-    Returns:
-        str: The type of the argument you gave me
-    """
-    if isinstance(x, int):
-        return 'you gave me an int'
-    elif isinstance(x, str):
-        return 'you gave me a string'
-    else:
-        raise ValueError('I only accept ints and strings')
-
-
-@tool
-def positional_only(a: int, b: B, /) -> tuple[int, B]:
-    """
-    test tool that has positional only arguments
-
-    Args:
-        a (int): Description of the argument `a`
-        b (B): Description of the argument `b`
-
-    Returns:
-        tuple[int, B]: The arguments you gave me
-    """
-    return a, b
-
-import random
-@tool
-def returns_union() -> int | str:
-    """
-    test tool that returns an int or a string
-    
-    Returns:
-        int|str: The type of the return value
-    """
-    if random.random() < 0.5:
-        return 'I am a string'
-    return 1
-
-
-if __name__ == '__main__':
-    from archytas.react import ReActAgent, Role
-    from easyrepl import REPL
-
-    tools = [
-        tool0,
-        tool1,
-        tool2,
-        tool3,
-        tool4,
-        tool5,
-        # tool5a,
-        tool6,
-        tool7,
-        tool8,
-        tool9,
-        datetime_tool,
-        datetime_simple,
-        single_int,
-        list_of_ints,
-        dict_of_ints,
-        union_int_str,
-        tool10,
-        tool11,
-        tool12,
-        positional_only,
-        returns_union,
-    ]
-
-    agent = ReActAgent(model='gpt-4o-mini', tools=tools, verbose=True)
-    print(f'prompt:\n```\n{agent.prompt}\n```')
-
-    for query in REPL(history_file='.history'):
-        response = agent.react(query)
-        print(response)
+#         for query in REPL(history_file='.history'):
+#             response = agent.react(query)
+#             print(response)
