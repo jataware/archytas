@@ -45,7 +45,20 @@ def test_annotation_normalization():
 
     # dict[str, int]
 
-    # any
+    # Any should be equal to all types
+    t = Any_t()
+    assert t == normalize_type(Optional[int])
+    assert normalize_type(Optional[int]) == t
+    assert not (normalize_type(Optional[int]) != t)
+    assert not (t != normalize_type(Optional[int]))
+    assert t == normalize_type(int | float | str)
+    assert t == normalize_type(int | float | str | float | str | int)
+    assert t == normalize_type(Union[int, Union[int, Union[str, Union[float, int]]]])
+    assert t == normalize_type(tuple[int, str])
+    assert t == normalize_type(Tuple[int, str])
+    assert t == normalize_type(Union[int, None])
+    assert normalize_type(list[int]) == t
+    assert normalize_type(dict[str, int]) == t
     
     
     #TODO:...
