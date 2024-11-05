@@ -1,9 +1,9 @@
-from types import GenericAlias, UnionType, NoneType, EllipsisType
+from types import UnionType, NoneType, EllipsisType
 from typing import Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, is_dataclass
 from pydantic import BaseModel
 import logging
 

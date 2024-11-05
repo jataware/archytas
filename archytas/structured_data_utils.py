@@ -4,13 +4,7 @@ if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from dataclasses import is_dataclass, asdict, _MISSING_TYPE
 
-from .archytypes import (
-    normalize_type, NormalizedType,
-    Dataclass_t, PydanticModel_t,
-    Union_t, List_t, Tuple_t, Dict_t,
-    NotProvided,
-    is_structured_type,
-)
+from .archytypes import normalize_type, NormalizedType, Dataclass_t, PydanticModel_t, is_structured_type
 from .constants import TAB
 
 
