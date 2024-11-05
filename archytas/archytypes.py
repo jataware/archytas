@@ -10,7 +10,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-import pdb
 
 
 class TypeNormalizationError(Exception):
@@ -209,7 +208,7 @@ def normalize_type(t: Any) -> NormalizedType:
         # return Object_t()
         raise ValueError("Underspecified type annotation for tool. `object` does not provide enough information for the agent to create an instance of the argument to the tool.")
 
-
+    # Any is also not useful for the same reasons as object
     if t is Any:
         raise ValueError("Underspecified type annotation for tool. `Any` does not provide enough information for the agent to create an instance of the argument to the tool.")
 
@@ -241,7 +240,6 @@ def normalize_type(t: Any) -> NormalizedType:
     # Literal[a, b, c]
     if get_origin(t) is Literal:
         raise NotImplementedError("Literal type annotation is not yet supported")
-        pdb.set_trace()
         # return Literal_t()
     
     #Tuple[a, b, c], Tuple, tuple
@@ -279,9 +277,7 @@ def normalize_type(t: Any) -> NormalizedType:
         return PydanticModel_t(t)
 
 
-    pdb.set_trace()
-    ...
-    raise NotImplementedError("TODO")
+    raise ValueError(f"Unsupported type to normalize: {t}")
 
 
 #TODO: the only real way to make this safe is to manually parse the types ourselves
