@@ -40,6 +40,10 @@ notprovided = NotProvided()
 class NormalizedType(ABC):
     @abstractmethod
     def __str__(self) -> str: ...
+    @classmethod
+    def new(cls, value: Any) -> Any:
+        """Primitive types can use .new() to create an instance of the type"""
+        raise TypeError(f"Type Error: Cannot construct Type `{cls.__name__}.new()`")
 
 # Too much of a hassle to make this one a dataclass since we need to flatten nested Union_t types
 class Union_t(NormalizedType):
@@ -124,30 +128,55 @@ class Dict_t(NormalizedType):
 class Int_t(NormalizedType):
     def __str__(self) -> str:
         return 'int'
+    @classmethod
+    def new(cls, value: Any) -> int:
+        if not isinstance(value, (int, float)) or value != int(value):
+            raise TypeError(f"Expected an int, got {value}")
+        return int(value)
 
 
 @dataclass(frozen=True)
 class Float_t(NormalizedType):
     def __str__(self) -> str:
         return 'float'
+    @classmethod
+    def new(cls, value: Any) -> float:
+        if not isinstance(value, (int, float)):
+            raise TypeError(f"Expected a float, got {value}")
+        return float(value)
 
 
 @dataclass(frozen=True)
 class Str_t(NormalizedType):
     def __str__(self) -> str:
         return 'str'
+    @classmethod
+    def new(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise TypeError(f"Expected a string, got {value}")
+        return value
 
 
 @dataclass(frozen=True)
 class Bool_t(NormalizedType):
     def __str__(self) -> str:
         return 'bool'
+    @classmethod
+    def new(cls, value: Any) -> bool:
+        if not isinstance(value, bool):
+            raise TypeError(f"Expected a bool, got {value}")
+        return bool(value)
 
 
 @dataclass(frozen=True)
 class None_t(NormalizedType):
     def __str__(self) -> str:
         return 'None'
+    @classmethod
+    def new(cls, value: Any) -> None:
+        if value is not None:
+            raise TypeError(f"Expected None, got {value}")
+        return None
 
 
 @dataclass(frozen=True)
