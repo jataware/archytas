@@ -94,8 +94,6 @@ class GenericModelB(BaseModel):
     time_frame_1: int = Field(default=2, description="Time frame for process")
     buffer_time: int = Field(default=1, description="Buffer or preparation time in the process")
 
-# This one should fail
-
 
 def get_test_mytool():
     @tool
@@ -105,7 +103,7 @@ def get_test_mytool():
             a (Any): Description of the argument `a`
             b (Any): Description of the argument `b`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"a: {a}, b: {b}")
 
     return mytool
 
@@ -118,7 +116,7 @@ def get_test_tool0():
             a (list): Description of the argument `a`
             b (list): Description of the argument `b`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"a: {a}, b: {b}")
 
     return tool0
 
@@ -130,7 +128,7 @@ def get_test_tool1():
         Args:
             item (A): Description of the argument `item`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}")
 
     return tool1
 
@@ -143,7 +141,7 @@ def get_test_tool2():
             item (B): Description of the argument `item`
             i (int): Description of the argument `i`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}, i: {i}")
 
     return tool2
 
@@ -156,7 +154,7 @@ def get_test_tool3():
             a (A): Description of the argument `a`
             b (B): Description of the argument `b`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"a: {a}, b: {b}")
 
     return tool3
 
@@ -168,7 +166,7 @@ def get_test_tool4():
         Args:
             item (C): Description of the argument `item`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}")
 
     return tool4
 
@@ -183,12 +181,11 @@ def get_test_tool5():
             c (C): Description of the argument `c`
             l (list, optional): Description of the argument `l`. Defaults to [].
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"a: {a}, b: {b}, c: {c}, l: {l}")
 
     return tool5
 
 
-# This tool should fail because it contains a union of structs, which is currently not supported
 def get_test_tool5a():
     @tool
     def tool5a(d: D):
@@ -196,7 +193,7 @@ def get_test_tool5a():
         Args:
             d (D): Description of the argument `d`
         """
-        print(d)
+        print(f"d: {d}")
 
     return tool5a
 
@@ -208,7 +205,7 @@ def get_test_tool6():
         Args:
             item (M1): Description of the argument `item`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}")
 
     return tool6
 
@@ -220,7 +217,7 @@ def get_test_tool7():
         Args:
             item (M2): Description of the argument `item`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}")
 
     return tool7
 
@@ -232,7 +229,7 @@ def get_test_tool8():
         Args:
             item (M3): Description of the argument `item`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}")
 
     return tool8
 
@@ -246,7 +243,7 @@ def get_test_tool9():
             a (A): Description of the argument `a`
             c (C): Description of the argument `c`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"item: {item}, a: {a}, c: {c}")
 
     return tool9
 
@@ -258,7 +255,7 @@ def get_test_tool10():
         Args:
             app (GenericModelA): Description of the argument `app`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"app: {app}")
 
     return tool10
 
@@ -271,7 +268,7 @@ def get_test_tool11():
             heat (GenericModelA): Description of the argument `heat`
             cool (GenericModelB): Description of the argument `cool`
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"heat: {heat}, cool: {cool}")
 
     return tool11
 
@@ -287,7 +284,7 @@ def get_test_tool12():
             i (int): Description of the argument `i`. Defaults to 5
             l (list): Description of the argument `l`. Defaults to None
         """
-        raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
+        print(f"app: {app}, a: {a}, c: {c}, i: {i}, l: {l}")
 
     return tool12
 
@@ -563,3 +560,7 @@ def test_agent():
     for query in REPL(history_file='.history'):
         response = agent.react(query)
         print(response)
+
+
+if __name__ == '__main__':
+    test_agent()
