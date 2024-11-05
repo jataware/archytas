@@ -146,7 +146,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
             # Add injections to kwargs
             for inj_name, inj_type in injections.items():
                 context_key = INJECTION_MAPPING.get(inj_type, None)
-                context_value = tool_context.get(context_key, None)
+                context_value = tool_context.get(context_key or '', None)
                 if context_value:
                     kwargs[inj_name] = context_value
 
@@ -207,7 +207,7 @@ def get_tool_prompt_description(obj: Callable | type | Any):
             chunks.append(f"a json object with the following fields:\n{TAB}{{")
             for arg_name, arg_type, arg_desc, arg_default in args_list:
                 if is_structured_type(arg_type):
-                    chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc, arg_default, indent=2))
+                    chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc or '', arg_default, indent=2))
                     continue
 
                 if not is_primitive_type(arg_type):
