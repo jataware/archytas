@@ -525,7 +525,7 @@ def test_returns_union():
     get_test_returns_union()
 
 
-def test_agent():
+def run_agent_example():
     from archytas.react import ReActAgent, Role
     from easyrepl import REPL
 
@@ -563,4 +563,4 @@ def test_agent():
 
 
 if __name__ == '__main__':
-    test_agent()
+    run_agent_example()
