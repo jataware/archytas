@@ -63,7 +63,8 @@ def construct_structured_type(arg_type: NormalizedType, data: dict) -> 'Dataclas
         assert not isinstance(arg_type.element_type, NotProvided), f"INTERNAL ERROR: {arg_type} is not a structured type"
         return [construct_structured_type(arg_type.element_type, item) for item in data]
 
-
+    if isinstance(arg_type, Union_t):
+        return construct_union(arg_type, data)
 
     # Future support for other structured types can be added here
     raise ValueError(f"Unsupported structured type {arg_type}")
@@ -90,6 +91,36 @@ def construct_dataclass(cls: Dataclass_t, data: dict) -> 'DataclassInstance':
             else:
                 body[field_name] = data[field_name]
     return cls.cls(**body)
+
+
+def construct_union(union: Union_t, data: dict) -> Any:
+    """
+    Construct a union type from a dictionary.
+
+    Args:
+        union (Union_t): The union type to construct
+        data (dict): The dictionary to construct the union type from
+
+    Returns:
+        Any: The constructed union type
+    """
+    matches = []
+    for t in union.types:
+        if is_structured_type(t):
+            try:
+                matches.append(construct_structured_type(t, data))
+            except:
+                continue
+        else:
+            try:
+                matches.append(t.new(data))
+            except:
+                continue
+    if len(matches) == 0:
+        raise ValueError(f"Input data does not match any of the types in the union {union}")
+    if len(matches) > 1:
+        raise ValueError(f"Input data matches multiple types in the union {union}. Matches: {matches}")
+    return matches[0]
 
 
 def get_structured_input_description(arg_type: NormalizedType, arg_name: str, arg_desc: str, raw_arg_default: Any | None, *, indent: int) -> list[str]:
@@ -285,7 +316,7 @@ def get_composite_structured_input_description(arg_type: List_t | Dict_t | Union
         chunks.append(f" {arg_desc}.")
     if arg_default:
         chunks.append(f" Defaults to {arg_default}.")
-    chunks.append(f" Input should be {arg_type} where:\n")
+    chunks.append(f" Input should match type `{arg_type}` where:")
     for struct in structs:
         if isinstance(struct, Dataclass_t):
             chunks.extend(get_dataclass_input_description(struct, f'{struct}', '', '', indent=indent+1))
