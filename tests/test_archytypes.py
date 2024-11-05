@@ -92,7 +92,7 @@ def test_climate_data_utility_signature():
     class ClimateDataUtilityToolset:
         """Toolset for ClimateDataUtility context"""
 
-        @tool()
+        @tool(devmode=True)
         async def detect_resolution(self, filepath: str, geo_columns: object, agent: AgentRef) -> str:
             """
             This function should be used to detect the resolution of a dataset.
@@ -116,7 +116,7 @@ def test_climate_data_utility_signature():
 
             
 
-        @tool()
+        @tool(devmode=True)
         async def regrid_dataset(
             self,
             dataset: str,
@@ -153,7 +153,7 @@ def test_climate_data_utility_signature():
             raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
 
-        @tool()
+        @tool(devmode=True)
         async def get_netcdf_plot(
             self,
             dataset_variable_name: str,
@@ -195,6 +195,7 @@ def test_fixed_climate_data_utility_signature():
     - annotate `geo_columns` as `dict` instead of `object`
     - in docstring for `regrid_dataset`, change `aggregation (Optional)` to `aggregation (str, optional)`. Note that Optional is case-sensitive.
     - other instances of `(Optional)` in docstring replaced with `(<type>, optional)`
+        - note that these could also be replaced with `(Optional[<type>])`
     
     """
     class ClimateDataUtilityToolset:

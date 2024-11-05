@@ -462,7 +462,10 @@ def test_tool5():
 
 @pytest.mark.xfail(reason="Union of structs not supported")
 def test_tool5a():
-    get_test_tool5a()
+    from archytas.react import ReActAgent
+    t = get_test_tool5a()
+    agent = ReActAgent(tools=[t]) #union of structs only detected at runtime...
+
 
 
 def test_tool6():
