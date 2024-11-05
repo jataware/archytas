@@ -106,7 +106,7 @@ def construct_union(union: Union_t, data: dict) -> Any:
     """
     matches = []
     for t in union.types:
-        if is_structured_type(t):
+        if is_structured_type(t) and isinstance(data, dict):
             try:
                 matches.append(construct_structured_type(t, data))
             except:
