@@ -1,21 +1,9 @@
 import logging
 from .constants import TAB
 from .agent import Agent
-from .archytypes import (
-    evaluate_type_str, normalize_type,
-    NormalizedType,
-    Str_t, Int_t, Float_t, Bool_t, None_t,
-    Union_t, List_t, Dict_t, Tuple_t,
-    Dataclass_t, PydanticModel_t,
-    NotProvided,
-    is_primitive_type, is_structured_type,
-)
-from .structured_data_utils import (
-    get_structured_input_description,
-    construct_structured_type
-)
-from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload
-from types import UnionType, GenericAlias
+from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
+from .structured_data_utils import get_structured_input_description, construct_structured_type
+from typing import Callable, Any, ParamSpec, TypeVar, overload
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
