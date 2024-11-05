@@ -38,16 +38,16 @@ def get_tool000():
 
 def get_tool01():
     @tool(devmode=True)
-    def tool01(a0: A|B, a1: A|str|None) -> tuple[A|B, A|str|None]:
+    def tool01(a0: M1|M2, a1: A|str|None) -> tuple[M1|M2, A|str|None]:
         """
         Example tool
 
         Args:
-            a0 (A|B): A or B instance
+            a0 (M1|M2): M1 or M2 instance
             a1 (A|str|None): A, str, or None
 
         Returns:
-            tuple[A|B, A|str|None]: tuple of the arguments
+            tuple[M1|M2, A|str|None]: tuple of the arguments
         """
         return a0, a1
     return tool01
