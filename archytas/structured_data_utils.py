@@ -125,8 +125,7 @@ def get_structured_input_description(arg_type: NormalizedType, arg_name: str, ar
         raw_arg_default (Any|None): The default value of the argument. None indicates no default value
     """
     # convert the default value to a string
-    if is_dataclass(raw_arg_default):
-        # pdb.set_trace()
+    if is_dataclass(raw_arg_default) and not isinstance(raw_arg_default, type):
         arg_default = str(asdict(raw_arg_default))  # convert dataclass to dict
     elif isinstance(raw_arg_default, BaseModel):
         arg_default = str(raw_arg_default.model_dump())  # convert pydantic model to dict
