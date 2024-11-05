@@ -18,6 +18,41 @@ def get_tool00():
         return a0, a1
     return tool00
 
+
+def get_tool000():
+    @tool(devmode=True)
+    def tool000(a0: int|str|None, a1: int|bool) -> tuple[int|str|None, int|bool]:
+        """
+        Example tool
+
+        Args:
+            a0 (int|str|None): int, str, or None
+            a1 (int|bool): int or bool
+
+        Returns:
+            tuple[int|str|None, int|bool]: tuple of the arguments provided
+        """
+        return a0, a1
+    return tool000
+
+
+def get_tool01():
+    @tool(devmode=True)
+    def tool01(a0: A|B, a1: A|str|None) -> tuple[A|B, A|str|None]:
+        """
+        Example tool
+
+        Args:
+            a0 (A|B): A or B instance
+            a1 (A|str|None): A, str, or None
+
+        Returns:
+            tuple[A|B, A|str|None]: tuple of the arguments
+        """
+        return a0, a1
+    return tool01
+
+
 def get_tool0():
     @tool(devmode=True)
     def tool0(l: list[A]) -> list[A]:
@@ -148,6 +183,14 @@ def test_tool00():
     t = get_tool00()
     get_tool_prompt_description(t)
 
+def test_tool000():
+    t = get_tool000()
+    get_tool_prompt_description(t)
+
+def test_tool01():
+    t = get_tool01()
+    get_tool_prompt_description(t)
+
 def test_tool0():
     t = get_tool0()
     get_tool_prompt_description(t)
@@ -189,6 +232,8 @@ def run_agent_example():
 
     tools = [
         get_tool00(),
+        get_tool000(),
+        get_tool01(),
         get_tool0(),
         # get_tool1(),
         # get_tool2(),
