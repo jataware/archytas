@@ -5,9 +5,16 @@ if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from dataclasses import is_dataclass, asdict, _MISSING_TYPE
 
-from .archytypes import normalize_type, NormalizedType, Dataclass_t, PydanticModel_t
+from .archytypes import (
+    normalize_type, NormalizedType,
+    Dataclass_t, PydanticModel_t,
+    Union_t, List_t, Tuple_t, Dict_t,
+    NotProvided,
+)
 from .constants import TAB
 
+
+import pdb
 
 def verify_model_fields(cls: type[BaseModel], data: dict) -> dict:
     """
@@ -32,7 +39,7 @@ def verify_model_fields(cls: type[BaseModel], data: dict) -> dict:
     return data
 
 
-def construct_structured_type(arg_type: type, data: dict) -> 'DataclassInstance|BaseModel':
+def construct_structured_type(arg_type: NormalizedType, data: dict) -> 'DataclassInstance|BaseModel':
     """
     construct an instance of a structured type from a dictionary (currently only support dataclass and pydantic models)
     recursively construct nested structured types, and validate the input data against the structured type
@@ -45,18 +52,20 @@ def construct_structured_type(arg_type: type, data: dict) -> 'DataclassInstance|
         The constructed structured type instance 
     """
 
-    if is_dataclass(arg_type):
+    pdb.set_trace()
+
+    if isinstance(arg_type, Dataclass_t):
         return construct_dataclass(arg_type, data)
 
-    if issubclass(arg_type, BaseModel):
-        verify_model_fields(arg_type, data)
-        return arg_type(**data)
+    if isinstance(arg_type, PydanticModel_t):
+        verify_model_fields(arg_type.cls, data)
+        return arg_type.cls(**data)
 
     # Future support for other structured types can be added here
     raise ValueError(f"Unsupported structured type {arg_type}")
 
 
-def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'DataclassInstance':
+def construct_dataclass(cls: Dataclass_t, data: dict) -> 'DataclassInstance':
     """
     Construct (potentially recursively) a dataclass instance from a dictionary.
 
@@ -67,57 +76,78 @@ def construct_dataclass(cls: 'type[DataclassInstance]', data: dict) -> 'Dataclas
     Returns:
         DataclassInstance: The constructed dataclass instance
     """
-    fieldtypes = {f.name: f.type for f in cls.__dataclass_fields__.values()}
+    fieldtypes = {f.name: f.type for f in cls.cls.__dataclass_fields__.values()}
     body = {}
-    for field_name, field_type in fieldtypes.items():
+    for field_name, raw_field_type in fieldtypes.items():
         if field_name in data:
+            field_type = normalize_type(raw_field_type)
             if is_structured_type(field_type):
                 body[field_name] = construct_structured_type(field_type, data[field_name])
             else:
                 body[field_name] = data[field_name]
-    return cls(**body)
+    return cls.cls(**body)
 
 
 # def raw_is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
 def is_structured_type(arg_type: NormalizedType) -> bool:
     """Check if a type is a structured type like a dataclass or pydantic model"""
-    return isinstance(arg_type, Dataclass_t) or isinstance(arg_type, PydanticModel_t)
+    if isinstance(arg_type, Dataclass_t) or isinstance(arg_type, PydanticModel_t):
+        return True
+
+    if isinstance(arg_type, Union_t):
+        return any(is_structured_type(t) for t in arg_type.types)
+
+    if isinstance(arg_type, List_t):
+        if not isinstance(arg_type.element_type, NotProvided):
+            return is_structured_type(arg_type.element_type)
+
+    if isinstance(arg_type, Tuple_t):
+        if not isinstance(arg_type.component_types, NotProvided):
+            return any(is_structured_type(t) for t in arg_type.component_types if t != ...)
+
+    if isinstance(arg_type, Dict_t):
+        if not isinstance(arg_type.key_type, NotProvided):
+            return is_structured_type(arg_type.key_type)
+        if not isinstance(arg_type.value_type, NotProvided):
+            return is_structured_type(arg_type.value_type)
+
+    return False
 
 
-def get_structured_input_description(arg_type: type, arg_name: str, arg_desc: str, arg_default: Any | None, *, indent: int) -> list[str]:
+def get_structured_input_description(arg_type: NormalizedType, arg_name: str, arg_desc: str, raw_arg_default: Any | None, *, indent: int) -> list[str]:
     """
     Generate the tool description for a structured argument like a dataclass or pydantic model.
 
     Args:
-        arg_type (type): The type of the structured argument. currently only supports dataclasses and pydantic models
+        arg_type (NormalizedType): The type of the structured argument. currently only supports dataclasses and pydantic models
         arg_name (str): The name of the argument
         arg_desc (str): The description of the argument
-        arg_default (Any|None): The default value of the argument. None indicates no default value
+        raw_arg_default (Any|None): The default value of the argument. None indicates no default value
     """
-
     # convert the default value to a string
-    if is_dataclass(arg_default):
-        arg_default = str(asdict(arg_default))  # convert dataclass to dict
-    elif isinstance(arg_default, BaseModel):
-        arg_default = str(arg_default.model_dump())  # convert pydantic model to dict
+    if is_dataclass(raw_arg_default):
+        # pdb.set_trace()
+        arg_default = str(asdict(raw_arg_default))  # convert dataclass to dict
+    elif isinstance(raw_arg_default, BaseModel):
+        arg_default = str(raw_arg_default.model_dump())  # convert pydantic model to dict
     else:
-        arg_default = str(arg_default) if arg_default is not None else None
+        arg_default = str(raw_arg_default) if raw_arg_default is not None else ''
 
-    if is_dataclass(arg_type):
+    if isinstance(arg_type, Dataclass_t):
         return get_dataclass_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
 
-    if issubclass(arg_type, BaseModel):
+    if isinstance(arg_type, PydanticModel_t):
         return get_pydantic_input_description(arg_type, arg_name, arg_desc, arg_default, indent=indent)
 
     raise ValueError(f"Unsupported structured type {arg_name}: {arg_type}")
 
 
-def get_dataclass_input_description(arg_type: 'type[DataclassInstance]', arg_name: str, arg_desc: str, arg_default: str, *, indent: int) -> list[str]:
+def get_dataclass_input_description(arg_type: Dataclass_t, arg_name: str, arg_desc: str, arg_default: str, *, indent: int) -> list[str]:
     """
     Build the input description for a dataclass, including all of its fields (and potentially their nested fields).
 
     Args:
-        arg_type (type[DataclassInstance]): The dataclass type to get the input description for
+        arg_type (Dataclass_t): The dataclass type to get the input description for
         arg_name (str): The name of the argument
         arg_desc (str): The description of the argument
         arg_default (str): The default value of the argument
@@ -127,8 +157,8 @@ def get_dataclass_input_description(arg_type: 'type[DataclassInstance]', arg_nam
         list[str]: A list of strings that make up the input description for the dataclass
     """
     chunks = []
-    num_fields = len(arg_type.__dataclass_fields__)
-    num_required_fields = sum(1 for field in arg_type.__dataclass_fields__.values() if isinstance(
+    num_fields = len(arg_type.cls.__dataclass_fields__)
+    num_required_fields = sum(1 for field in arg_type.cls.__dataclass_fields__.values() if isinstance(
         field.default, _MISSING_TYPE) and isinstance(field.default, _MISSING_TYPE))
     num_optional_fields = num_fields - num_required_fields
 
@@ -149,8 +179,8 @@ def get_dataclass_input_description(arg_type: 'type[DataclassInstance]', arg_nam
     chunks.append(f"{TAB*(indent)}{{")
 
     # get the description for each field
-    for field_name, field in arg_type.__dataclass_fields__.items():
-        field_type = field.type
+    for field_name, field in arg_type.cls.__dataclass_fields__.items():
+        field_type = normalize_type(field.type)
         field_desc = field.metadata.get("description", "")
 
         # determine the default value of the field
@@ -169,7 +199,7 @@ def get_dataclass_input_description(arg_type: 'type[DataclassInstance]', arg_nam
 
         # add the field description to the chunks
         chunks.append(
-            f'\n{TAB*(indent+1)}"{field_name}": ({normalize_type(field_type)}{", optional" if field_default is not None else ""})')
+            f'\n{TAB*(indent+1)}"{field_name}": ({field_type}{", optional" if field_default is not None else ""})')
         if field_desc:
             chunks.append(f" {field_desc}.")
         if field_default is not None:
@@ -181,12 +211,12 @@ def get_dataclass_input_description(arg_type: 'type[DataclassInstance]', arg_nam
     return chunks
 
 
-def get_pydantic_input_description(arg_type: type[BaseModel], arg_name: str, arg_desc: str, arg_default: str, *, indent: int) -> list[str]:
+def get_pydantic_input_description(arg_type: PydanticModel_t, arg_name: str, arg_desc: str, arg_default: str, *, indent: int) -> list[str]:
     """
     Build the input description for a pydantic model, including all of its fields (and potentially their nested fields).
 
     Args:
-        arg_type (type[BaseModel]): The pydantic model type to get the input description for
+        arg_type (PydanticModel_t): The pydantic model type to get the input description for
         arg_name (str): The name of the argument
         arg_desc (str): The description of the argument
         arg_default (str): The default value of the argument
@@ -196,8 +226,8 @@ def get_pydantic_input_description(arg_type: type[BaseModel], arg_name: str, arg
         list[str]: A list of strings that make up the input description for the pydantic model
     """
     chunks = []
-    num_fields = len(arg_type.model_fields)
-    num_required_fields = sum(1 for field in arg_type.model_fields.values() if field.is_required())
+    num_fields = len(arg_type.cls.model_fields)
+    num_required_fields = sum(1 for field in arg_type.cls.model_fields.values() if field.is_required())
     num_optional_fields = num_fields - num_required_fields
 
     # argument name and high level description
@@ -217,9 +247,9 @@ def get_pydantic_input_description(arg_type: type[BaseModel], arg_name: str, arg
     chunks.append(f"{TAB*(indent)}{{")
 
     # get the description for each field
-    for field_name, field in arg_type.model_fields.items():
-        field_type = field.annotation
-        field_desc = field.description
+    for field_name, field in arg_type.cls.model_fields.items():
+        field_type = normalize_type(field.annotation)
+        field_desc = field.description or ''
 
         # determine the default value of the field
         field_default = None
@@ -237,7 +267,7 @@ def get_pydantic_input_description(arg_type: type[BaseModel], arg_name: str, arg
 
         # add the field description to the chunks
         chunks.append(
-            f'\n{TAB*(indent+1)}"{field_name}": ({type_to_str(field_type)}{", optional" if field_default is not None else ""})')
+            f'\n{TAB*(indent+1)}"{field_name}": ({field_type}{", optional" if field_default is not None else ""})')
         if field_desc:
             chunks.append(f" {field_desc}.")
         if field_default is not None:

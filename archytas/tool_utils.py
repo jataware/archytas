@@ -4,7 +4,7 @@ from .agent import Agent
 from .archytypes import (
     evaluate_type_str, normalize_type,
     NormalizedType,
-    Str_t, Int_t, Float_t, Bool_t,
+    Str_t, Int_t, Float_t, Bool_t, None_t,
     Union_t, List_t, Dict_t, Tuple_t,
     Dataclass_t, PydanticModel_t,
     NotProvided,
@@ -69,10 +69,16 @@ R = TypeVar("R")
 P = ParamSpec("P")
 @overload
 def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
+
+
 @overload
-def tool(*, name: str | None = None, autosummarize: bool = False, devmode: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+def tool(*, name: str | None = None, autosummarize: bool = False,
+         devmode: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
 @overload
-def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False) -> Callable[P, R]: ...
+def tool(func: Callable[P, R], /, *, name: str | None = None,
+         autosummarize: bool = False, devmode: bool = False) -> Callable[P, R]: ...
 
 
 def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False):
@@ -208,15 +214,12 @@ def get_tool_prompt_description(obj: Callable | type | Any):
                     raise ValueError(f"Unsupported argument type {arg_type}")
 
                 chunks.append(
-                    f'\n{TAB}{TAB}"{arg_name}": ({type_to_str(arg_type)}{", optional" if arg_default else ""}) {arg_desc}')
+                    f'\n{TAB}{TAB}"{arg_name}": ({arg_type}{", optional" if arg_default else ""}) {arg_desc}')
             chunks.append(f"\n{TAB}}}")
 
         #################### OUTPUT ####################
         chunks.append("\n    _output_: ")
-        if ret_type is None:
-            chunks.append("None")
-        else:
-            chunks.append(f"({type_to_str(ret_type)}) {ret_description}")
+        chunks.append(f"({ret_type}) {ret_description or ''}")
 
         ############### EXAMPLES ###############
         # TODO: examples need to be parsed...
@@ -274,9 +277,9 @@ def get_tool_signature(
     signature = inspect.signature(func)
 
     # Extract argument information from the docstring
-    docstring_args: dict[str, tuple[NormalizedType, str|None, str|None]] = {
+    docstring_args: dict[str, tuple[NormalizedType, str | None, str | None]] = {
         arg.arg_name: (
-            evaluate_type_str(arg.type_name or '', func.__globals__, devmode=func._devmode), # type: ignore
+            evaluate_type_str(arg.type_name or '', func.__globals__, devmode=func._devmode),  # type: ignore
             arg.description,
             arg.default
         )
@@ -323,7 +326,8 @@ def get_tool_signature(
         docstring_return_name = None
         docstring_return_description = None
     else:
-        docstring_ret_type = evaluate_type_str(docstring.returns.type_name or '', func.__globals__, devmode=func._devmode) # type: ignore
+        docstring_ret_type = evaluate_type_str(docstring.returns.type_name or '',
+                                               func.__globals__, devmode=func._devmode)  # type: ignore
         docstring_return_name = docstring.returns.return_name
         docstring_return_description = docstring.returns.description
 
@@ -398,6 +402,8 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
     return preprocessor
 
 # TODO: move into archytypes.py
+
+
 def is_primitive_type(arg_type: NormalizedType) -> bool:
     """
     Check if a type is a primitive type
@@ -408,7 +414,7 @@ def is_primitive_type(arg_type: NormalizedType) -> bool:
     """
 
     # simplest case
-    if isinstance(arg_type, (Str_t, Int_t, Float_t, Bool_t)):
+    if isinstance(arg_type, (Str_t, Int_t, Float_t, Bool_t, None_t)):
         return True
 
     # for list, dict, tuple, and union: any inner types must be primitive
@@ -416,7 +422,7 @@ def is_primitive_type(arg_type: NormalizedType) -> bool:
         if isinstance(arg_type.element_type, NotProvided):
             return True
         return is_primitive_type(arg_type.element_type)
-    
+
     if isinstance(arg_type, Tuple_t):
         if isinstance(arg_type.component_types, NotProvided):
             return True
@@ -426,7 +432,7 @@ def is_primitive_type(arg_type: NormalizedType) -> bool:
         if isinstance(arg_type.element_type, NotProvided):
             return True
         return is_primitive_type(arg_type.element_type)
-    
+
     if isinstance(arg_type, Dict_t):
         if isinstance(arg_type.key_type, NotProvided) and isinstance(arg_type.value_type, NotProvided):
             return True
@@ -435,7 +441,7 @@ def is_primitive_type(arg_type: NormalizedType) -> bool:
         if not isinstance(arg_type.value_type, NotProvided) and not is_primitive_type(arg_type.value_type):
             return False
         return True
-    
+
     if isinstance(arg_type, Union_t):
         return all(is_primitive_type(t) for t in arg_type.types)
 
