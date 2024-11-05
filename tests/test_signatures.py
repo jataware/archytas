@@ -175,7 +175,7 @@ def get_test_tool4():
 
 def get_test_tool5():
     @tool
-    def tool5(a: A, b: B, c: C, l: list = None):
+    def tool5(a: A, b: B, c: C, l: Optional[list] = None):
         """
         Args:
             a (A): Description of the argument `a`
@@ -278,7 +278,7 @@ def get_test_tool11():
 
 def get_test_tool12():
     @tool
-    def tool12(app: GenericModelA, a: A, c: C, i: int = 5, l: list = None):
+    def tool12(app: GenericModelA, a: A, c: C, i: int = 5, l: list | None = None):
         """
         Args:
             app (GenericModelA): Description of the argument `app`
