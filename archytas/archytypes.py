@@ -12,9 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 
-class TypeNormalizationError(Exception):
-    pass
-
 
 class NotProvided:
     """sentinel for optional parameters"""
@@ -182,6 +179,7 @@ class None_t(NormalizedType):
 @dataclass(frozen=True)
 class Literal_t(NormalizedType): ... #TODO:
 
+
 @dataclass(frozen=True)
 class Dataclass_t(NormalizedType):
     cls: 'type[DataclassInstance]'
@@ -191,6 +189,7 @@ class Dataclass_t(NormalizedType):
     def __str__(self) -> str:
         return self.cls.__name__
 
+
 @dataclass(frozen=True)
 class PydanticModel_t(NormalizedType):
     cls: 'type[BaseModel]'
@@ -199,15 +198,6 @@ class PydanticModel_t(NormalizedType):
         ...
     def __str__(self) -> str:
         return self.cls.__name__
-
-
-
-# @dataclass(frozen=True)
-# class Object_t(NormalizedType):
-#     def __post_init__(self):
-#         logger.warning("Object_t should not be used as a type for @tools")
-#     def __str__(self) -> str:
-#         return 'object'
 
 
 # Any should compare equal to all types
@@ -220,11 +210,31 @@ class Any_t(NormalizedType):
     def __req__(self, other):
         return True
 
+
 def is_optional(annotation):
     """Check if the annotation is typing.Optional[T]"""
     return get_origin(annotation) is Union and type(None) in get_args(annotation)
 
+
 def normalize_type(t: Any) -> NormalizedType:
+    """
+    Convert a type annotation to a NormalizedType
+    Supports old and new style type annotations
+    e.g. `List[T]` vs `list[T]`, `Optional[T]` vs `T | None`, `Union[A, B]` vs `A | B`, etc.
+
+    The following types are supported:
+    - str, int, float, bool, None
+    - list, dict, tuple
+    - Optional, Union, (WIP) Literal
+    - dataclasses
+    - pydantic models
+
+    Args:
+        t (Any): the type annotation
+
+    Returns:
+        NormalizedType: the normalized type object
+    """
 
     #### main error cases ####
 
@@ -329,9 +339,11 @@ def evaluate_type_str(type_str: str, globals: dict[str, Any], *, devmode: bool) 
     Returns:
         NormalizedType: the normalized type object. If devmode is False, this will always be Any_t.
     """
+    # Short circuit for non-devmode (e.g. production)
     if not devmode:
         return Any_t()
 
+    # evaluate the type from the docstring in the context of the function that defined it
     try:
         t = eval(type_str, globals)
     except Exception as e:
