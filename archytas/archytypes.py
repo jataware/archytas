@@ -313,3 +313,68 @@ def evaluate_type_str(type_str: str, globals: dict[str, Any], *, devmode: bool) 
         raise ValueError(f"Could not evaluate type string '{type_str}'") from e
 
     return normalize_type(t)
+
+
+
+def is_primitive_type(arg_type: NormalizedType) -> bool:
+    """
+    Check if a type is a primitive type
+
+    Primitive types are `str`, `int`, `float`, `bool`, `list`, and `dict`
+    Additionally list and dict may be parameterized with primitive types. e.g. `list[str]`, `dict[str, int]`
+    Lastly unions are considered primitive if all of their arguments are primitive types. e.g. `str | int`
+    """
+
+    # simplest case
+    if isinstance(arg_type, (Str_t, Int_t, Float_t, Bool_t, None_t)):
+        return True
+
+    # for list, dict, tuple, and union: any inner types must be primitive
+    if isinstance(arg_type, List_t):
+        if isinstance(arg_type.element_type, NotProvided):
+            return True
+        return is_primitive_type(arg_type.element_type)
+
+    if isinstance(arg_type, Tuple_t):
+        if isinstance(arg_type.component_types, NotProvided):
+            return True
+        return all(is_primitive_type(t) for t in arg_type.component_types if t != ...)
+
+    if isinstance(arg_type, Dict_t):
+        if isinstance(arg_type.key_type, NotProvided) and isinstance(arg_type.value_type, NotProvided):
+            return True
+        if not isinstance(arg_type.key_type, NotProvided) and not is_primitive_type(arg_type.key_type):
+            return False
+        if not isinstance(arg_type.value_type, NotProvided) and not is_primitive_type(arg_type.value_type):
+            return False
+        return True
+
+    if isinstance(arg_type, Union_t):
+        return all(is_primitive_type(t) for t in arg_type.types)
+
+    return False
+
+
+def is_structured_type(arg_type: NormalizedType) -> bool:
+    """Check if a type is a structured type like a dataclass or pydantic model"""
+    if isinstance(arg_type, Dataclass_t) or isinstance(arg_type, PydanticModel_t):
+        return True
+
+    if isinstance(arg_type, Union_t):
+        return any(is_structured_type(t) for t in arg_type.types)
+
+    if isinstance(arg_type, List_t):
+        if not isinstance(arg_type.element_type, NotProvided):
+            return is_structured_type(arg_type.element_type)
+
+    if isinstance(arg_type, Tuple_t):
+        if not isinstance(arg_type.component_types, NotProvided):
+            return any(is_structured_type(t) for t in arg_type.component_types if t != ...)
+
+    if isinstance(arg_type, Dict_t):
+        if not isinstance(arg_type.key_type, NotProvided):
+            return is_structured_type(arg_type.key_type)
+        if not isinstance(arg_type.value_type, NotProvided):
+            return is_structured_type(arg_type.value_type)
+
+    return False

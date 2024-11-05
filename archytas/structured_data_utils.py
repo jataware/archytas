@@ -1,6 +1,5 @@
 from pydantic import BaseModel
-from types import UnionType, GenericAlias
-from typing import Any, get_origin, get_args as get_type_args, Union, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from dataclasses import is_dataclass, asdict, _MISSING_TYPE
@@ -10,11 +9,11 @@ from .archytypes import (
     Dataclass_t, PydanticModel_t,
     Union_t, List_t, Tuple_t, Dict_t,
     NotProvided,
+    is_structured_type,
 )
 from .constants import TAB
 
 
-import pdb
 
 def verify_model_fields(cls: type[BaseModel], data: dict) -> dict:
     """
@@ -52,8 +51,6 @@ def construct_structured_type(arg_type: NormalizedType, data: dict) -> 'Dataclas
         The constructed structured type instance 
     """
 
-    pdb.set_trace()
-
     if isinstance(arg_type, Dataclass_t):
         return construct_dataclass(arg_type, data)
 
@@ -86,32 +83,6 @@ def construct_dataclass(cls: Dataclass_t, data: dict) -> 'DataclassInstance':
             else:
                 body[field_name] = data[field_name]
     return cls.cls(**body)
-
-
-# def raw_is_structured_type(arg_type: NormalizedType) -> bool:#type | UnionType | GenericAlias) -> bool:
-def is_structured_type(arg_type: NormalizedType) -> bool:
-    """Check if a type is a structured type like a dataclass or pydantic model"""
-    if isinstance(arg_type, Dataclass_t) or isinstance(arg_type, PydanticModel_t):
-        return True
-
-    if isinstance(arg_type, Union_t):
-        return any(is_structured_type(t) for t in arg_type.types)
-
-    if isinstance(arg_type, List_t):
-        if not isinstance(arg_type.element_type, NotProvided):
-            return is_structured_type(arg_type.element_type)
-
-    if isinstance(arg_type, Tuple_t):
-        if not isinstance(arg_type.component_types, NotProvided):
-            return any(is_structured_type(t) for t in arg_type.component_types if t != ...)
-
-    if isinstance(arg_type, Dict_t):
-        if not isinstance(arg_type.key_type, NotProvided):
-            return is_structured_type(arg_type.key_type)
-        if not isinstance(arg_type.value_type, NotProvided):
-            return is_structured_type(arg_type.value_type)
-
-    return False
 
 
 def get_structured_input_description(arg_type: NormalizedType, arg_name: str, arg_desc: str, raw_arg_default: Any | None, *, indent: int) -> list[str]:
