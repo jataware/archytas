@@ -96,7 +96,7 @@ class GenericModelB(BaseModel):
 
 
 def get_test_mytool():
-    @tool
+    @tool(devmode=True)
     def mytool(a: list[int], b: list[float]):
         """
         Args:
@@ -109,7 +109,7 @@ def get_test_mytool():
 
 
 def get_test_tool0():
-    @tool
+    @tool(devmode=True)
     def tool0(a: list[int], b: list[float]):
         """
         Args:
@@ -122,7 +122,7 @@ def get_test_tool0():
 
 
 def get_test_tool1():
-    @tool
+    @tool(devmode=True)
     def tool1(item: A):
         """
         Args:
@@ -134,7 +134,7 @@ def get_test_tool1():
 
 
 def get_test_tool2():
-    @tool()
+    @tool(devmode=True)
     def tool2(item: B, i: int):
         """
         Args:
@@ -147,7 +147,7 @@ def get_test_tool2():
 
 
 def get_test_tool3():
-    @tool
+    @tool(devmode=True)
     def tool3(a: A, b: B):
         """
         Args:
@@ -160,7 +160,7 @@ def get_test_tool3():
 
 
 def get_test_tool4():
-    @tool(name='apple')
+    @tool(name='apple', devmode=True)
     def tool4(item: C):
         """
         Args:
@@ -172,14 +172,14 @@ def get_test_tool4():
 
 
 def get_test_tool5():
-    @tool
-    def tool5(a: A, b: B, c: C, l: Optional[list] = None):
+    @tool(devmode=True)
+    def tool5(a: A, b: B, c: C, l: Optional[list[int]] = None):
         """
         Args:
             a (A): Description of the argument `a`
             b (B): Description of the argument `b`
             c (C): Description of the argument `c`
-            l (list, optional): Description of the argument `l`. Defaults to [].
+            l (list[int], optional): Description of the argument `l`. Defaults to [].
         """
         print(f"a: {a}, b: {b}, c: {c}, l: {l}")
 
@@ -187,7 +187,7 @@ def get_test_tool5():
 
 
 def get_test_tool5a():
-    @tool
+    @tool(devmode=True)
     def tool5a(d: D):
         """
         Args:
@@ -199,7 +199,7 @@ def get_test_tool5a():
 
 
 def get_test_tool6():
-    @tool(autosummarize=True)
+    @tool(autosummarize=True, devmode=True)
     def tool6(item: M1):
         """
         Args:
@@ -211,7 +211,7 @@ def get_test_tool6():
 
 
 def get_test_tool7():
-    @tool
+    @tool(devmode=True)
     def tool7(item: M2):
         """
         Args:
@@ -223,7 +223,7 @@ def get_test_tool7():
 
 
 def get_test_tool8():
-    @tool
+    @tool(devmode=True)
     def tool8(item: M3):
         """
         Args:
@@ -235,7 +235,7 @@ def get_test_tool8():
 
 
 def get_test_tool9():
-    @tool
+    @tool(devmode=True)
     def tool9(item: M3, a: A, c: C):
         """
         Args:
@@ -249,7 +249,7 @@ def get_test_tool9():
 
 
 def get_test_tool10():
-    @tool
+    @tool(devmode=True)
     def tool10(app: GenericModelA):
         """
         Args:
@@ -261,7 +261,7 @@ def get_test_tool10():
 
 
 def get_test_tool11():
-    @tool
+    @tool(devmode=True)
     def tool11(heat: GenericModelA, cool: GenericModelB):
         """
         Args:
@@ -274,7 +274,7 @@ def get_test_tool11():
 
 
 def get_test_tool12():
-    @tool
+    @tool(devmode=True)
     def tool12(app: GenericModelA, a: A, c: C, i: int = 5, l: list | None = None):
         """
         Args:
@@ -290,7 +290,7 @@ def get_test_tool12():
 
 
 def get_test_datetime_tool():
-    @tool(name="datetime")
+    @tool(name="datetime", devmode=True)
     def datetime_tool(format: str = "%Y-%m-%d %H:%M:%S %Z", timezone: str = "UTC") -> str:
         """
         Get the current date and time.
@@ -309,7 +309,7 @@ def get_test_datetime_tool():
 
 
 def get_test_datetime_simple():
-    @tool  # (name="datetime")
+    @tool(devmode=True)  # (name="datetime")
     def datetime_simple() -> str:
         """
         Get the current date and time.
@@ -323,7 +323,7 @@ def get_test_datetime_simple():
 
 
 def get_test_single_int():
-    @tool
+    @tool(devmode=True)
     def single_int(i: int) -> int:
         """
         test tool that takes a single integer
@@ -340,7 +340,7 @@ def get_test_single_int():
 
 
 def get_test_list_of_ints():
-    @tool
+    @tool(devmode=True)
     def list_of_ints(l: list[int]) -> list[int]:
         """
         test tool that takes a list of integers
@@ -357,7 +357,7 @@ def get_test_list_of_ints():
 
 
 def get_test_dict_of_ints():
-    @tool
+    @tool(devmode=True)
     def dict_of_ints(d: dict[str, int]) -> dict[str, int]:
         """
         test tool that takes a dictionary of integers
@@ -374,7 +374,7 @@ def get_test_dict_of_ints():
 
 
 def get_test_union_int_str():
-    @tool
+    @tool(devmode=True)
     def union_int_str(x: int | str) -> str:
         """
         test tool that takes an int or a string
@@ -396,7 +396,7 @@ def get_test_union_int_str():
 
 
 def get_test_positional_only():
-    @tool
+    @tool(devmode=True)
     def positional_only(a: int, b: B, /) -> tuple[int, B]:
         """
         test tool that has positional only arguments
@@ -416,7 +416,7 @@ def get_test_positional_only():
 def get_test_returns_union():
     import random
 
-    @tool
+    @tool(devmode=True)
     def returns_union() -> int | str:
         """
         test tool that returns an int or a string
