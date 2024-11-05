@@ -246,7 +246,7 @@ def normalize_type(t: Any) -> NormalizedType:
     if t is tuple or t is Tuple:
         return Tuple_t()
     if get_origin(t) is tuple:
-        return Tuple_t(tuple(normalize_type(a) for a in get_args(t)))
+        return Tuple_t(tuple(normalize_type(a) for a in get_args(t) if a != ...))
     
     #List[a], List, list
     if t is list or t is List:
