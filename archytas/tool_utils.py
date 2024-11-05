@@ -120,10 +120,10 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
                 f"tool decorator can only be applied to functions or classes. Got {func} of type {type(func)}"
             )
 
-        func._name = name if name else func.__name__
-        func._is_tool = True
-        func.autosummarize = autosummarize
-        func._devmode = devmode
+        func._name = name if name else func.__name__    # type: ignore
+        func._is_tool = True                            # type: ignore
+        func.autosummarize = autosummarize              # type: ignore
+        func._devmode = devmode                         # type: ignore
 
         # attach usage description to the wrapper function
         args_list, ret, desc, injections = get_tool_signature(func)
@@ -162,7 +162,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
             return result
 
         # Add func as the attribute of the run method
-        func.run = run
+        func.run = run  # type: ignore
 
         return func
 
@@ -190,7 +190,7 @@ def get_tool_prompt_description(obj: Callable | type | Any):
         short_desc, long_desc, examples = desc
 
         ############### NAME/DESCRIPTION ###############
-        chunks.append(f"{obj._name}:\n")
+        chunks.append(f"{obj._name}:\n")    # type: ignore
         if short_desc:
             chunks.append(f"{TAB}{short_desc}\n\n")
         if long_desc:
