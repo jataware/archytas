@@ -8,9 +8,9 @@ from .archytypes import (
     Union_t, List_t, Dict_t, Tuple_t,
     Dataclass_t, PydanticModel_t,
     NotProvided,
+    is_primitive_type, is_structured_type,
 )
 from .structured_data_utils import (
-    is_structured_type,
     get_structured_input_description,
     construct_structured_type
 )
@@ -131,7 +131,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
 
         async def run(
             args: dict | None,
-            tool_context: dict[str, object] = None,
+            tool_context: dict[str, object] = {},
             self_ref: object = None
 
         ):
@@ -300,7 +300,8 @@ def get_tool_signature(
     # Check if the docstring argument names match the signature argument names
     if set(docstring_args.keys()) != set(signature_args.keys()):
         raise ValueError(
-            f"Docstring argument names do not match function signature argument names for function '{func.__name__}'"
+            f"Docstring argument names do not match function signature argument names for function '{func.__name__}'. "
+            f"Docstring args: {[*docstring_args.keys()]}, Signature args: {[*signature_args.keys()]}"
         )
 
     # Check if the docstring argument types match the signature argument types
@@ -356,7 +357,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
         preprocessor (args: Any) -> (pargs, kwargs): 
     """
 
-    def preprocessor(args: dict | None) -> tuple[list, dict]:
+    def preprocessor(args: dict[str, Any] | None) -> tuple[list, dict]:
         """
         Argument preprocessor function for a tool function.
 
@@ -373,6 +374,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
         if len(args_list) == 0:
             assert args is None, f"Expected no arguments, got {args}"
             return [], {}
+        assert args is not None, f"Expected arguments, got None"
 
         # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
         # TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
@@ -401,51 +403,6 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
 
     return preprocessor
 
-# TODO: move into archytypes.py
-
-
-def is_primitive_type(arg_type: NormalizedType) -> bool:
-    """
-    Check if a type is a primitive type
-
-    Primitive types are `str`, `int`, `float`, `bool`, `list`, and `dict`
-    Additionally list and dict may be parameterized with primitive types. e.g. `list[str]`, `dict[str, int]`
-    Lastly unions are considered primitive if all of their arguments are primitive types. e.g. `str | int`
-    """
-
-    # simplest case
-    if isinstance(arg_type, (Str_t, Int_t, Float_t, Bool_t, None_t)):
-        return True
-
-    # for list, dict, tuple, and union: any inner types must be primitive
-    if isinstance(arg_type, List_t):
-        if isinstance(arg_type.element_type, NotProvided):
-            return True
-        return is_primitive_type(arg_type.element_type)
-
-    if isinstance(arg_type, Tuple_t):
-        if isinstance(arg_type.component_types, NotProvided):
-            return True
-        return all(is_primitive_type(t) for t in arg_type.component_types if not t == ...)
-
-    if isinstance(arg_type, List_t):
-        if isinstance(arg_type.element_type, NotProvided):
-            return True
-        return is_primitive_type(arg_type.element_type)
-
-    if isinstance(arg_type, Dict_t):
-        if isinstance(arg_type.key_type, NotProvided) and isinstance(arg_type.value_type, NotProvided):
-            return True
-        if not isinstance(arg_type.key_type, NotProvided) and not is_primitive_type(arg_type.key_type):
-            return False
-        if not isinstance(arg_type.value_type, NotProvided) and not is_primitive_type(arg_type.value_type):
-            return False
-        return True
-
-    if isinstance(arg_type, Union_t):
-        return all(is_primitive_type(t) for t in arg_type.types)
-
-    return False
 
 
 def collect_tools_from_object(obj: object):
