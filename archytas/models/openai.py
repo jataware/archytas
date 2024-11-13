@@ -17,13 +17,16 @@ class OpenAIModel(BaseArchytasModel):
             auth_token = kwargs['api_key']
         elif 'api_key' in self.config:
             auth_token = self.config['api_key']
-        if auth_token:
+        if auth_token is not None:
             set_env_auth(OPENAI_API_KEY=auth_token)
-        else:
-            raise ValueError("No auth credentials found.")
 
     def initialize_model(self, **kwargs):
-        return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"))
+        return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.config.get('api_key'))
+
+    def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+        if not self.model.openai_api_key:
+            raise AuthenticationError("OpenAI API Key missing")
+        return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     def _preprocess_messages(self, messages):
         output = []
@@ -41,3 +44,7 @@ class OpenAIModel(BaseArchytasModel):
             raise AuthenticationError("OpenAI Authentication Error") from error
         elif isinstance(error, RateLimitError):
             raise ExecutionError(error.message) from error
+        elif isinstance(error, APIConnectionError) and not self.model.openai_api_key:
+            raise AuthenticationError("OpenAI Authentication Error") from error
+        else:
+            raise error
