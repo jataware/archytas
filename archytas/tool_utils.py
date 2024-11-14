@@ -1,14 +1,9 @@
 import logging
 from .constants import TAB
 from .agent import Agent
-from .utils import type_to_str
-from .structured_data_utils import (
-    is_structured_type,
-    get_structured_input_description,
-    construct_structured_type
-)
-from typing import Callable, Any, ParamSpec, TypeVar, get_origin, get_args as get_type_args, Union, overload
-from types import UnionType, GenericAlias
+from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
+from .structured_data_utils import get_structured_input_description, construct_structured_type
+from typing import Callable, Any, ParamSpec, TypeVar, overload
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
@@ -62,13 +57,19 @@ R = TypeVar("R")
 P = ParamSpec("P")
 @overload
 def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
-@overload
-def tool(*, name: str | None = None, autosummarize: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
-@overload
-def tool(func: Callable[P, R], /, *, name: str | None = None, autosummarize: bool = False) -> Callable[P, R]: ...
 
 
-def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
+@overload
+def tool(*, name: str | None = None, autosummarize: bool = False,
+         devmode: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
+@overload
+def tool(func: Callable[P, R], /, *, name: str | None = None,
+         autosummarize: bool = False, devmode: bool = False) -> Callable[P, R]: ...
+
+
+def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False):
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
@@ -98,7 +99,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
     # decorator case where the decorator is used directly on the func
     # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
     if func is not None:
-        return tool(name=name, autosummarize=autosummarize)(func)
+        return tool(name=name, autosummarize=autosummarize, devmode=devmode)(func)
 
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
@@ -107,17 +108,18 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
                 f"tool decorator can only be applied to functions or classes. Got {func} of type {type(func)}"
             )
 
+        func._name = name if name else func.__name__    # type: ignore
+        func._is_tool = True                            # type: ignore
+        func.autosummarize = autosummarize              # type: ignore
+        func._devmode = devmode                         # type: ignore
+
         # attach usage description to the wrapper function
         args_list, ret, desc, injections = get_tool_signature(func)
         arg_preprocessor = make_arg_preprocessor(args_list)
 
-        func._name = name if name else func.__name__
-        func._is_tool = True
-        func.autosummarize = autosummarize
-
         async def run(
             args: dict | None,
-            tool_context: dict[str, object] = None,
+            tool_context: dict[str, object] = {},
             self_ref: object = None
 
         ):
@@ -132,7 +134,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
             # Add injections to kwargs
             for inj_name, inj_type in injections.items():
                 context_key = INJECTION_MAPPING.get(inj_type, None)
-                context_value = tool_context.get(context_key, None)
+                context_value = tool_context.get(context_key or '', None)
                 if context_value:
                     kwargs[inj_name] = context_value
 
@@ -148,7 +150,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False):
             return result
 
         # Add func as the attribute of the run method
-        func.run = run
+        func.run = run  # type: ignore
 
         return func
 
@@ -176,7 +178,7 @@ def get_tool_prompt_description(obj: Callable | type | Any):
         short_desc, long_desc, examples = desc
 
         ############### NAME/DESCRIPTION ###############
-        chunks.append(f"{obj._name}:\n")
+        chunks.append(f"{obj._name}:\n")    # type: ignore
         if short_desc:
             chunks.append(f"{TAB}{short_desc}\n\n")
         if long_desc:
@@ -193,22 +195,19 @@ def get_tool_prompt_description(obj: Callable | type | Any):
             chunks.append(f"a json object with the following fields:\n{TAB}{{")
             for arg_name, arg_type, arg_desc, arg_default in args_list:
                 if is_structured_type(arg_type):
-                    chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc, arg_default, indent=2))
+                    chunks.extend(get_structured_input_description(arg_type, arg_name, arg_desc or '', arg_default, indent=2))
                     continue
 
                 if not is_primitive_type(arg_type):
                     raise ValueError(f"Unsupported argument type {arg_type}")
 
                 chunks.append(
-                    f'\n{TAB}{TAB}"{arg_name}": ({type_to_str(arg_type)}{", optional" if arg_default else ""}) {arg_desc}')
+                    f'\n{TAB}{TAB}"{arg_name}": ({arg_type}{", optional" if arg_default else ""}) {arg_desc}')
             chunks.append(f"\n{TAB}}}")
 
         #################### OUTPUT ####################
         chunks.append("\n    _output_: ")
-        if ret_type is None:
-            chunks.append("None")
-        else:
-            chunks.append(f"({type_to_str(ret_type)}) {ret_description}")
+        chunks.append(f"({ret_type}) {ret_description or ''}")
 
         ############### EXAMPLES ###############
         # TODO: examples need to be parsed...
@@ -240,9 +239,10 @@ def get_tool_prompt_description(obj: Callable | type | Any):
 def get_tool_signature(
     func: Callable,
 ) -> tuple[
-    list[tuple[str, type, str | None, str | None]],
-    tuple[str | None, type | None, str | None],
-    tuple[str, str | None, list[str]],
+    list[tuple[str, NormalizedType, str | None, str | None]],
+    tuple[str | None, NormalizedType, str | None],
+    tuple[str | None, str | None, list[str]],
+    dict[str, type],
 ]:
     """
     Check that the docstring and function signature match for a tool function, and return all function information.
@@ -254,17 +254,23 @@ def get_tool_signature(
         args_list: A list of tuples (name, type, description, default) for each argument
         ret: A tuple (name, type, description) for the return value
         desc: A tuple (short_description, long_description, examples) from the docstring for the function
+        injected_args: A dictionary of injected arguments and their types
     """
     assert inspect.isfunction(func) or inspect.ismethod(
         func), f"get_tool_signature can only be used on functions or methods. Got {func}"
 
     # get the function signature from the function and the docstring
+    assert func.__doc__ is not None, f"Function '{func.__name__}' has no docstring. All tools must have a docstring that matches the function signature."
     docstring = parse_docstring(func.__doc__)
     signature = inspect.signature(func)
 
     # Extract argument information from the docstring
-    docstring_args = {
-        arg.arg_name: (arg.type_name, arg.description, arg.default)
+    docstring_args: dict[str, tuple[NormalizedType, str | None, str | None]] = {
+        arg.arg_name: (
+            evaluate_type_str(arg.type_name or '', func.__globals__, devmode=func._devmode),  # type: ignore
+            arg.description,
+            arg.default
+        )
         for arg in docstring.params
     }
 
@@ -277,21 +283,23 @@ def get_tool_signature(
 
     # Extract argument information from the signature (ignore self from class methods)
     injected_args = {k: v for k, v in all_args.items() if v in INJECTION_MAPPING}
-    signature_args = {k: v for k, v in all_args.items() if k not in injected_args}
+    signature_args = {k: normalize_type(v) for k, v in all_args.items() if k not in injected_args}
 
     # Check if the docstring argument names match the signature argument names
     if set(docstring_args.keys()) != set(signature_args.keys()):
         raise ValueError(
-            f"Docstring argument names do not match function signature argument names for function '{func.__name__}'"
+            f"Docstring argument names do not match function signature argument names for function '{func.__name__}'. "
+            f"Docstring args: {[*docstring_args.keys()]}, Signature args: {[*signature_args.keys()]}"
         )
 
     # Check if the docstring argument types match the signature argument types
     for arg_name, arg_type in signature_args.items():
         docstring_arg_type, _, _ = docstring_args[arg_name]
-        if docstring_arg_type not in (type_to_str(arg_type), type_to_str(get_origin(arg_type))):
-            raise ValueError(
-                f"Docstring type '{docstring_arg_type}' does not match function signature type '{arg_type.__name__}' for argument '{arg_name}' for function '{func.__name__}'"
-            )
+        if arg_type != docstring_arg_type:
+            logger.warning((
+                f"Docstring type '{docstring_arg_type}' does not match function signature type '{arg_type}' "
+                f"for argument '{arg_name}' for function '{func.__name__}'"
+            ))
 
     # Generate a list of tuples (name, type, description, default) for each argument
     # TODO: use the signature to determine if an argument is optional or not
@@ -300,41 +308,33 @@ def get_tool_signature(
         for arg_name, (arg_type, arg_desc, arg_default) in docstring_args.items()
     ]
 
-    # get the return type and description (and correctly set None to empty return type)
-    signature_ret_type = signature.return_annotation
-    if signature_ret_type is None:
-        signature_ret_type = inspect.Signature.empty
-
-    try:
-        docstring_ret_type = docstring.returns.type_name
-    except AttributeError:
-        docstring_ret_type = "_empty"
-    if type_to_str(signature_ret_type) != docstring_ret_type:  # and signature_ret_type.__name__ != docstring_ret_type:
-        logger.warning(
-            f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{type_to_str(signature_ret_type)}' for function '{func.__name__}'"
-        )
-        # raise ValueError(
-        #     f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{type_to_str(signature_ret_type)}' for function '{func.__name__}'"
-        # )
-
-    # get the return type and description
+    # get the return type and description/name if they exist
+    ret_type = normalize_type(signature.return_annotation if signature.return_annotation != inspect._empty else None)
     if docstring.returns is None:
-        ret = (None, None, None)
+        docstring_ret_type = normalize_type(None)
+        docstring_return_name = None
+        docstring_return_description = None
     else:
-        ret = (
-            docstring.returns.return_name,
-            signature_ret_type,
-            docstring.returns.description,
+        docstring_ret_type = evaluate_type_str(docstring.returns.type_name or '',
+                                               func.__globals__, devmode=func._devmode)  # type: ignore
+        docstring_return_name = docstring.returns.return_name
+        docstring_return_description = docstring.returns.description
+
+    ret = (docstring_return_name, ret_type, docstring_return_description)
+
+    if ret_type != docstring_ret_type:
+        logger.warning(
+            f"Docstring return type '{docstring_ret_type}' does not match function signature return type '{ret_type}' for function '{func.__name__}'"
         )
 
     # get the docstring description and examples
-    examples = [example.description for example in docstring.examples]
+    examples = [example.description for example in docstring.examples if example.description]
     desc = (docstring.short_description, docstring.long_description, examples)
 
     return args_list, ret, desc, injected_args
 
 
-def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | None]]) -> Callable[[dict | None], tuple[list, dict]]:
+def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None, str | None]]) -> Callable[[dict | None], tuple[list, dict]]:
     """
     Make a preprocessor function that converts the agent's input into a tool into *pargs, **kwargs for the tool function
 
@@ -345,7 +345,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
         preprocessor (args: Any) -> (pargs, kwargs): 
     """
 
-    def preprocessor(args: dict | None) -> tuple[list, dict]:
+    def preprocessor(args: dict[str, Any] | None) -> tuple[list, dict]:
         """
         Argument preprocessor function for a tool function.
 
@@ -362,6 +362,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
         if len(args_list) == 0:
             assert args is None, f"Expected no arguments, got {args}"
             return [], {}
+        assert args is not None, f"Expected arguments, got None"
 
         # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
         # TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information
@@ -390,29 +391,6 @@ def make_arg_preprocessor(args_list: list[tuple[str, type, str | None, str | Non
 
     return preprocessor
 
-
-def is_primitive_type(arg_type: type) -> bool:
-    """
-    Check if a type is a primitive type
-
-    Primitive types are `str`, `int`, `float`, `bool`, `list`, and `dict`
-    Additionally list and dict may be parameterized with primitive types. e.g. `list[str]`, `dict[str, int]`
-    Lastly unions are considered primitive if all of their arguments are primitive types. e.g. `str | int`
-    """
-
-    # simplest case
-    if arg_type in (str, int, float, bool, list, dict):
-        return True
-
-    # list or dict parameterized with primitive types
-    if get_origin(arg_type) in (list, dict):
-        return all(is_primitive_type(a) for a in get_type_args(arg_type))
-
-    # union of primitive types
-    if get_origin(arg_type) is Union or isinstance(arg_type, UnionType):
-        return all(is_primitive_type(a) for a in get_type_args(arg_type))
-
-    return False
 
 
 def collect_tools_from_object(obj: object):

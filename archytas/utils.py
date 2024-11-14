@@ -38,22 +38,3 @@ class InstanceMethod:
                 "This method should only be accessed from an instance of the class"
             )
         return self.func.__get__(instance, owner)
-
-
-def type_to_str(t: type | GenericAlias | UnionType | None) -> str:
-    """
-    Convert a type to a string representation
-    """
-    # TODO: this could be more robust, there are probably cases it doesn't cover
-    if isinstance(t, type):
-        return t.__name__
-    elif isinstance(t, GenericAlias):
-        return f"{get_origin(t).__name__}[{', '.join(type_to_str(a) for a in get_type_args(t))}]"
-    elif get_origin(t) is Union:
-        return ' | '.join(type_to_str(a) for a in get_type_args(t))
-    elif isinstance(t, UnionType):
-        return str(t)
-    elif t is None:
-        return "None"
-    else:
-        raise ValueError(f"Unsupported type {t}")
