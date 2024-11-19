@@ -26,7 +26,7 @@ class AnthropicModel(BaseArchytasModel):
         elif 'api_key' in self.config:
             self.api_key = self.config['api_key']
         if not self.api_key:
-            raise ValueError("No auth credentials found.")
+            raise AuthenticationError("No auth credentials found.")
 
     def initialize_model(self, **kwargs):
         return ChatAnthropic(model=self.config.get("model_name", "claude-2.1"), api_key=self.api_key).bind_tools([

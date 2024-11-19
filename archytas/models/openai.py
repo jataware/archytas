@@ -2,7 +2,7 @@ import re
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
 
-from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError
+from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError
 from .base import BaseArchytasModel, ModelConfig, set_env_auth
 from ..exceptions import AuthenticationError, ExecutionError
 
@@ -21,7 +21,11 @@ class OpenAIModel(BaseArchytasModel):
             set_env_auth(OPENAI_API_KEY=auth_token)
 
     def initialize_model(self, **kwargs):
-        return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.config.get('api_key'))
+        try:
+            return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.config.get('api_key'))
+        except (APIConnectionError, OpenAIError) as err:
+            if not self.config.get('api_key', None):
+                raise AuthenticationError("OpenAI Authentication Error") from err
 
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         if not self.model.openai_api_key:
@@ -44,7 +48,8 @@ class OpenAIModel(BaseArchytasModel):
             raise AuthenticationError("OpenAI Authentication Error") from error
         elif isinstance(error, RateLimitError):
             raise ExecutionError(error.message) from error
-        elif isinstance(error, APIConnectionError) and not self.model.openai_api_key:
+        elif isinstance(error, APIConnectionError, OpenAIError) and not self.model.openai_api_key:
             raise AuthenticationError("OpenAI Authentication Error") from error
         else:
+
             raise error
