@@ -1,9 +1,11 @@
 import os
 from abc import ABC, abstractmethod
 from pydantic import BaseModel as PydanticModel
+from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.language_models.chat_models import BaseChatModel
+if TYPE_CHECKING:
+    from langchain_core.messages import AIMessage, BaseMessage
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 
 class EnvironmentAuth:
@@ -33,7 +35,7 @@ class BaseArchytasModel(ABC):
 
     MODEL_PROMPT_INSTRUCTIONS: str = ""
 
-    model: BaseChatModel
+    model: "BaseChatModel"
     config: ModelConfig
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
@@ -71,10 +73,10 @@ class BaseArchytasModel(ABC):
         except Exception as error:
             return self.handle_invoke_error(error)
 
-    def _preprocess_messages(self, messages: list[BaseMessage]):
+    def _preprocess_messages(self, messages: "list[BaseMessage]"):
         return messages
 
-    def process_result(self, response_message: AIMessage):
+    def process_result(self, response_message: "AIMessage"):
         content = response_message.content
         if isinstance(content, list):
             return "\n".join(item['text'] for item in content if item.get('type', None) == "text")
