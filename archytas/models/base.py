@@ -64,8 +64,9 @@ class BaseArchytasModel(ABC):
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         try:
+            messages = self._preprocess_messages(input)
             return await self.model.ainvoke(
-                self._preprocess_messages(input),
+                messages,
                 config,
                 stop=stop,
                 **kwargs

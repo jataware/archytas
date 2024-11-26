@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "archytas"
-version = "1.2.4a0"
+version = "1.2.4a1"
 description = "A library for pairing LLM agents with tools so they perform open ended tasks"
 authors = ["David Andrew Samson <david.andrew.engineer@gmail.com>", "Matthew Printz <matt@jataware.com>"]
 readme = "README.md"
@@ -30,7 +30,7 @@ langchain-anthropic = "^0.2.3"
 langchain-groq = "^0.2.0"
 anthropic = "^0.36.0"
 langchain-ollama = "^0.2.0"
-langchain-google-genai = "^2.0.1"
+langchain-google-genai = "^2.0.5"
 
 [tool.poetry.group.dev.dependencies]
 easyrepl = "^0.1.2"
