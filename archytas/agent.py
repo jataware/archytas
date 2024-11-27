@@ -2,7 +2,6 @@ import asyncio
 import inspect
 import logging
 import os
-import warnings
 from enum import Enum
 from tenacity import (
     before_sleep_log,
@@ -16,6 +15,12 @@ from typing import Callable, ContextManager, Any, Optional
 from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
+
+
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage
+
+from .exceptions import AuthenticationError, ExecutionError, ModelError
+from .models.base import BaseArchytasModel
 
 from .exceptions import AuthenticationError
 
@@ -48,48 +53,43 @@ def retry(fn):
     )(fn)
 
 
+logger = logging.getLogger(__name__)
+
 class Role(str, Enum):
     system = "system"
-    assistant = "assistant"
-    user = "user"
+    assistant = "ai"
+    user = "human"
 
 
-class Message(dict):
+class Message(BaseMessage):
     """Message format for communicating with the OpenAI API."""
 
     def __init__(self, role: Role, content: str):
-        super().__init__(role=role.value, content=content)
+        super().__init__(type=role.value, content=content)
 
 
-class ContextMessage(Message):
+class ContextMessage(SystemMessage):
     """Simple wrapper around a message that adds an id and optional lifetime."""
 
-    def __init__(self, role: Role, content: str, id: int, lifetime: int | None = None):
-        super().__init__(role=role, content=content)
-        self.id = id
-        self.lifetime = lifetime
+    id: int
+    lifetime: int | None = None
 
 
-class AutoContextMessage(Message):
+class AutoContextMessage(SystemMessage):
     """An automatically updating context message that remains towards the top of the message list."""
 
+    default_content: str
     content_updater: Callable[[], str]
 
-    def __init__(
-        self,
-        role: Role,
-        default_content: str,
-        content_updater: Callable[[], str] | None = None,
-    ):
-        super().__init__(role, default_content)
-        self.content_updater = content_updater
+    def __init__(self, default_content: str, content_updater: Callable[[], str], **kwargs):
+        super().__init__(content=default_content, default_content=default_content, content_updater=content_updater, **kwargs)
 
     async def update_content(self):
         if inspect.iscoroutinefunction(self.content_updater):
             result = await self.content_updater()
         else:
             result = self.content_updater()
-        self.update(content=result)
+        self.content = result
 
 
 def cli_spinner():
@@ -112,38 +112,49 @@ class Agent:
     def __init__(
         self,
         *,
-        model: str = "gpt-4-1106-preview",
+        model: BaseArchytasModel,
         prompt: str = "You are a helpful assistant.",
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
         rich_print: bool = True,
         verbose: bool = False,
-        messages: Optional[list[Message]] | None = None,
+        messages: Optional[list[BaseMessage]] | None = None,
+        temperature: float = 0.0,
     ):
         """
-        Agent class for managing communication with OpenAI's API.
+        Agent class for managing communication with Language Models mediated by Langchain
 
         Args:
-            model (str, optional): The name of the model to use. Defaults to 'gpt-4'. At present, GPT-4 is the only model that works reliably.
+            model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
             prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
-            api_key (str, optional): The OpenAI API key to use. Defaults to None. If None, the API key will be read from the OPENAI_API_KEY environment variable.
+            api_key (str, optional): The LLM provider API key to use. Defaults to None. If None, the provider will use the default environment variable (e.g. OPENAI_API_KEY).
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
             verbose (bool, optional): Expands the debug output. Includes full query context on requests to the LLM. Defaults to False.
-            messages (list[Message], optional): A list of messages to initialize the agent's conversation history with. Defaults to an empty list.
+            messages (list[BaseMessage], optional): A list of messages to initialize the agent's conversation history with. Defaults to an empty list.
 
         Raises:
             Exception: If no API key is given.
         """
-        import openai
-
         self.rich_print = bool(
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
         self.verbose = verbose
-        self.model = model
-        self.system_message = Message(role=Role.system, content=prompt)
-        self.messages: list[Message] = messages if messages is not None else []
+        if not isinstance(model, BaseArchytasModel):
+            # Importing OpenAI is slow, so limit import to only when it is needed.
+            from .models.openai import OpenAIModel
+            model_name = model if isinstance(model, str) else None
+            self.model = OpenAIModel({"api_key": api_key, "model_name": model_name})
+        else:
+            self.model = model
+        if not prompt:
+            prompt = ""
+        if hasattr(self.model, 'MODEL_PROMPT_INSTRUCTIONS'):
+            prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
+        self.system_message = SystemMessage(content=prompt)
+        self.messages: list[BaseMessage] = []
+        if messages:
+            self.messages.extend(messages)
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
@@ -156,12 +167,7 @@ class Agent:
         self.auto_context_message = None
         self.auto_update_context = False
 
-        # check that an api key was given, and set it
-        if api_key is None:
-            api_key = os.environ.get("OPENAI_API_KEY", None)
-        if not api_key:
-            warnings.warn("No OpenAI API key given. Please set the OPENAI_API_KEY environment variable or pass the api_key argument to the Agent constructor.")
-        openai.api_key = api_key
+        self.temperature = temperature
 
     def print(self, *args, **kwargs):
         if self.rich_print:
@@ -179,14 +185,18 @@ class Agent:
 
     def set_openai_key(self, key):
         import openai
+        from .models.openai import OpenAIModel
+
         openai.api_key = key
+        if isinstance(self.model, OpenAIModel):
+            self.model.auth(api_key=key)
 
     def new_context_id(self) -> int:
         """Generate a new context id."""
         self._current_context_id += 1
         return self._current_context_id
 
-    async def all_messages(self) -> list[Message]:
+    async def all_messages(self) -> list[BaseMessage]:
         messages = [self.system_message]
         if self.auto_context_message:
             if self.auto_update_context:
@@ -211,7 +221,6 @@ class Agent:
             int: The id of the context message.
         """
         context_message = ContextMessage(
-            role=Role.system,
             content=context,
             id=self.new_context_id(),
             lifetime=lifetime,
@@ -279,7 +288,6 @@ class Agent:
         self.auto_update_context = auto_update
         if not self.auto_context_message:
             self.auto_context_message = AutoContextMessage(
-                role=Role.system,
                 default_content=default_content,
                 content_updater=content_updater,
             )
@@ -289,24 +297,24 @@ class Agent:
                 content_updater=content_updater,
             )
 
-    async def handle_message(self, message: Message):
+    async def handle_message(self, message: BaseMessage):
         """Appends a message to the message list and executes."""
         self.messages.append(message)
         return await self.execute()
 
     async def query(self, message: str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
-        return await self.handle_message(Message(role=Role.user, content=message))
+        return await self.handle_message(HumanMessage(content=message))
 
-    async def observe(self, observation: str) -> str:
+    async def observe(self, observation: str, tool_name: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(Message(role=Role.system, content=observation))
+        return await self.handle_message(FunctionMessage(type="function", content=observation, name=tool_name))
 
     async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
-        return await self.execute([Message(role=Role.system, content=query)])
+        return await self.execute([HumanMessage(content=query)])
 
-    async def error(self, error: str, drop_error: bool = True) -> str:
+    async def error(self, error: BaseMessage | str, drop_error: bool = True) -> str:
         """
         Send an error message to the agent. Returns the agent's response.
 
@@ -314,38 +322,28 @@ class Agent:
             error (str): The error message to send to the agent.
             drop_error (bool, optional): If True, the error message and LLMs bad input will be dropped from the chat history. Defaults to `True`.
         """
-        result = await self.handle_message(Message(role=Role.system, content=f"ERROR: {error}"))
-
-        # Drop error + LLM's bad input from chat history
-        if drop_error:
-            del self.messages[-3:-1]
+        if not isinstance(error, BaseMessage):
+            error = AIMessage(content=error)
+        result = await self.handle_message(error)
 
         return result
 
-    @retry
-    async def execute(self, additional_messages: list[Message] = []) -> str:
-        import openai
-        try:
-            with self.spinner():
-                messages = (await self.all_messages()) + additional_messages
-                if self.verbose:
-                    self.debug(event_type="llm_request", content=messages)
-                completion = openai.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=0,
-                )
-        except openai.AuthenticationError as err:
-            raise AuthenticationError(*err.args) from err
-        except openai.OpenAIError as err:
-            if 'The api_key client option must be set' in str(err):
-                raise AuthenticationError(*err.args) from err
-            else:
-                raise
+    async def execute(self, additional_messages: list[BaseMessage] = []) -> str:
+        with self.spinner():
+            messages = (await self.all_messages()) + additional_messages
+            if self.verbose:
+                self.debug(event_type="llm_request", content=messages)
+            raw_result = await self.model.ainvoke(
+                input=messages,
+                temperature=self.temperature,
+            )
+        # Add the raw result to history
+        if raw_result:
+            self.messages.append(raw_result)
 
-        # grab the response and add it to the chat history
-        result = completion.choices[0].message.content
-        self.messages.append(Message(role=Role.assistant, content=result))
+        # Return processed result
+        result = self.model.process_result(raw_result)
+
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
 
@@ -354,7 +352,6 @@ class Agent:
 
         return result
 
-    @retry
     async def oneshot(self, prompt: str, query: str) -> str:
         """
         Send a user query to the agent. Returns the agent's response.
@@ -368,29 +365,24 @@ class Agent:
         Returns:
             str: The agent's response to the user query.
         """
-        import openai
-        try:
-            with self.spinner():
-                if self.verbose:
-                    self.debug(event_type="llm_oneshot", content=prompt)
-                completion = openai.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        Message(role=Role.system, content=prompt),
-                        Message(role=Role.user, content=query),
-                    ],
-                    temperature=0,
-                )
-        except openai.AuthenticationError as err:
-            raise AuthenticationError(*err.args) from err
+        with self.spinner():
+            if self.verbose:
+                self.debug(event_type="llm_oneshot", content=prompt)
+            completion = await self.model.ainvoke(
+                input=[
+                    SystemMessage(content=prompt),
+                    HumanMessage(content=query),
+                ],
+                temperature=self.temperature,
+            )
 
         # return the agent's response
-        result = completion.choices[0].message.content
+        result = completion.content
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
         return result
 
-    def all_messages_sync(self) -> list[Message]:
+    def all_messages_sync(self) -> list[BaseMessage]:
         """Synchronous wrapper around the asynchronous all_messages method."""
         return asyncio.run(self.all_messages())
 

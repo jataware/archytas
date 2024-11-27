@@ -1,5 +1,19 @@
+import json
+import re
+from json.decoder import JSONDecoder
 from types import GenericAlias, UnionType
 from typing import Any, Union, get_origin, get_args as get_type_args
+
+json_regex = re.compile(r'(```)(json)?(.*?)(```)')
+
+def extract_json(text: str) -> dict | list:
+    """
+    Finds and extracts JSON from a block of text, probably a response from a LLM.
+    """
+    from langchain_core.utils.json import parse_json_markdown
+    # Take advantage of the functionality in langchain
+    result = parse_json_markdown(text)
+    return result
 
 
 def get_local_name(val: Any, locals: dict[str, Any]) -> str:

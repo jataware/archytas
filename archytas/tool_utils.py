@@ -1,4 +1,5 @@
 import logging
+import re
 from .constants import TAB
 from .agent import Agent
 from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
@@ -7,9 +8,10 @@ from typing import Callable, Any, ParamSpec, TypeVar, overload
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
-from rich import traceback
 
-traceback.install(show_locals=True)
+from textwrap import indent
+from types import FunctionType
+from typing import Callable, Any
 
 
 logger = logging.getLogger(__name__)
@@ -342,7 +344,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
         args_list: A list of tuples (name, type, description, default) for each argument
 
     Returns:
-        preprocessor (args: Any) -> (pargs, kwargs): 
+        preprocessor (args: Any) -> (pargs, kwargs):
     """
 
     def preprocessor(args: dict[str, Any] | None) -> tuple[list, dict]:
@@ -463,6 +465,13 @@ def test():
     ]:
         print(get_tool_prompt_description(t))
         print()
+
+
+def sanitize_toolname(name: str) -> str:
+    # Function/tool names in OpenAI/Anthropic/etc messages must match the pattern '^[a-zA-Z0-9_-]+$'
+    name = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    return name
+
 
 
 if __name__ == "__main__":
