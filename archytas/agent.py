@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import os
+from enum import Enum
 from tenacity import (
     before_sleep_log,
     retry as tenacity_retry,
@@ -53,6 +54,18 @@ def retry(fn):
 
 
 logger = logging.getLogger(__name__)
+
+class Role(str, Enum):
+    system = "system"
+    assistant = "ai"
+    user = "human"
+
+
+class Message(BaseMessage):
+    """Message format for communicating with the OpenAI API."""
+
+    def __init__(self, role: Role, content: str):
+        super().__init__(type=role.value, content=content)
 
 
 class ContextMessage(SystemMessage):
@@ -127,15 +140,16 @@ class Agent:
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
         self.verbose = verbose
-        if model is None:
+        if not isinstance(model, BaseArchytasModel):
             # Importing OpenAI is slow, so limit import to only when it is needed.
             from .models.openai import OpenAIModel
-            self.model = OpenAIModel({"api_key": api_key})
+            model_name = model if isinstance(model, str) else None
+            self.model = OpenAIModel({"api_key": api_key, "model_name": model_name})
         else:
             self.model = model
         if not prompt:
             prompt = ""
-        if self.model.MODEL_PROMPT_INSTRUCTIONS:
+        if hasattr(self.model, 'MODEL_PROMPT_INSTRUCTIONS'):
             prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.system_message = SystemMessage(content=prompt)
         self.messages: list[BaseMessage] = []
@@ -171,7 +185,11 @@ class Agent:
 
     def set_openai_key(self, key):
         import openai
+        from .models.openai import OpenAIModel
+
         openai.api_key = key
+        if isinstance(self.model, OpenAIModel):
+            self.model.auth(api_key=key)
 
     def new_context_id(self) -> int:
         """Generate a new context id."""
@@ -279,24 +297,24 @@ class Agent:
                 content_updater=content_updater,
             )
 
-    async def handle_message(self, message: BaseMessage, save_result: bool = True):
+    async def handle_message(self, message: BaseMessage):
         """Appends a message to the message list and executes."""
         self.messages.append(message)
-        return await self.execute(save_result=save_result)
+        return await self.execute()
 
-    async def query(self, message: str, save_result: bool = True) -> str:
+    async def query(self, message: str) -> str:
         """Send a user query to the agent. Returns the agent's response"""
-        return await self.handle_message(HumanMessage(content=message), save_result=save_result)
+        return await self.handle_message(HumanMessage(content=message))
 
-    async def observe(self, observation: str, tool_name: str, save_result: bool = True) -> str:
+    async def observe(self, observation: str, tool_name: str) -> str:
         """Send a system/tool observation to the agent. Returns the agent's response"""
-        return await self.handle_message(FunctionMessage(type="function", content=observation, name=tool_name), save_result=save_result)
+        return await self.handle_message(FunctionMessage(type="function", content=observation, name=tool_name))
 
-    async def inspect(self, query: str, save_result: bool = False) -> str:
+    async def inspect(self, query: str) -> str:
         """Send one-off system query that is not recorded in history"""
-        return await self.execute([HumanMessage(content=query)], save_result=save_result)
+        return await self.execute([HumanMessage(content=query)])
 
-    async def error(self, error: BaseMessage | str, drop_error: bool = True, save_result: bool = True) -> str:
+    async def error(self, error: BaseMessage | str, drop_error: bool = True) -> str:
         """
         Send an error message to the agent. Returns the agent's response.
 
@@ -306,11 +324,11 @@ class Agent:
         """
         if not isinstance(error, BaseMessage):
             error = AIMessage(content=error)
-        result = await self.handle_message(error, save_result=save_result)
+        result = await self.handle_message(error)
 
         return result
 
-    async def execute(self, additional_messages: list[BaseMessage] = [], save_result: bool = True) -> str:
+    async def execute(self, additional_messages: list[BaseMessage] = []) -> str:
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
@@ -319,9 +337,8 @@ class Agent:
                 input=messages,
                 temperature=self.temperature,
             )
-        if save_result:
-            # Add the raw result to history
-            self.messages.append(raw_result)
+        # Add the raw result to history
+        self.messages.append(raw_result)
 
         # Return processed result
         result = self.model.process_result(raw_result)

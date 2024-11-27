@@ -184,7 +184,7 @@ class ReActAgent(Agent):
 
         # Set the current query for use in tools, auto context, etc
         self.current_query = query
-        action = await self.handle_message(HumanMessage(content=query), save_result=False)
+        action = await self.handle_message(HumanMessage(content=query))
 
         controller = LoopController()
 
@@ -332,13 +332,11 @@ class ReActAgent(Agent):
                     summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
                 ))
             else:
-                # Append AIMessage with tool call prior to analyzing the tool response as this is important to some models
                 reaction = await self.handle_message(
                     ToolMessage(
                         content=tool_output,
                         tool_call_id=tool_id,
-                    ),
-                    save_result=False
+                    )
                 )
 
     @staticmethod
@@ -359,7 +357,7 @@ class ReActAgent(Agent):
 
         return thought, tool, tool_input, helpful_thought
 
-    def execute(self, additional_messages: list[BaseMessage] = [], save_result: bool = True) -> str:
+    def execute(self, additional_messages: list[BaseMessage] = []) -> str:
         """
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
@@ -369,7 +367,7 @@ class ReActAgent(Agent):
             raise FailedTaskError(
                 f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}"
             )
-        return super().execute(additional_messages, save_result=save_result)
+        return super().execute(additional_messages)
 
     def error(self, mesg: str, err: BaseException, tool_id: str | None = None) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
@@ -388,7 +386,7 @@ class ReActAgent(Agent):
             content=f"{mesg}: {err}",
             tool_call_id=tool_id,
         )
-        return super().error(error_message, save_result=False)
+        return super().error(error_message)
 
     def display_observation(self, observation):
         """

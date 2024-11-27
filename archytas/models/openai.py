@@ -6,10 +6,9 @@ from openai import AuthenticationError as OpenAIAuthenticationError, APIError, A
 from .base import BaseArchytasModel, ModelConfig, set_env_auth
 from ..exceptions import AuthenticationError, ExecutionError
 
+DEFERRED_TOKEN_VALUE = "***deferred***"
 
 class OpenAIModel(BaseArchytasModel):
-    def __init__(self, config: ModelConfig) -> None:
-        super().__init__(config)
 
     def auth(self, **kwargs) -> None:
         auth_token = None
@@ -17,18 +16,32 @@ class OpenAIModel(BaseArchytasModel):
             auth_token = kwargs['api_key']
         elif 'api_key' in self.config:
             auth_token = self.config['api_key']
-        if auth_token is not None:
-            set_env_auth(OPENAI_API_KEY=auth_token)
+        if auth_token is None:
+            auth_token = DEFERRED_TOKEN_VALUE
+        set_env_auth(OPENAI_API_KEY=auth_token)
+
+        if auth_token != DEFERRED_TOKEN_VALUE:
+            self.config['api_key'] = auth_token
+        # Reset the openai client with the new value, if needed.
+        if getattr(self, "model", None):
+            self.model.openai_api_key._secret_value = auth_token
+            self.model.client = None
+            self.model.async_client = None
+
+            # This method reinitializes the clients
+            self.model.validate_environment()
 
     def initialize_model(self, **kwargs):
         try:
-            return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.config.get('api_key'))
+            return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"))
         except (APIConnectionError, OpenAIError) as err:
             if not self.config.get('api_key', None):
+                raise AuthenticationError("OpenAI API Key not set")
+            else:
                 raise AuthenticationError("OpenAI Authentication Error") from err
 
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        if not self.model.openai_api_key:
+        if self.model is None or not getattr(self.model, 'openai_api_key', None):
             raise AuthenticationError("OpenAI API Key missing")
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 

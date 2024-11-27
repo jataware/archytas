@@ -1,6 +1,6 @@
 import os
 from abc import ABC, abstractmethod
-from pydantic import BaseModel as PydanticModel
+from pydantic import BaseModel as PydanticModel, ConfigDict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,8 +27,11 @@ def set_env_auth(**env_settings: dict[str, str]) -> None:
     os.environ.update(env_settings)
 
 
-class ModelConfig(PydanticModel):
-    pass
+class ModelConfig(PydanticModel, extra='allow'):
+    model_name: str
+    api_key: str
+
+    model_config = ConfigDict(extra="allow", protected_namespaces=())
 
 
 class BaseArchytasModel(ABC):
