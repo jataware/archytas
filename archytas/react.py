@@ -195,10 +195,8 @@ class ReActAgent(Agent):
                 action = reaction
 
             content = action if isinstance(action, str) else json.dumps(action)
-            message: AIMessage = AIMessage(content=content)
+            message = self.messages[-1]
             tool_id = uuid.uuid4().hex
-
-            self.messages.append(message)
 
             # Convert agent output to json
             if isinstance(action, str):
@@ -236,14 +234,6 @@ class ReActAgent(Agent):
                 reaction = await self.error("Error", e, tool_id=tool_id)
                 continue
 
-            message.tool_calls.append(
-                ToolCall(
-                    id=tool_id,
-                    name=sanitize_toolname(tool_name),
-                    args={"arg_string": tool_input},
-                )
-            )
-
             if self.thought_handler:
                 self.thought_handler(thought, tool_name, tool_input)
 
@@ -258,8 +248,16 @@ class ReActAgent(Agent):
                 )
                 self.current_query = None
                 # Store final answer as response in message,
-                self.messages.append(ToolMessage(content=tool_input, tool_call_id=tool_id))
+                self.messages.append(AIMessage(content=tool_input))
                 return tool_input
+            else:
+                message.tool_calls.append(
+                    ToolCall(
+                        id=tool_id,
+                        name=sanitize_toolname(tool_name),
+                        args={"arg_string": tool_input},
+                    )
+                )
             if tool_name == "fail_task":
                 self.current_query = None
                 # Important to include the error message in the history so the user/agent can try something different.

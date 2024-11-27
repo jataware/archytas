@@ -44,9 +44,9 @@ class AnthropicModel(BaseArchytasModel):
                 case AIMessage():
                     # Duplicate mesage so we don't change raw storage
                     msg = message.model_copy()
-                    if msg.tool_calls:
-                        # Rename our function to fit expected name of tool
-                        msg.tool_calls[0]['name'] = "DummyTool"
+                    if isinstance(msg.content, list):
+                        msg.content = "\n".join(item.get("text") for item in msg.content if item.get("type") == "text")
+                    msg.tool_calls = [{**call, 'name': 'DummyTool'} for call in msg.tool_calls if call.get('name', None) != 'DummyTool']
                     output.append(msg)
                 case _:
                     output.append(message)
@@ -68,5 +68,8 @@ class AnthropicModel(BaseArchytasModel):
     def handle_invoke_error(self, error: BaseException):
         if isinstance(error, AnthropicAuthenticError):
             raise AuthenticationError("Anthropic Authentication Error") from error
-        elif isinstance(error, RateLimitError):
+        # TODO: Retry with delay on rate limit errors?
+        # elif isinstance(error, RateLimitError):
+        #     raise
+        else:
             raise

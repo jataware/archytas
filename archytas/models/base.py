@@ -75,6 +75,7 @@ class BaseArchytasModel(ABC):
                 **kwargs
             )
         except Exception as error:
+            print(error)
             return self.handle_invoke_error(error)
 
     def _preprocess_messages(self, messages: "list[BaseMessage]"):
