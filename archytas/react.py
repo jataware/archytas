@@ -248,6 +248,8 @@ class ReActAgent(Agent):
                 )
                 self.current_query = None
                 # Store final answer as response in message,
+                if not isinstance(tool_input, str):
+                    tool_input = str(tool_input)
                 self.messages.append(AIMessage(content=tool_input))
                 return tool_input
             else:
