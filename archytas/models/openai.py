@@ -61,7 +61,7 @@ class OpenAIModel(BaseArchytasModel):
             raise AuthenticationError("OpenAI Authentication Error") from error
         elif isinstance(error, RateLimitError):
             raise ExecutionError(error.message) from error
-        elif isinstance(error, APIConnectionError, OpenAIError) and not self.model.openai_api_key:
+        elif isinstance(error, (APIConnectionError, OpenAIError)) and not self.model.openai_api_key:
             raise AuthenticationError("OpenAI Authentication Error") from error
         else:
 

@@ -339,7 +339,7 @@ class Agent:
             )
         # Add the raw result to history
         if raw_result:
-            self.messages.append(raw_result)
+            self.messages.append(self.model._rectify_result(raw_result))
 
         # Return processed result
         result = self.model.process_result(raw_result)

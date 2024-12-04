@@ -81,6 +81,9 @@ class BaseArchytasModel(ABC):
     def _preprocess_messages(self, messages: "list[BaseMessage]"):
         return messages
 
+    def _rectify_result(self, response_message: "AIMessage"):
+        return response_message
+
     def process_result(self, response_message: "AIMessage"):
         content = response_message.content
         if isinstance(content, list):

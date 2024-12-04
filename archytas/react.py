@@ -22,7 +22,17 @@ class Undefined:
 
 
 class FailedTaskError(Exception):
-    ...
+    def __init__(self, message: str, last_error: typing.Optional[BaseException] = None, tool_call_id: typing.Optional[str] = None, *extra_args: object) -> None:
+        self.message = message
+        self.last_error = last_error
+        self.tool_call_id = tool_call_id
+        super().__init__(*extra_args)
+
+    def __str__(self) -> str:
+        result = f"Error completing task: {self.message}"
+        if self.last_error:
+            result += f"\n\nThe last error is as follows:\n{str(self.last_error)}"
+        return result
 
 
 class LoopController:
@@ -157,12 +167,6 @@ class ReActAgent(Agent):
                 f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n"
             )
 
-    async def react_query(self, query: str):
-        from .agent import AIMessage
-        message = AIMessage(content=query)
-        result = await self.handle_message(message)
-        return result, message
-
     def react(self, query: str, react_context:dict=None) -> str:
         """
         Synchronous wrapper around the asynchronous react_async method.
@@ -194,7 +198,6 @@ class ReActAgent(Agent):
             if reaction is not None:
                 action = reaction
 
-            content = action if isinstance(action, str) else json.dumps(action)
             message = self.messages[-1]
             tool_id = uuid.uuid4().hex
 
@@ -262,13 +265,10 @@ class ReActAgent(Agent):
                 )
             if tool_name == "fail_task":
                 self.current_query = None
-                # Important to include the error message in the history so the user/agent can try something different.
-                error_message = ToolMessage(
-                    content=f"Unable to complete the requested task. Giving up.",
-                    tool_call_id=tool_id,
+                raise FailedTaskError(
+                    f"Unable to complete the requested task. Giving up.\n Tool input: {tool_input}",
+                    tool_call_id=tool_id
                 )
-                self.messages.append(error_message)
-                raise FailedTaskError(tool_input)
 
             # run tool
             try:
@@ -321,7 +321,10 @@ class ReActAgent(Agent):
             if controller.state == LoopController.STOP_FATAL:
                 await self.summarize_messages()
                 self.current_query = None
-                raise FailedTaskError(tool_output)
+                raise FailedTaskError(
+                    tool_output,
+                    tool_call_id=tool_id
+                )
 
             # have the agent observe the result, and get the next action
             if self.verbose:
@@ -362,19 +365,50 @@ class ReActAgent(Agent):
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
         """
-        self.steps += 1
-        if self.steps > self.max_react_steps:
-            raise FailedTaskError(
-                f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}"
-            )
-        return super().execute(additional_messages)
+        try:
+            self.steps += 1
+            if self.steps > self.max_react_steps:
+                last_tool_id = None
+                raise FailedTaskError(
+                    f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}",
+                    tool_call_id=last_tool_id,
+                )
+            result = super().execute(additional_messages)
+        except FailedTaskError as err:
+            # Ensure that the last message is a tool message, adding a new one if needed
+            if not isinstance(self.messages[-1], ToolMessage):
+                content = f"""\
+Task failed:
+{err.message}
+"""
+                if err.last_error:
+                    content += f"""
+During processing, the following error was raised:
+{err.last_error}
+"""
+                error_message = ToolMessage(
+                    content=content,
+                    tool_call_id=err.tool_call_id,
+                )
+                self.messages.append(error_message)
+            raise
+        return result
 
     def error(self, mesg: str, err: BaseException, tool_id: str | None = None) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
+        error_message = ToolMessage(
+            content=f"{mesg}: {err}",
+            tool_call_id=tool_id,
+        )
 
         self.errors += 1
         if self.errors >= self.max_errors:
-            raise FailedTaskError(f"Too many errors during task. Last error: {mesg}")
+            self.messages.append(error_message)
+            raise FailedTaskError(
+                f"Too many errors during task. Last error: {mesg}",
+                last_error=err,
+                tool_call_id=tool_id
+            )
         if self.verbose:
             if self.rich_print:
                 self.print(f"[red]error: {mesg}[/red]", file=sys.stderr)
@@ -382,10 +416,6 @@ class ReActAgent(Agent):
                 self.print(f"error: {mesg}", file=sys.stderr)
 
         # tell the agent about the error, and get its response (call parent .error method)
-        error_message = ToolMessage(
-            content=f"{mesg}: {err}",
-            tool_call_id=tool_id,
-        )
         return super().error(error_message)
 
     def display_observation(self, observation):

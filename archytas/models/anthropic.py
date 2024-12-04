@@ -1,4 +1,5 @@
 import json
+import re
 from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError
 from langchain_anthropic.chat_models import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
@@ -43,16 +44,37 @@ class AnthropicModel(BaseArchytasModel):
                     system_messages.append(message.content)
                 case AIMessage():
                     # Duplicate mesage so we don't change raw storage
-                    msg = message.model_copy()
-                    if isinstance(msg.content, list):
-                        msg.content = "\n".join(item.get("text") for item in msg.content if item.get("type") == "text")
-                    msg.tool_calls = [{**call, 'name': 'DummyTool'} for call in msg.tool_calls if call.get('name', None) != 'DummyTool']
+                    msg = message.model_copy(deep=True)
+                    if not isinstance(msg.content, list):
+                        content = [
+                            {
+                                "type": "text",
+                                "text": msg.content,
+                            }
+                        ]
+                        msg.content = content
+                    for tool_call in msg.tool_calls:
+                        tool_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call.get("name", "DummyTool"))
+                        if tool_name not in [m["name"] for m in msg.content if m["type"] == "tool_use"]:
+                            msg.content.append({
+                                "type": "tool_use",
+                                "id": tool_call.get("id"),
+                                "name": tool_name,
+                                "input": tool_call.get("args"),
+                            })
+                    msg.tool_calls = []
                     output.append(msg)
                 case _:
                     output.append(message)
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
+
+    def _rectify_result(self, response_message: AIMessage):
+        if isinstance(response_message.content, list):
+            response_message.content = "\n".join(item.get("text") for item in response_message.content if item.get("type") == "text")
+            response_message.tool_calls = []
+        return response_message
 
     def process_result(self, response_message: AIMessage):
         content = super().process_result(response_message)
