@@ -1,11 +1,13 @@
 import json
 import re
+import logging
+
 from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError
 from langchain_anthropic.chat_models import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
 from pydantic import BaseModel as PydanticModel, Field
 
-from archytas.agent import AIMessage
+from archytas.agent import AIMessage, BaseMessage
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 from ..exceptions import AuthenticationError, ExecutionError
@@ -20,6 +22,10 @@ class DummyTool(PydanticModel):
 
 class AnthropicModel(BaseArchytasModel):
     api_key: str = ""
+
+    def __init__(self, config: ModelConfig, **kwargs) -> None:
+        super().__init__(config, **kwargs)
+        self.last_messages: list[BaseMessage] = None
 
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
@@ -68,6 +74,7 @@ class AnthropicModel(BaseArchytasModel):
                     output.append(message)
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
+        self.last_messages = [msg.model_copy(deep=True) for msg in output]
         return output
 
     def _rectify_result(self, response_message: AIMessage):
@@ -94,4 +101,9 @@ class AnthropicModel(BaseArchytasModel):
         # elif isinstance(error, RateLimitError):
         #     raise
         else:
+            message_output = [msg.model_dump() for msg in self.last_messages]
+            logging.warning(
+                "An exception has occurred. Below are the messages that were sent to in the most recent request:\n" +
+                json.dumps(message_output, indent=2)
+            )
             raise
