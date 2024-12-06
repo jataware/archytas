@@ -22,10 +22,14 @@ class DummyTool(PydanticModel):
 
 class AnthropicModel(BaseArchytasModel):
     api_key: str = ""
+    tool_name_map: dict
+    rev_tool_name_map: dict
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
         super().__init__(config, **kwargs)
         self.last_messages: list[BaseMessage] = None
+        self.tool_name_map = {}
+        self.rev_tool_name_map = {}
 
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
@@ -60,7 +64,13 @@ class AnthropicModel(BaseArchytasModel):
                         ]
                         msg.content = content
                     for tool_call in msg.tool_calls:
-                        tool_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call.get("name", "DummyTool"))
+                        raw_tool_name= tool_call.get("name", "DummyTool")
+                        if raw_tool_name not in self.tool_name_map:
+                            tool_name = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_tool_name)
+                            self.tool_name_map[raw_tool_name] = tool_name
+                            self.rev_tool_name_map[tool_name] = raw_tool_name
+                        else:
+                            tool_name = self.tool_name_map[raw_tool_name]
                         if tool_name not in ("final_answer", "fail_task"):
                             msg.content.append({
                                 "type": "tool_use",
@@ -78,17 +88,28 @@ class AnthropicModel(BaseArchytasModel):
         return output
 
     def _rectify_result(self, response_message: AIMessage):
+        orig_content = response_message.content
         message_texts = []
+        tool_usages = []
         if isinstance(response_message.content, list):
-            for item in response_message.content:
+            if len(response_message.content) == 1:
+                item = response_message.content[0]
                 if item.get("type") == "text":
                     message_texts.append(item["text"])
-                elif item.get("type") == "tool_use" and "ask_user" in item.get("name"):
+                elif item.get("type") == "tool_use":
+                    tool_name = item["name"]
+                    if tool_name in self.rev_tool_name_map:
+                        tool_name = self.rev_tool_name_map[tool_name]
+                    tool_input = json.loads(item["input"]["arg_string"])
                     message_texts.append(json.dumps({
-                        "thought": "I need more info.",
-                        "tool": item.get("name"),
-                        "tool_input": json.loads(item["input"]["arg_string"]),
+                        "thought": f"I need run tool `{tool_name}`",
+                        "tool": tool_name,
+                        "tool_input": tool_input,
                     }, indent=2))
+            else:
+                for item in response_message.content:
+                    if item.get("type") == "text":
+                        message_texts.append(item["text"])
             message_text = "\n".join(message_texts)
             response_message.content = message_text
             response_message.tool_calls = []
