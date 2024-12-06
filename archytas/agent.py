@@ -338,7 +338,7 @@ class Agent:
                 temperature=self.temperature,
             )
         # Add the raw result to history
-        if raw_result:
+        if raw_result and raw_result.content:
             self.messages.append(self.model._rectify_result(raw_result))
 
         # Return processed result

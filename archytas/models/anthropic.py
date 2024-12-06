@@ -61,7 +61,7 @@ class AnthropicModel(BaseArchytasModel):
                         msg.content = content
                     for tool_call in msg.tool_calls:
                         tool_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call.get("name", "DummyTool"))
-                        if tool_name not in [m["name"] for m in msg.content if m["type"] == "tool_use"]:
+                        if tool_name not in ("final_answer", "fail_task"):
                             msg.content.append({
                                 "type": "tool_use",
                                 "id": tool_call.get("id"),
@@ -78,10 +78,21 @@ class AnthropicModel(BaseArchytasModel):
         return output
 
     def _rectify_result(self, response_message: AIMessage):
+        message_texts = []
         if isinstance(response_message.content, list):
-            response_message.content = "\n".join(item.get("text") for item in response_message.content if item.get("type") == "text")
+            for item in response_message.content:
+                if item.get("type") == "text":
+                    message_texts.append(item["text"])
+                elif item.get("type") == "tool_use" and "ask_user" in item.get("name"):
+                    message_texts.append(json.dumps({
+                        "thought": "I need more info.",
+                        "tool": item.get("name"),
+                        "tool_input": json.loads(item["input"]["arg_string"]),
+                    }, indent=2))
+            message_text = "\n".join(message_texts)
+            response_message.content = message_text
             response_message.tool_calls = []
-        return response_message
+        return super()._rectify_result(response_message)
 
     def process_result(self, response_message: AIMessage):
         content = super().process_result(response_message)
