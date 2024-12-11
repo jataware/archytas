@@ -1,5 +1,8 @@
 from types import UnionType, NoneType, EllipsisType
-from typing import Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING
+from typing import (
+    Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING,
+    Generic, TypeVar
+)
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from abc import ABC, abstractmethod
@@ -32,18 +35,34 @@ class NotProvided:
 # instance of the singleton
 notprovided = NotProvided()
 
+T = TypeVar('T')
 
 @dataclass(frozen=True)
-class NormalizedType(ABC):
-    @abstractmethod
-    def __str__(self) -> str: ...
+class NormalizedType(Generic[T]):
+    # _sub_type: type
+
+    def __str__(self) -> str:
+        return str(self._sub_type)
+
     @classmethod
-    def new(cls, value: Any) -> Any:
-        """Primitive types can use .new() to create an instance of the type"""
-        raise TypeError(f"Type Error: Cannot construct Type `{cls.__name__}.new()`")
+    def new(cls, value: T) -> str:
+        print("New!")
+        if not isinstance(value, cls.sub_type):
+            raise TypeError(f"Expected a {cls}, got {value}")
+        return value
+
+    def __init_subclass__(cls) -> NoneType:
+        super().__init_subclass__()
+        base_args = cls.__orig_bases__[0].__args__
+        if len(base_args) == 1:
+            cls.sub_type = base_args[0]
+        else:
+            cls.sub_type = None
+        cls.base_args = base_args
+
 
 # Too much of a hassle to make this one a dataclass since we need to flatten nested Union_t types
-class Union_t(NormalizedType):
+class Union_t(NormalizedType[UnionType]):
     # Union_t can take either an Iterable[NormalizedType] or multiple NormalizedType as arguments
     @overload
     def __init__(self, types: Iterable[NormalizedType]): ...
@@ -67,15 +86,15 @@ class Union_t(NormalizedType):
                 else:
                     new_types.add(t)
             _types = new_types
-        
+
         self.types = frozenset(_types)
 
     def __str__(self) -> str:
         return ' | '.join(str(t) for t in self.types)
-    
+
     def __repr__(self) -> str:
         return f"Union_t({set(self.types)})" # wrap with set() to print it nicer
-    
+
     def __eq__(self, other):
         if not isinstance(other, Union_t):
             return NotImplemented
@@ -85,9 +104,9 @@ class Union_t(NormalizedType):
         return hash(self.types)
 
 @dataclass(frozen=True)
-class List_t(NormalizedType):
+class List_t(NormalizedType[List]):
     element_type: NormalizedType | NotProvided = notprovided
-    
+
     def __str__(self) -> str:
         if isinstance(self.element_type, NotProvided):
             return 'list'
@@ -95,7 +114,7 @@ class List_t(NormalizedType):
 
 
 @dataclass(frozen=True)
-class Tuple_t(NormalizedType):
+class Tuple_t(NormalizedType[Tuple]):
     component_types: tuple[NormalizedType, ...] | tuple[NormalizedType, EllipsisType] | NotProvided = notprovided
 
     def __str__(self) -> str:
@@ -105,7 +124,7 @@ class Tuple_t(NormalizedType):
 
 
 @dataclass(frozen=True)
-class Dict_t(NormalizedType):
+class Dict_t(NormalizedType[Dict]):
     #TODO: tbd if this is the best way to store key_type and value_type
     #      e.g. could be params: tuple[NormalizedType, NormalizedType] | NotProvided
     key_type: NormalizedType | NotProvided = notprovided
@@ -122,58 +141,58 @@ class Dict_t(NormalizedType):
 
 
 @dataclass(frozen=True)
-class Int_t(NormalizedType):
+class Int_t(NormalizedType[int]):
     def __str__(self) -> str:
         return 'int'
-    @classmethod
-    def new(cls, value: Any) -> int:
-        if not isinstance(value, (int, float)) or value != int(value):
-            raise TypeError(f"Expected an int, got {value}")
-        return int(value)
+    # @classmethod
+    # def new(cls, value: Any) -> int:
+    #     if not isinstance(value, (int, float)) or value != int(value):
+    #         raise TypeError(f"Expected an int, got {value}")
+    #     return int(value)
 
 
 @dataclass(frozen=True)
-class Float_t(NormalizedType):
+class Float_t(NormalizedType[float]):
     def __str__(self) -> str:
         return 'float'
-    @classmethod
-    def new(cls, value: Any) -> float:
-        if not isinstance(value, (int, float)):
-            raise TypeError(f"Expected a float, got {value}")
-        return float(value)
+    # @classmethod
+    # def new(cls, value: Any) -> float:
+    #     if not isinstance(value, (int, float)):
+    #         raise TypeError(f"Expected a float, got {value}")
+    #     return float(value)
 
 
 @dataclass(frozen=True)
-class Str_t(NormalizedType):
+class Str_t(NormalizedType[str]):
     def __str__(self) -> str:
         return 'str'
-    @classmethod
-    def new(cls, value: Any) -> str:
-        if not isinstance(value, str):
-            raise TypeError(f"Expected a string, got {value}")
-        return value
+    # @classmethod
+    # def new(cls, value: Any) -> str:
+    #     if not isinstance(value, str):
+    #         raise TypeError(f"Expected a string, got {value}")
+    #     return value
 
 
 @dataclass(frozen=True)
-class Bool_t(NormalizedType):
+class Bool_t(NormalizedType[bool]):
     def __str__(self) -> str:
         return 'bool'
-    @classmethod
-    def new(cls, value: Any) -> bool:
-        if not isinstance(value, bool):
-            raise TypeError(f"Expected a bool, got {value}")
-        return bool(value)
+    # @classmethod
+    # def new(cls, value: Any) -> bool:
+    #     if not isinstance(value, bool):
+    #         raise TypeError(f"Expected a bool, got {value}")
+    #     return bool(value)
 
 
 @dataclass(frozen=True)
-class None_t(NormalizedType):
+class None_t(NormalizedType[NoneType]):
     def __str__(self) -> str:
         return 'None'
-    @classmethod
-    def new(cls, value: Any) -> None:
-        if value is not None:
-            raise TypeError(f"Expected None, got {value}")
-        return None
+    # @classmethod
+    # def new(cls, value: Any) -> None:
+    #     if value is not None:
+    #         raise TypeError(f"Expected None, got {value}")
+    #     return None
 
 
 @dataclass(frozen=True)
@@ -241,7 +260,7 @@ def normalize_type(t: Any) -> NormalizedType:
     # Optional without a parameter doesn't make sense
     if t is Optional:
         raise ValueError("Underspecified type for tool. Optional should contain a type, e.g. Optional[int]. Note that Optional[T] is equivalent to Union[T, None]")
-    
+
     # Object_t shouldn't be used! It's not really useful for agent instructions
     if t is object:
         # return Object_t()
@@ -263,12 +282,12 @@ def normalize_type(t: Any) -> NormalizedType:
         return Bool_t()
     if t is None or t is NoneType:
         return None_t()
-    
+
 
     # Optional[a]
     if is_optional(t):
         return Union_t(normalize_type(a) for a in get_args(t))
-    
+
     # a | b
     if isinstance(t, UnionType):
         return Union_t(normalize_type(a) for a in t.__args__)
@@ -280,13 +299,13 @@ def normalize_type(t: Any) -> NormalizedType:
     if get_origin(t) is Literal:
         raise NotImplementedError("Literal type annotation is not yet supported")
         # return Literal_t()
-    
+
     #Tuple[a, b, c], Tuple, tuple
     if t is tuple or t is Tuple:
         return Tuple_t()
     if get_origin(t) is tuple:
         return Tuple_t(tuple(normalize_type(a) for a in get_args(t) if a != ...))
-    
+
     #List[a], List, list
     if t is list or t is List:
         return List_t()
@@ -320,7 +339,7 @@ def normalize_type(t: Any) -> NormalizedType:
 
 
 #TODO: the only real way to make this safe is to manually parse the types ourselves
-#      with `eval`, even if you restrict __builtins__ / etc., the user can still get access 
+#      with `eval`, even if you restrict __builtins__ / etc., the user can still get access
 #      to them through the the function the docstring is attached to, e.g. `func.__globals__`
 #      TBD on how necessary since generally we should be in control of the docstrings
 #      and if we're not, the user would be able to execute arbitrary code anyways

@@ -119,6 +119,11 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
         args_list, ret, desc, injections = get_tool_signature(func)
         arg_preprocessor = make_arg_preprocessor(args_list)
 
+        func._args_list = args_list
+        func._ret = ret
+        func._desc = desc
+        func._injections = injections
+
         async def run(
             args: dict | None,
             tool_context: dict[str, object] = {},
@@ -361,7 +366,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
             raise TypeError(f"_input_ must be a dictionary or None. Got {type(args)}")
 
         # zero argument case
-        if len(args_list) == 0:
+        if len(args_list) == 0 and len(args):
             assert args is None, f"Expected no arguments, got {args}"
             return [], {}
         assert args is not None, f"Expected arguments, got None"
@@ -438,7 +443,8 @@ def make_tool_dict(tools: list[Callable | type | Any]) -> dict[str, Callable]:
                 else:
                     cls_name = getattr(tool, "_name", None) or tool.__class__.__name__
                 method_name = getattr(method, "_name", None) or getattr(method, "__name__")
-                method_name = f"{cls_name}.{method_name}"
+                if method_name in tool_dict:
+                    method_name = f"{cls_name}__{method_name}"
                 if method_name in tool_dict and method is not tool_dict[method_name]:
                     raise ValueError(f"Tool name '{method_name}' is already in use")
                 tool_dict[method_name] = method

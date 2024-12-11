@@ -60,7 +60,7 @@ Ensure all generated JSON is valid and would pass a JSON validator.
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
 
-    def process_result(self, response_message: AIMessage):
-        # This model has a bad habit of using """ in JSON results as if it were Python
-        text = super().process_result(response_message)
-        return text.replace('"""', '"')
+    # def process_result(self, response_message: AIMessage):
+    #     # This model has a bad habit of using """ in JSON results as if it were Python
+    #     text = super().process_result(response_message)
+    #     return text.replace('"""', '"')
