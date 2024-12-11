@@ -67,12 +67,12 @@ class GeminiModel(BaseArchytasModel):
                 raise AuthenticationError("API key invalid.") from error
         raise ExecutionError(*error.args) from error
 
-    def process_result(self, response_message: "AIMessage"):
-        content = response_message.content
-        try:
-            if isinstance(content, str):
-                content = json.loads(content)
-            content["tool_input"] = json.loads(content["tool_input"])
-        except json.JSONDecodeError:
-            pass
-        return content
+    # def process_result(self, response_message: "AIMessage"):
+    #     content = response_message.content
+    #     try:
+    #         if isinstance(content, str):
+    #             content = json.loads(content)
+    #         content["tool_input"] = json.loads(content["tool_input"])
+    #     except json.JSONDecodeError:
+    #         pass
+    #     return content

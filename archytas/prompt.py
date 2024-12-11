@@ -107,18 +107,19 @@ def build_prompt(tools: list[Callable]) -> str:
         str: The prompt for the ReAct agent
     """
     # collect all the tool names (including class.method names)
-    tool_names = build_all_tool_names(tools)
+    # tool_names = build_all_tool_names(tools)
 
-    # check if the ask user prompt is in the list of tools
-    ask_user = "ask_user" in tool_names
+    # # check if the ask user prompt is in the list of tools
+    # ask_user = "ask_user" in tool_names
 
-    chunks = [prelude(), tool_intro()]
-    for tool in tools:
-        chunks.append(get_tool_prompt_description(tool))
-    chunks.append(system_tools() + "\n")
-    chunks.append(formatting(tool_names, ask_user=ask_user) + "\n")
-    chunks.append(notes(ask_user=ask_user))
-    return "\n\n".join(chunks)
+    # chunks = [prelude(), tool_intro()]
+    # for tool in tools:
+    #     chunks.append(get_tool_prompt_description(tool))
+    # chunks.append(system_tools() + "\n")
+    # chunks.append(formatting(tool_names, ask_user=ask_user) + "\n")
+    # chunks.append(notes(ask_user=ask_user))
+    # return "\n\n".join(chunks)
+    return prelude()
 
 
 def build_all_tool_names(tools: list[Callable]) -> list[str]:
