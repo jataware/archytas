@@ -345,8 +345,7 @@ class Agent:
                 agent_tools=tools,
             )
         # Add the raw result to history
-        if raw_result and raw_result.content:
-            self.messages.append(self.model._rectify_result(raw_result))
+        self.messages.append(self.model._rectify_result(raw_result))
 
         # Return processed result
         result = self.model.process_result(raw_result)

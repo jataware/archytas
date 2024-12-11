@@ -140,14 +140,19 @@ that the user will find helpful or desirable.
     def process_result(self, response_message: "AIMessage") -> "AgentResponse":
         from ..agent import AgentResponse
         content = response_message.content
+        tool_calls = response_message.tool_calls
         match content:
             case list():
                 text = "\n".join(item['text'] for item in content if item.get('type', None) == "text")
+            case "":
+                if tool_calls:
+                    text = f"Calling tool{'s' if len(tool_calls) > 1 else ''} '{', '.join(tool_call['name'] for tool_call in tool_calls)}'."
+                else:
+                    raise ValueError("Response from LLM does not include any content or tool calls. This shouldn't happen.")
             case str():
                 text = content
             case _:
                 raise ValueError("Response from LLM does not match expected format. Expected ")
-        tool_calls = response_message.tool_calls
         return AgentResponse(text=text, tool_calls=tool_calls)
 
     def handle_invoke_error(self, error: BaseException):

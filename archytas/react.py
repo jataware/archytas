@@ -304,13 +304,13 @@ class ReActAgent(Agent):
             # have the agent observe the result, and get the next action
             if self.verbose:
                 self.display_observation(tool_output)
-            if getattr(tool_fn, "autosummarize", False):
-                reaction = await self.handle_message(AutoSummarizedToolMessage(
-                    tool_content=tool_output,
-                    summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
-                ))
-            else:
-                reaction = await self.execute()
+            # if getattr(tool_fn, "autosummarize", False):
+            #     reaction = await self.handle_message(AutoSummarizedToolMessage(
+            #         tool_content=tool_output,
+            #         summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
+            #     ))
+            # else:
+            reaction = await self.execute()
                 #     ToolMessage(
                 #         content=tool_output,
                 #         tool_call_id=tool_id,
