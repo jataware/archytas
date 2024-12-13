@@ -129,8 +129,10 @@ class AnthropicModel(BaseArchytasModel):
         if isinstance(error, AnthropicAuthenticError):
             raise AuthenticationError("Anthropic Authentication Error") from error
         # TODO: Retry with delay on rate limit errors?
-        # elif isinstance(error, RateLimitError):
-        #     raise
+        elif isinstance(error, RateLimitError):
+            num_tokens = self.ChatAnthropic.get_num_tokens_from_messages(self.last_messages)
+            logging.error(f"Rate limit error: {num_tokens} tokens")
+            raise
         else:
             if self.last_messages:
                 message_output = [msg.model_dump() for msg in self.last_messages]
