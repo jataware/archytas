@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import sys
 import logging
@@ -23,17 +24,83 @@ class Undefined:
 
 
 class FailedTaskError(Exception):
-    def __init__(self, message: str, last_error: typing.Optional[BaseException] = None, tool_call_id: typing.Optional[str] = None, *extra_args: object) -> None:
+    def __init__(
+            self,
+            message: str,
+            last_error: typing.Optional[BaseException] = None,
+            tool_call_id: typing.Optional[str] = None,
+            extra: typing.Optional[str] = None,
+            *extra_args: object
+        ) -> None:
         self.message = message
         self.last_error = last_error
         self.tool_call_id = tool_call_id
+        self.extra = extra
         super().__init__(*extra_args)
 
     def __str__(self) -> str:
-        result = f"Error completing task: {self.message}"
+        err_str = f"""
+Error message:
+  {self.message}
+"""
         if self.last_error:
-            result += f"\n\nThe last error is as follows:\n{str(self.last_error)}"
-        return result
+            err_str += f"""
+During processing, the following error was raised:
+  {self.last_error}
+"""
+        if self.extra:
+            err_str += f"""
+Extra details:
+  {self.extra}
+"""
+        return err_str
+
+
+def catch_failure(fn):
+    def handle_error(messages: list[BaseMessage], error: Exception):
+        last_ai_message = None
+        seen_tool_message_ids = set()
+        for message in messages[::-1]:
+            match message:
+                case AIMessage():
+                    last_ai_message = message
+                    break
+                case ToolMessage():
+                    seen_tool_message_ids.add(message.id)
+        if not last_ai_message:
+            return
+        if last_ai_message.tool_calls:
+            missing_tool_ids = set(tool_call["id"] for tool_call in last_ai_message.tool_calls if tool_call["id"] not in seen_tool_message_ids)
+            for missing_tool_id in missing_tool_ids:
+                error_message = ToolMessage(
+                    content=str(error),
+                    tool_call_id=missing_tool_id,
+                )
+                messages.append(error_message)
+
+    async def inner_async(self, *args, **kwargs):
+        try:
+            return await fn(self, *args, **kwargs)
+        except FailedTaskError as failed_task:
+            handle_error(self.messages, failed_task)
+            raise
+        except Exception as error:
+        # TODO: Is it good to handle other errors here too? Probably, but flow can be tricky.
+        # TODO: Would need to find dangling tools and generate tool messages for any dangling tool calls
+            handle_error(self.messages, error)
+            raise
+
+    def inner(self, *args, **kwargs):
+        try:
+            return fn(self, *args, **kwargs)
+        except FailedTaskError as failed_task:
+            handle_error(self.messages, failed_task)
+            raise
+
+    if inspect.iscoroutine(fn) or inspect.iscoroutinefunction(fn) or inspect.isawaitable(fn):
+        return inner_async
+    else:
+        return inner
 
 
 class LoopController:
@@ -147,19 +214,20 @@ class ReActAgent(Agent):
             return
         for tool_name in tool_names:
             if tool_name in self.tools:
-                setattr(self.tools[tool_name], '_disabled', True)
-            elif "." not in tool_name:
+                tool = self.tools[tool_name]
+            elif "." in tool_name:
                 matches = [name for name in self.tools.keys() if name.endswith(f".{tool_name}")]
                 if len(matches) > 1:
                     raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
-                elif len(matches) == 1:
-                    subtool_name = matches[0]
-                    method = self.tools[subtool_name]
-
-                    setattr(method.__func__, '_disabled', True)
+                tool = self.tools[matches[0]]
+            if inspect.ismethod(tool):
+                setattr(tool.__func__, '_disabled', True)
+            else:
+                setattr(tool, '_disabled', True)
 
         self.update_prompt()
-
+        if self.model:
+            self.model.set_tools(self.tools)
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
@@ -174,6 +242,7 @@ class ReActAgent(Agent):
         """
         return asyncio.run(self.react_async(query, react_context))
 
+    @catch_failure
     async def react_async(self, query: str, react_context:dict=None) -> str:
         """
         Asynchronous react loop function.
@@ -201,15 +270,12 @@ class ReActAgent(Agent):
 
             # message = self.messages[-1]
             # tool_id = uuid.uuid4().hex
-            print(action)
+            # print(action)
             if action.tool_calls:
                 for tool_call in action.tool_calls:
-                    print("Calling tool ", tool_call)
                     tool_id = tool_call["id"]
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
-                    if self.thought_handler:
-                        self.thought_handler(action.text, tool_name, tool_args)
 
                     # exit ReAct loop if agent says final_answer or fail_task
                     if tool_name == "final_answer":
@@ -225,16 +291,22 @@ class ReActAgent(Agent):
                         response = tool_args.get("response", None)
                         if not response:
                             # TODO: Handle this case
-                            print("NO RESPONSE!", action)
-                            pass
+                            raise ValueError("The LLM provided an empty message for a final_answer. This is not valid.")
                         self.messages.append(ToolMessage(content=str(response), tool_call_id=tool_id))
                         return response
                     if tool_name == "fail_task":
                         self.current_query = None
+                        reason = tool_args.get("reason", "No reason identified.")
+                        error = tool_args.get("error", None)
                         raise FailedTaskError(
-                            f"Unable to complete the requested task. Giving up.\n Tool input: {tool_args}",
+                            message=reason,
+                            extra=error,
                             tool_call_id=tool_id
                         )
+
+                    if self.thought_handler:
+                        self.thought_handler(action.text, tool_name, tool_args)
+
 
                     # run tool
                     try:
@@ -293,13 +365,13 @@ class ReActAgent(Agent):
                 await self.summarize_messages()
                 self.current_query = None
                 return tool_output
-            # if controller.state == LoopController.STOP_FATAL:
-            #     await self.summarize_messages()
-            #     self.current_query = None
-            #     raise FailedTaskError(
-            #         tool_output,
-            #         tool_call_id=tool_id
-            #     )
+            if controller.state == LoopController.STOP_FATAL:
+                await self.summarize_messages()
+                self.current_query = None
+                raise FailedTaskError(
+                    tool_output,
+                    tool_call_id=tool_id
+                )
 
             # have the agent observe the result, and get the next action
             if self.verbose:
@@ -340,46 +412,26 @@ class ReActAgent(Agent):
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
         """
-        try:
-            self.steps += 1
-            if self.steps > self.max_react_steps:
-                last_tool_id = None
-                raise FailedTaskError(
-                    f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}",
-                    tool_call_id=last_tool_id,
-                )
-            result = super().execute(additional_messages, tools=self.tools)
-        except FailedTaskError as err:
-            # Ensure that the last message is a tool message, adding a new one if needed
-            if not isinstance(self.messages[-1], ToolMessage):
-                content = f"""\
-Task failed:
-{err.message}
-"""
-                if err.last_error:
-                    content += f"""
-During processing, the following error was raised:
-{err.last_error}
-"""
-                error_message = ToolMessage(
-                    content=content,
-                    tool_call_id=err.tool_call_id,
-                )
-                self.messages.append(error_message)
-            raise
-        return result
+        self.steps += 1
+        if self.steps > self.max_react_steps:
+            last_tool_id = None
+            raise FailedTaskError(
+                f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}",
+                tool_call_id=last_tool_id,
+            )
+        return super().execute(additional_messages, tools=self.tools)
 
     def error(self, mesg: str, err: BaseException, tool_id: str | None = None) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
-        error_message = ToolMessage(
-            content=f"{mesg}: {err}",
-            tool_call_id=tool_id,
-        )
-        self.messages.append(error_message)
+        # error_message = ToolMessage(
+        #     content=f"{mesg}: {err}",
+        #     tool_call_id=tool_id,
+        # )
+        # self.messages.append(error_message)
 
-        self.errors += 1
+        # self.errors += 1
         if self.errors >= self.max_errors:
-            self.messages.append(error_message)
+            # self.messages.append(error_message)
             raise FailedTaskError(
                 f"Too many errors during task. Last error: {mesg}",
                 last_error=err,

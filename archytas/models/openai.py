@@ -1,6 +1,10 @@
+import os
 import re
+from functools import lru_cache
+from typing import Any, Optional, Annotated
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
+from langchain.tools import StructuredTool
 
 from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError
 from .base import BaseArchytasModel, ModelConfig, set_env_auth
@@ -9,6 +13,24 @@ from ..exceptions import AuthenticationError, ExecutionError
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
 class OpenAIModel(BaseArchytasModel):
+    tool_descriptions: dict[str, str]
+
+    @property
+    def MODEL_PROMPT_INSTRUCTIONS(self):
+
+        tool_desc = ["The following tools are available:"]
+        for tool_name, tool_description in self.tool_descriptions.items():
+            tool_desc.append(
+                f"""\
+{tool_name}:
+    {tool_description}
+"""
+            )
+        return "\n------\n".join(tool_desc)
+
+    def __init__(self, config, **kwargs):
+        super().__init__(config, **kwargs)
+        self.tool_descriptions = {}
 
     def auth(self, **kwargs) -> None:
         auth_token = None
@@ -16,9 +38,13 @@ class OpenAIModel(BaseArchytasModel):
             auth_token = kwargs['api_key']
         elif 'api_key' in self.config:
             auth_token = self.config['api_key']
-        if auth_token is None:
+        if not auth_token:
             auth_token = DEFERRED_TOKEN_VALUE
         set_env_auth(OPENAI_API_KEY=auth_token)
+
+        # Replace local auth token from value from environment variables to allow fetching preset auth variables in the
+        # environment.
+        auth_token = os.environ.get('OPENAI_API_KEY', DEFERRED_TOKEN_VALUE)
 
         if auth_token != DEFERRED_TOKEN_VALUE:
             self.config['api_key'] = auth_token
@@ -30,6 +56,15 @@ class OpenAIModel(BaseArchytasModel):
 
             # This method reinitializes the clients
             self.model.validate_environment()
+
+    def convert_tools(self, archytas_tools: tuple[tuple[str, Any], ...])-> "list[StructuredTool]":
+        tools = super().convert_tools(archytas_tools)
+        self.tool_descriptions = {}
+        for tool in tools:
+            if len(tool.description) > 1024:
+                self.tool_descriptions[tool.name] = tool.description
+                tool.description = f"The description for this tool, `{tool.name}`, can be found in the system message on this call."
+        return tools
 
     def initialize_model(self, **kwargs):
         try:
@@ -45,16 +80,16 @@ class OpenAIModel(BaseArchytasModel):
             raise AuthenticationError("OpenAI API Key missing")
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
-    def _preprocess_messages(self, messages):
-        output = []
-        for message in messages:
-            if isinstance(message, FunctionMessage):
-                message.name = re.sub(r'[^a-zA-Z0-9_-]', '_', message.name)
-            elif isinstance(message, AIMessage):
-                for tool_call in message.tool_calls:
-                    tool_call["name"] = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call["name"])
-            output.append(message)
-        return output
+    # def _preprocess_messages(self, messages):
+    #     output = []
+    #     for message in messages:
+    #         if isinstance(message, FunctionMessage):
+    #             message.name = re.sub(r'[^a-zA-Z0-9_-]', '_', message.name)
+    #         elif isinstance(message, AIMessage):
+    #             for tool_call in message.tool_calls:
+    #                 tool_call["name"] = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call["name"])
+    #         output.append(message)
+    #     return output
 
     def handle_invoke_error(self, error: BaseException):
         if isinstance(error, OpenAIAuthenticationError):
@@ -64,5 +99,4 @@ class OpenAIModel(BaseArchytasModel):
         elif isinstance(error, (APIConnectionError, OpenAIError)) and not self.model.openai_api_key:
             raise AuthenticationError("OpenAI Authentication Error") from error
         else:
-
             raise error

@@ -57,11 +57,3 @@ When passing strings to tools, you do not need to escape the values. They are al
     def process_result(self, response_message: "AIMessage"):
         response = super().process_result(response_message)
         return response
-        content = response_message.content
-        try:
-            if isinstance(content, str):
-                content = json.loads(content)
-            content["tool_input"] = json.loads(content["tool_input"])
-        except json.JSONDecodeError:
-            pass
-        return content

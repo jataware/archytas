@@ -2,12 +2,12 @@ import os
 from abc import ABC, abstractmethod
 from pydantic import BaseModel as PydanticModel, ConfigDict, create_model, Field
 from pydantic.fields import FieldInfo
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Optional
 from functools import lru_cache
 
+from langchain.tools import StructuredTool
 
 if TYPE_CHECKING:
-    from langchain.tools import StructuredTool
     from langchain_core.messages import AIMessage, BaseMessage
     from langchain_core.language_models.chat_models import BaseChatModel
     from ..agent import AgentResponse
@@ -23,13 +23,16 @@ class EnvironmentAuth:
         self.env_settings = env_settings
 
     def apply(self):
-        os.environ.update(self.env_settings)
+        for env_name, env_value in self.env_settings.items():
+            os.environ.setdefault(env_name, env_value)
+
 
 def set_env_auth(**env_settings: dict[str, str]) -> None:
     for key, value in env_settings.items():
         if not (isinstance(key, str) and isinstance(value, str)):
             raise ValueError("EnvironmentAuth variables names and values must be strings.")
-    os.environ.update(env_settings)
+    for env_name, env_value in env_settings.items():
+        os.environ.setdefault(env_name, env_value)
 
 
 class ModelConfig(PydanticModel, extra='allow'):
@@ -48,6 +51,39 @@ class FinalAnswerSchema(PydanticModel):
     ))
 
 
+class FailedTaskSchema(PydanticModel):
+    reason: str = Field(...,
+        description="A plain text explanation of the reason for the failure."
+    )
+    error: Optional[str] = Field(...,
+        description=(
+            "A plain text rendering of the underlying error, along with the stacktrace, if available, for debugging "
+            "purposes."
+        )
+    )
+
+final_answer = StructuredTool(
+    name="final_answer",
+    description="""\
+This tool should ALWAYS be called last during a successful ReAct loop to provide a final response to the user. This
+ensures that the user is properly informed as the user does not have access to all outputs from tools.
+The response should either answer a question, summarize the results of a task, and/or provide any useful information
+that the user will find helpful or desirable.
+""",
+    args_schema=FinalAnswerSchema,
+)
+fail_task = StructuredTool(
+    name="fail_task",
+    description=(
+        "The fail_task tool is used to indicate that you have failed to complete the task. You should use this "
+        "tool to communicate the reason for the failure to the user. Do not call this tool unless you have given "
+        "a good effort to complete the task.\n"
+        "In particular, you should call this tool if the same request keeps repeating itself and/or you do not "
+        "seem to be able to make progress."
+    ),
+    args_schema=FailedTaskSchema,
+)
+
 
 class BaseArchytasModel(ABC):
 
@@ -55,11 +91,13 @@ class BaseArchytasModel(ABC):
 
     model: "BaseChatModel"
     config: ModelConfig
+    lc_tools: "list[StructuredTool] | None"
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
         self.config = config
         self.auth(**kwargs)
         self.model = self.initialize_model(**kwargs)
+        self.lc_tools = None
 
     def auth(self, **kwargs) -> None:
         pass
@@ -84,22 +122,13 @@ class BaseArchytasModel(ABC):
     @staticmethod
     @lru_cache()
     def convert_tools(archytas_tools: tuple[tuple[str, Any], ...])-> "list[StructuredTool]":
-        from langchain.tools import StructuredTool
-        final_answer = StructuredTool(
-            name="final_answer",
-            description="""\
-This tool should ALWAYS be called last during a successful ReAct loop to provide a final response to the user. This
-ensures that the user is properly informed as the user does not have access to all outputs from tools.
-The response should either answer a question, summarize the results of a task, and/or provide any useful information
-that the user will find helpful or desirable.
-""",
-            args_schema=FinalAnswerSchema,
-        )
-        tools = [final_answer]
+        tools = [final_answer, fail_task]
         for name, tool in archytas_tools:
             arg_dict = {}
             for arg_name, arg_type, arg_desc, _ in tool._args_list:
                 arg_dict[arg_name] = Annotated[arg_type.sub_type, FieldInfo(description=arg_desc)]
+            if "thought" not in arg_dict:
+                arg_dict["thought"] = Annotated[str, FieldInfo(description="Reasoning around why this tool is being called.")]
             tool_model = create_model(name, **arg_dict)
             lc_tool = StructuredTool(
                 name=name,
@@ -110,14 +139,25 @@ that the user will find helpful or desirable.
             tools.append(lc_tool)
         return tools
 
+    def set_tools(self, agent_tools: dict):
+        agent_tools = tuple(
+            sorted(
+                [(name, func) for name, func in agent_tools.items() if not getattr(func, '_disabled', False)],
+                key=lambda tool: tool[0]
+            )
+        )
+        tools = self.convert_tools(agent_tools)
+        self.lc_tools = tools
+        return tools
 
     async def ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
-        agent_tools = tuple(sorted(agent_tools.items(), key=lambda tool: tool[0]))
+        if self.lc_tools is None and agent_tools is not None:
+            self.set_tools(agent_tools)
+
         try:
             messages = self._preprocess_messages(input)
-            if agent_tools is not None:
-                tools = self.convert_tools(agent_tools)
-                model = self.model.bind_tools(tools)
+            if self.lc_tools is not None:
+                model = self.model.bind_tools(self.lc_tools)
             else:
                 model = self.model
 
@@ -141,18 +181,22 @@ that the user will find helpful or desirable.
         from ..agent import AgentResponse
         content = response_message.content
         tool_calls = response_message.tool_calls
+        tool_thoughts = [tool_call["args"].pop("thought", f"Calling tool '{tool_call['name']}'") for tool_call in tool_calls]
+
         match content:
             case list():
                 text = "\n".join(item['text'] for item in content if item.get('type', None) == "text")
             case "":
                 if tool_calls:
-                    text = f"Calling tool{'s' if len(tool_calls) > 1 else ''} '{', '.join(tool_call['name'] for tool_call in tool_calls)}'."
+                    text = "\n".join(tool_thoughts)
                 else:
                     raise ValueError("Response from LLM does not include any content or tool calls. This shouldn't happen.")
             case str():
                 text = content
             case _:
                 raise ValueError("Response from LLM does not match expected format. Expected ")
+        if text == "":
+            return "Thinking..."
         return AgentResponse(text=text, tool_calls=tool_calls)
 
     def handle_invoke_error(self, error: BaseException):
