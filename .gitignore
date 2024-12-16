@@ -6,6 +6,7 @@ dist/
 
 # chat history
 chat_history.txt
+.chat
 
 # .env files
 .env
