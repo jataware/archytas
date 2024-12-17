@@ -1,7 +1,7 @@
 from types import UnionType, NoneType, EllipsisType
 from typing import (
     Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING,
-    Generic, TypeVar
+    Generic, TypeVar, ClassVar
 )
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
@@ -39,14 +39,13 @@ T = TypeVar('T')
 
 @dataclass(frozen=True)
 class NormalizedType(Generic[T]):
-    # _sub_type: type
+    sub_type: ClassVar[type]
 
     def __str__(self) -> str:
         return str(self._sub_type)
 
     @classmethod
     def new(cls, value: T) -> str:
-        print("New!")
         if not isinstance(value, cls.sub_type):
             raise TypeError(f"Expected a {cls}, got {value}")
         return value
@@ -144,55 +143,30 @@ class Dict_t(NormalizedType[Dict]):
 class Int_t(NormalizedType[int]):
     def __str__(self) -> str:
         return 'int'
-    # @classmethod
-    # def new(cls, value: Any) -> int:
-    #     if not isinstance(value, (int, float)) or value != int(value):
-    #         raise TypeError(f"Expected an int, got {value}")
-    #     return int(value)
 
 
 @dataclass(frozen=True)
 class Float_t(NormalizedType[float]):
     def __str__(self) -> str:
         return 'float'
-    # @classmethod
-    # def new(cls, value: Any) -> float:
-    #     if not isinstance(value, (int, float)):
-    #         raise TypeError(f"Expected a float, got {value}")
-    #     return float(value)
 
 
 @dataclass(frozen=True)
 class Str_t(NormalizedType[str]):
     def __str__(self) -> str:
         return 'str'
-    # @classmethod
-    # def new(cls, value: Any) -> str:
-    #     if not isinstance(value, str):
-    #         raise TypeError(f"Expected a string, got {value}")
-    #     return value
 
 
 @dataclass(frozen=True)
 class Bool_t(NormalizedType[bool]):
     def __str__(self) -> str:
         return 'bool'
-    # @classmethod
-    # def new(cls, value: Any) -> bool:
-    #     if not isinstance(value, bool):
-    #         raise TypeError(f"Expected a bool, got {value}")
-    #     return bool(value)
 
 
 @dataclass(frozen=True)
 class None_t(NormalizedType[NoneType]):
     def __str__(self) -> str:
         return 'None'
-    # @classmethod
-    # def new(cls, value: Any) -> None:
-    #     if value is not None:
-    #         raise TypeError(f"Expected None, got {value}")
-    #     return None
 
 
 @dataclass(frozen=True)

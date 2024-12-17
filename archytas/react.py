@@ -268,9 +268,23 @@ class ReActAgent(Agent):
             if reaction is not None:
                 action = reaction
 
-            # message = self.messages[-1]
-            # tool_id = uuid.uuid4().hex
-            # print(action)
+            if not action.tool_calls:
+                if action.text:
+                    try:
+                        # Check to ensure the content isn't an tool call in the wrong place.
+                        action_json = json.loads(action.text)
+                        if isinstance(action_json, dict) and "id" in action_json and "name" in action_json and "args" in action_json:
+                            action.tool_calls.append(action_json)
+                    except json.JSONDecodeError:
+                        # Presume content to be a final answer
+                        action.tool_calls.append({
+                            "id": uuid.uuid4().hex,
+                            "name": "final_answer",
+                            "args": {
+                                "response": action.text
+                            }
+                        })
+
             if action.tool_calls:
                 for tool_call in action.tool_calls:
                     tool_id = tool_call["id"]

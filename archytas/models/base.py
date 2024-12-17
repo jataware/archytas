@@ -196,7 +196,7 @@ class BaseArchytasModel(ABC):
             case _:
                 raise ValueError("Response from LLM does not match expected format. Expected ")
         if text == "":
-            return "Thinking..."
+            text = "Thinking..."
         return AgentResponse(text=text, tool_calls=tool_calls)
 
     def handle_invoke_error(self, error: BaseException):
