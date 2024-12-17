@@ -396,7 +396,6 @@ class ReActAgent(Agent):
                             tool_call_id=tool_id
                         ))
 
-
             # Execute to fetch next step in the ReAct loop
             reaction = await self.execute()
 

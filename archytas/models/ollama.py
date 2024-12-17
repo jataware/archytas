@@ -4,13 +4,7 @@ from pydantic import BaseModel as PydanticModel, Field
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 
-import ollama
 
-class DummyTool(PydanticModel):
-    """
-    Dummy Tool
-    """
-    input: str = Field(..., description="input")
 
 class OllamaModel(BaseArchytasModel):
 
@@ -27,4 +21,4 @@ Be sure to always use the `final_answer` tool to report back to the user.
 
     def initialize_model(self, **kwargs):
         # Dummy tool in required to enable "tool mode" on the model
-        return ChatOllama(model=self.config.get("model_name", "llama3")).bind_tools([DummyTool])
+        return ChatOllama(model=self.config.get("model_name", "llama3"))

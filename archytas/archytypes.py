@@ -1,7 +1,7 @@
 from types import UnionType, NoneType, EllipsisType
 from typing import (
     Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING,
-    Generic, TypeVar, ClassVar
+    Generic, TypeVar, ClassVar, Sequence
 )
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
@@ -11,9 +11,6 @@ from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class NotProvided:
@@ -35,6 +32,32 @@ class NotProvided:
 # instance of the singleton
 notprovided = NotProvided()
 
+def stringify_type(t: type, args: Sequence | None = None):
+    origin = get_origin(t)
+    if args is None or args is notprovided:
+        args = get_args(t)
+    if not origin:
+        match t:
+            # NormalizedTypes
+            case type(sub_type=sub_type):
+                origin_str = stringify_type(sub_type)
+            # All other types
+            case type():
+                origin_str = t.__name__
+            case object(_name=name):
+                origin_str = name
+            case NormalizedType(sub_type=sub_type):
+                origin_str = stringify_type(sub_type)
+            case _:
+                origin_str = str(t)
+    else:
+        origin_str = stringify_type(origin)
+    if args:
+        args_str = ", ".join(stringify_type(arg) for arg in args)
+        return f"{origin_str}[{args_str}]"
+    else:
+        return origin_str
+
 T = TypeVar('T')
 
 @dataclass(frozen=True)
@@ -42,7 +65,7 @@ class NormalizedType(Generic[T]):
     sub_type: ClassVar[type]
 
     def __str__(self) -> str:
-        return str(self._sub_type)
+        return stringify_type(self.sub_type)
 
     @classmethod
     def new(cls, value: T) -> str:
@@ -89,7 +112,7 @@ class Union_t(NormalizedType[UnionType]):
         self.types = frozenset(_types)
 
     def __str__(self) -> str:
-        return ' | '.join(str(t) for t in self.types)
+        return stringify_type(self.sub_type, self.types)
 
     def __repr__(self) -> str:
         return f"Union_t({set(self.types)})" # wrap with set() to print it nicer
@@ -105,11 +128,8 @@ class Union_t(NormalizedType[UnionType]):
 @dataclass(frozen=True)
 class List_t(NormalizedType[List]):
     element_type: NormalizedType | NotProvided = notprovided
-
-    def __str__(self) -> str:
-        if isinstance(self.element_type, NotProvided):
-            return 'list'
-        return f'list[{self.element_type}]'
+    def __str__(self):
+        return stringify_type(self.sub_type, (self.element_type,))
 
 
 @dataclass(frozen=True)
@@ -117,9 +137,7 @@ class Tuple_t(NormalizedType[Tuple]):
     component_types: tuple[NormalizedType, ...] | tuple[NormalizedType, EllipsisType] | NotProvided = notprovided
 
     def __str__(self) -> str:
-        if isinstance(self.component_types, NotProvided):
-            return 'tuple'
-        return f'tuple[{", ".join(str(t) for t in self.component_types)}]'
+        return stringify_type(self.sub_type, self.component_types)
 
 
 @dataclass(frozen=True)
@@ -130,47 +148,31 @@ class Dict_t(NormalizedType[Dict]):
     value_type: NormalizedType | NotProvided = notprovided
 
     def __str__(self) -> str:
-        if isinstance(self.key_type, NotProvided) and isinstance(self.value_type, NotProvided):
-            return 'dict'
-        if isinstance(self.key_type, NotProvided):
-            return f'dict[?, {self.value_type}]'
-        if isinstance(self.value_type, NotProvided):
-            return f'dict[{self.key_type}, ?]'
-        return f'dict[{self.key_type}, {self.value_type}]'
+        return stringify_type(self.sub_type, (self.key_type, self.value_type))
 
 
 @dataclass(frozen=True)
-class Int_t(NormalizedType[int]):
-    def __str__(self) -> str:
-        return 'int'
+class Int_t(NormalizedType[int]): ...
 
 
 @dataclass(frozen=True)
-class Float_t(NormalizedType[float]):
-    def __str__(self) -> str:
-        return 'float'
+class Float_t(NormalizedType[float]): ...
 
 
 @dataclass(frozen=True)
-class Str_t(NormalizedType[str]):
-    def __str__(self) -> str:
-        return 'str'
+class Str_t(NormalizedType[str]): ...
 
 
 @dataclass(frozen=True)
-class Bool_t(NormalizedType[bool]):
-    def __str__(self) -> str:
-        return 'bool'
+class Bool_t(NormalizedType[bool]): ...
 
 
 @dataclass(frozen=True)
-class None_t(NormalizedType[NoneType]):
-    def __str__(self) -> str:
-        return 'None'
+class None_t(NormalizedType[NoneType]): ...
 
 
 @dataclass(frozen=True)
-class Literal_t(NormalizedType): ... #TODO:
+class Literal_t(NormalizedType[Literal]): ... #TODO:
 
 
 @dataclass(frozen=True)
@@ -195,9 +197,7 @@ class PydanticModel_t(NormalizedType):
 
 # Any should compare equal to all types
 @dataclass(frozen=True)
-class Any_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'Any'
+class Any_t(NormalizedType[Any]):
     def __eq__(self, other):
         return True
     def __req__(self, other):

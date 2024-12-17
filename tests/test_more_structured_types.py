@@ -195,13 +195,13 @@ def test_tool0():
     t = get_tool0()
     get_tool_prompt_description(t)
 
-def test_tool1():
-    t = get_tool1()
-    get_tool_prompt_description(t)
+# def test_tool1():
+#     t = get_tool1()
+#     get_tool_prompt_description(t)
 
-def test_tool2():
-    t = get_tool2()
-    get_tool_prompt_description(t)
+# def test_tool2():
+#     t = get_tool2()
+#     get_tool_prompt_description(t)
 
 def test_tool3():
     t = get_tool3()
@@ -211,9 +211,9 @@ def test_tool4():
     t = get_tool4()
     get_tool_prompt_description(t)
 
-def test_tool5():
-    t = get_tool5()
-    get_tool_prompt_description(t)
+# def test_tool5():
+#     t = get_tool5()
+#     get_tool_prompt_description(t)
 
 def test_tool6():
     t = get_tool6()

@@ -80,17 +80,6 @@ class OpenAIModel(BaseArchytasModel):
             raise AuthenticationError("OpenAI API Key missing")
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
-    # def _preprocess_messages(self, messages):
-    #     output = []
-    #     for message in messages:
-    #         if isinstance(message, FunctionMessage):
-    #             message.name = re.sub(r'[^a-zA-Z0-9_-]', '_', message.name)
-    #         elif isinstance(message, AIMessage):
-    #             for tool_call in message.tool_calls:
-    #                 tool_call["name"] = re.sub(r'[^a-zA-Z0-9_-]', '_', tool_call["name"])
-    #         output.append(message)
-    #     return output
-
     def handle_invoke_error(self, error: BaseException):
         if isinstance(error, OpenAIAuthenticationError):
             raise AuthenticationError("OpenAI Authentication Error") from error

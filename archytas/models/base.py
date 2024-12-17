@@ -194,6 +194,7 @@ class BaseArchytasModel(ABC):
             case str():
                 text = content
             case _:
+                # TODO: Finish this
                 raise ValueError("Response from LLM does not match expected format. Expected ")
         if text == "":
             text = "Thinking..."
