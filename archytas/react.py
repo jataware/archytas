@@ -120,25 +120,16 @@ class LoopController:
         self.state = 0
 
 
-class AutoSummarizedToolMessage(SystemMessage):
+class AutoSummarizedToolMessage(ToolMessage):
     """A message that replaces its full tool output with a summary after the ReAct loop is complete."""
 
-    summary_content: str
-    summarized: bool
-
-    def __init__(
-        self,
-        tool_content: str,
-        summary_content: str,
-    ):
-        self.summarized = False
-        self.summary_content = summary_content
-        super().__init__(tool_content)
+    summary: str = ""
+    summarized: bool = False
 
     async def update_content(self):
-        self.update(content=self.summary_content)
-        self.summarized = True
-
+        if not self.summarized:
+            self.content=self.summary
+            self.summarized = True
 
 class ReActAgent(Agent):
     def __init__(
@@ -357,51 +348,57 @@ class ReActAgent(Agent):
                                 "output": tool_output,
                             }
                         )
-                        self.messages.append(ToolMessage(
-                            content=tool_output,
-                            tool_call_id=tool_id,
-                        ))
+
+                        # Auto-summarize if required
+                        if getattr(tool_fn, "autosummarize", False):
+                            summary = f"Summary of action: Executed command '{tool_name}' with arguments '{tool_args}'"
+                            tool_message = AutoSummarizedToolMessage(
+                                content=tool_output,
+                                summary=summary,
+                                tool_call_id=tool_id,
+                            )
+                        else:
+                            tool_message = ToolMessage(
+                                content=tool_output,
+                                tool_call_id=tool_id,
+                            )
+
+                        # Always add tool response before handling state changes to ensure message history is correct.
+                        self.messages.append(tool_message)
+
+                        # Have the agent observe the result, and get the next action
+                        if self.verbose:
+                            self.display_observation(tool_output)
+
+                        # Log cases when tools override controller state
+                        if controller.state != LoopController.PROCEED:
+                            self.debug(
+                                event_type="react_controller_state",
+                                content={
+                                    "state": controller.state,
+                                }
+                            )
+                        # Check loop controller to see if we need to stop or error
+                        if controller.state == LoopController.STOP_SUCCESS:
+                            await self.summarize_messages()
+                            self.current_query = None
+                            return tool_output
+                        if controller.state == LoopController.STOP_FATAL:
+                            await self.summarize_messages()
+                            self.current_query = None
+                            raise FailedTaskError(
+                                tool_output,
+                                tool_call_id=tool_id
+                            )
                     except Exception as e:
                         self.messages.append(ToolMessage(
                             content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
                             tool_call_id=tool_id
                         ))
 
-            if controller.state != LoopController.PROCEED:
-                self.debug(
-                    event_type="react_controller_state",
-                    content={
-                        "state": controller.state,
-                    }
-                )
-            # Check loop controller to see if we need to stop or error
-            if controller.state == LoopController.STOP_SUCCESS:
-                await self.summarize_messages()
-                self.current_query = None
-                return tool_output
-            if controller.state == LoopController.STOP_FATAL:
-                await self.summarize_messages()
-                self.current_query = None
-                raise FailedTaskError(
-                    tool_output,
-                    tool_call_id=tool_id
-                )
 
-            # have the agent observe the result, and get the next action
-            if self.verbose:
-                self.display_observation(tool_output)
-            # if getattr(tool_fn, "autosummarize", False):
-            #     reaction = await self.handle_message(AutoSummarizedToolMessage(
-            #         tool_content=tool_output,
-            #         summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
-            #     ))
-            # else:
+            # Execute to fetch next step in the ReAct loop
             reaction = await self.execute()
-                #     ToolMessage(
-                #         content=tool_output,
-                #         tool_call_id=tool_id,
-                #     )
-                # )
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str, bool]:
@@ -437,15 +434,8 @@ class ReActAgent(Agent):
 
     def error(self, mesg: str, err: BaseException, tool_id: str | None = None) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
-        # error_message = ToolMessage(
-        #     content=f"{mesg}: {err}",
-        #     tool_call_id=tool_id,
-        # )
-        # self.messages.append(error_message)
-
-        # self.errors += 1
+        self.errors += 1
         if self.errors >= self.max_errors:
-            # self.messages.append(error_message)
             raise FailedTaskError(
                 f"Too many errors during task. Last error: {mesg}",
                 last_error=err,
