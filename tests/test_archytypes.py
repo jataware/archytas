@@ -30,7 +30,7 @@ def test_annotation_normalization():
     assert t == normalize_type(Union[int, Union[int, Union[str, Union[float, int]]]])
     assert t == normalize_type(int | float | str)
     assert t == normalize_type(int | float | str | float | str | int)
-    
+
 
     # tuple[int, str]
     t = Tuple_t((Int_t(), Str_t()))
@@ -59,10 +59,20 @@ def test_annotation_normalization():
     assert t == normalize_type(Union[int, None])
     assert normalize_type(list[int]) == t
     assert normalize_type(dict[str, int]) == t
-    
-    
     #TODO:...
 
+def test_normalized_string():
+    from archytas.archytypes import Int_t, Float_t, Str_t, Bool_t, None_t, Union_t, List_t, Tuple_t, Dict_t, Any_t
+    from types import NoneType
+
+    assert str(Str_t()) == "str"
+    assert str(Int_t()) == "int"
+    assert str(Float_t()) == "float"
+    assert str(Bool_t()) == "bool"
+    assert str(None_t()) == "NoneType"
+    assert str(List_t(Str_t)) == "list[str]"
+    assert str(normalize_type(list[str])) == "list[str]"
+    assert str(Union_t((str, int))) == "UnionType[str, int]"
 
 def test_optional_signature():
     @tool
@@ -70,18 +80,18 @@ def test_optional_signature():
         """
         Args:
             a (int, optional): Description of the argument `a`. Defaults to None.
-        
+
         Returns:
             str: Description of the return value.
         """
         raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
     @tool
-    def test2(a: Optional[int]) -> Optional[int]: 
+    def test2(a: Optional[int]) -> Optional[int]:
         """
         Args:
             a (int, optional): Description of the argument `a`. Defaults to None.
-        
+
         Returns:
             Optional[int]: Description of the return value. Can be None.
         """
@@ -114,7 +124,7 @@ def test_climate_data_utility_signature():
             """
             raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
-            
+
 
         @tool(devmode=True)
         async def regrid_dataset(
@@ -196,7 +206,7 @@ def test_fixed_climate_data_utility_signature():
     - in docstring for `regrid_dataset`, change `aggregation (Optional)` to `aggregation (str, optional)`. Note that Optional is case-sensitive.
     - other instances of `(Optional)` in docstring replaced with `(<type>, optional)`
         - note that these could also be replaced with `(Optional[<type>])`
-    
+
     """
     class ClimateDataUtilityToolset:
         """Toolset for ClimateDataUtility context"""
@@ -223,7 +233,7 @@ def test_fixed_climate_data_utility_signature():
             """
             raise NotImplementedError("implementations are omitted since these are only meant to test the signature")
 
-            
+
 
         @tool(devmode=True)
         async def regrid_dataset(

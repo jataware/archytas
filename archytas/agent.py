@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import os
+from dataclasses import dataclass
 from enum import Enum
 from tenacity import (
     before_sleep_log,
@@ -17,7 +18,7 @@ from rich.spinner import Spinner
 from rich.live import Live
 
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage, ToolCall
 
 from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
@@ -90,6 +91,11 @@ class AutoContextMessage(SystemMessage):
         else:
             result = self.content_updater()
         self.content = result
+
+@dataclass
+class AgentResponse:
+    text: str
+    tool_calls: list[ToolCall]
 
 
 def cli_spinner():
@@ -328,7 +334,7 @@ class Agent:
 
         return result
 
-    async def execute(self, additional_messages: list[BaseMessage] = []) -> str:
+    async def execute(self, additional_messages: list[BaseMessage] = [], tools=None) -> AgentResponse:
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
@@ -336,10 +342,10 @@ class Agent:
             raw_result = await self.model.ainvoke(
                 input=messages,
                 temperature=self.temperature,
+                agent_tools=tools,
             )
         # Add the raw result to history
-        if raw_result and raw_result.content:
-            self.messages.append(self.model._rectify_result(raw_result))
+        self.messages.append(self.model._rectify_result(raw_result))
 
         # Return processed result
         result = self.model.process_result(raw_result)
@@ -352,7 +358,7 @@ class Agent:
 
         return result
 
-    async def oneshot(self, prompt: str, query: str) -> str:
+    async def oneshot(self, prompt: str, query: str, tools=None) -> str:
         """
         Send a user query to the agent. Returns the agent's response.
         This method ignores any previous conversation history, as well as the existing prompt.
@@ -374,6 +380,7 @@ class Agent:
                     HumanMessage(content=query),
                 ],
                 temperature=self.temperature,
+                tools=tools,
             )
 
         # return the agent's response

@@ -1,12 +1,14 @@
 import asyncio
+import inspect
 import json
 import sys
 import logging
+import traceback
 import typing
 import uuid
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, ToolCall
 
-from .agent import Agent, BaseMessage, SystemMessage
+from .agent import Agent, BaseMessage, SystemMessage, AgentResponse
 from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, sanitize_toolname
@@ -22,17 +24,83 @@ class Undefined:
 
 
 class FailedTaskError(Exception):
-    def __init__(self, message: str, last_error: typing.Optional[BaseException] = None, tool_call_id: typing.Optional[str] = None, *extra_args: object) -> None:
+    def __init__(
+            self,
+            message: str,
+            last_error: typing.Optional[BaseException] = None,
+            tool_call_id: typing.Optional[str] = None,
+            extra: typing.Optional[str] = None,
+            *extra_args: object
+        ) -> None:
         self.message = message
         self.last_error = last_error
         self.tool_call_id = tool_call_id
+        self.extra = extra
         super().__init__(*extra_args)
 
     def __str__(self) -> str:
-        result = f"Error completing task: {self.message}"
+        err_str = f"""
+Error message:
+  {self.message}
+"""
         if self.last_error:
-            result += f"\n\nThe last error is as follows:\n{str(self.last_error)}"
-        return result
+            err_str += f"""
+During processing, the following error was raised:
+  {self.last_error}
+"""
+        if self.extra:
+            err_str += f"""
+Extra details:
+  {self.extra}
+"""
+        return err_str
+
+
+def catch_failure(fn):
+    def handle_error(messages: list[BaseMessage], error: Exception):
+        last_ai_message = None
+        seen_tool_message_ids = set()
+        for message in messages[::-1]:
+            match message:
+                case AIMessage():
+                    last_ai_message = message
+                    break
+                case ToolMessage():
+                    seen_tool_message_ids.add(message.id)
+        if not last_ai_message:
+            return
+        if last_ai_message.tool_calls:
+            missing_tool_ids = set(tool_call["id"] for tool_call in last_ai_message.tool_calls if tool_call["id"] not in seen_tool_message_ids)
+            for missing_tool_id in missing_tool_ids:
+                error_message = ToolMessage(
+                    content=str(error),
+                    tool_call_id=missing_tool_id,
+                )
+                messages.append(error_message)
+
+    async def inner_async(self, *args, **kwargs):
+        try:
+            return await fn(self, *args, **kwargs)
+        except FailedTaskError as failed_task:
+            handle_error(self.messages, failed_task)
+            raise
+        except Exception as error:
+        # TODO: Is it good to handle other errors here too? Probably, but flow can be tricky.
+        # TODO: Would need to find dangling tools and generate tool messages for any dangling tool calls
+            handle_error(self.messages, error)
+            raise
+
+    def inner(self, *args, **kwargs):
+        try:
+            return fn(self, *args, **kwargs)
+        except FailedTaskError as failed_task:
+            handle_error(self.messages, failed_task)
+            raise
+
+    if inspect.iscoroutine(fn) or inspect.iscoroutinefunction(fn) or inspect.isawaitable(fn):
+        return inner_async
+    else:
+        return inner
 
 
 class LoopController:
@@ -52,25 +120,16 @@ class LoopController:
         self.state = 0
 
 
-class AutoSummarizedToolMessage(SystemMessage):
+class AutoSummarizedToolMessage(ToolMessage):
     """A message that replaces its full tool output with a summary after the ReAct loop is complete."""
 
-    summary_content: str
-    summarized: bool
-
-    def __init__(
-        self,
-        tool_content: str,
-        summary_content: str,
-    ):
-        self.summarized = False
-        self.summary_content = summary_content
-        super().__init__(tool_content)
+    summary: str = ""
+    summarized: bool = False
 
     async def update_content(self):
-        self.update(content=self.summary_content)
-        self.summarized = True
-
+        if not self.summarized:
+            self.content=self.summary
+            self.summarized = True
 
 class ReActAgent(Agent):
     def __init__(
@@ -146,19 +205,20 @@ class ReActAgent(Agent):
             return
         for tool_name in tool_names:
             if tool_name in self.tools:
-                setattr(self.tools[tool_name], '_disabled', True)
-            elif "." not in tool_name:
+                tool = self.tools[tool_name]
+            elif "." in tool_name:
                 matches = [name for name in self.tools.keys() if name.endswith(f".{tool_name}")]
                 if len(matches) > 1:
                     raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
-                elif len(matches) == 1:
-                    subtool_name = matches[0]
-                    method = self.tools[subtool_name]
-
-                    setattr(method.__func__, '_disabled', True)
+                tool = self.tools[matches[0]]
+            if inspect.ismethod(tool):
+                setattr(tool.__func__, '_disabled', True)
+            else:
+                setattr(tool, '_disabled', True)
 
         self.update_prompt()
-
+        if self.model:
+            self.model.set_tools(self.tools)
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
@@ -173,6 +233,7 @@ class ReActAgent(Agent):
         """
         return asyncio.run(self.react_async(query, react_context))
 
+    @catch_failure
     async def react_async(self, query: str, react_context:dict=None) -> str:
         """
         Asynchronous react loop function.
@@ -183,8 +244,8 @@ class ReActAgent(Agent):
         self.errors = 0
         self.steps = 0
 
-        action = None
-        reaction = None
+        action: AgentResponse | None = None
+        reaction: AgentResponse | None = None
 
         # Set the current query for use in tools, auto context, etc
         self.current_query = query
@@ -198,149 +259,145 @@ class ReActAgent(Agent):
             if reaction is not None:
                 action = reaction
 
-            message = self.messages[-1]
-            tool_id = uuid.uuid4().hex
-
-            # Convert agent output to json
-            if isinstance(action, str):
-                try:
-                    # First, assume it is a ```json ... ``` blocked string. If no blocks found (ValueError), try in case
-                    # the action string is a valid JSON string.
+            if not action.tool_calls:
+                if action.text:
                     try:
-                        action = extract_json(action)
-                    except ValueError as extract_err:
-                        if "Unable to find json block" in extract_err.args:
-                            action = json.loads(action)
+                        # Check to ensure the content isn't an tool call in the wrong place.
+                        action_json = json.loads(action.text)
+                        if isinstance(action_json, dict) and "id" in action_json and "name" in action_json and "args" in action_json:
+                            action.tool_calls.append(action_json)
+                    except json.JSONDecodeError:
+                        # Presume content to be a final answer
+                        action.tool_calls.append({
+                            "id": uuid.uuid4().hex,
+                            "name": "final_answer",
+                            "args": {
+                                "response": action.text
+                            }
+                        })
+
+            if action.tool_calls:
+                for tool_call in action.tool_calls:
+                    tool_id = tool_call["id"]
+                    tool_name = tool_call["name"]
+                    tool_args = tool_call["args"]
+
+                    # exit ReAct loop if agent says final_answer or fail_task
+                    if tool_name == "final_answer":
+                        await self.summarize_messages()
+                        self.debug(
+                            event_type="react_final_answer",
+                            content={
+                                "final_answer": tool_args,
+                            }
+                        )
+                        self.current_query = None
+                        # Store final answer as response in message,
+                        response = tool_args.get("response", None)
+                        if not response:
+                            # TODO: Handle this case
+                            raise ValueError("The LLM provided an empty message for a final_answer. This is not valid.")
+                        self.messages.append(ToolMessage(content=str(response), tool_call_id=tool_id))
+                        return response
+                    if tool_name == "fail_task":
+                        self.current_query = None
+                        reason = tool_args.get("reason", "No reason identified.")
+                        error = tool_args.get("error", None)
+                        raise FailedTaskError(
+                            message=reason,
+                            extra=error,
+                            tool_call_id=tool_id
+                        )
+
+                    if self.thought_handler:
+                        self.thought_handler(action.text, tool_name, tool_args)
+
+
+                    # run tool
+                    try:
+                        tool_fn = self.tools[tool_name]
+                    except KeyError:
+                        self.messages.append(ToolMessage(
+                            content=f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}',
+                            tool_call_id=tool_id,
+                        ))
+                        continue
+
+                    try:
+                        tool_context = {
+                            "agent": self,
+                            "tool_name": tool_name,
+                            "raw_tool": tool_fn,
+                            "loop_controller": controller,
+                            "react_context": react_context,
+                        }
+                        tool_self_ref = getattr(tool_fn, "__self__", None)
+                        self.debug(
+                            event_type="react_tool",
+                            content={
+                                "tool": tool_name,
+                                "input": tool_args,
+                            }
+                        )
+                        tool_output = await tool_fn.run(args=tool_args, tool_context=tool_context, self_ref=tool_self_ref)
+                        self.debug(
+                            event_type="react_tool_output",
+                            content={
+                                "tool": tool_name,
+                                "input": tool_args,
+                                "output": tool_output,
+                            }
+                        )
+
+                        # Auto-summarize if required
+                        if getattr(tool_fn, "autosummarize", False):
+                            summary = f"Summary of action: Executed command '{tool_name}' with arguments '{tool_args}'"
+                            tool_message = AutoSummarizedToolMessage(
+                                content=tool_output,
+                                summary=summary,
+                                tool_call_id=tool_id,
+                            )
                         else:
-                            raise
-                except json.JSONDecodeError as decode_err:
-                    reaction = await self.error("Error parsing JSON", decode_err, tool_id=tool_id)
-                    continue
-                except Exception as e:
-                    raise
+                            tool_message = ToolMessage(
+                                content=tool_output,
+                                tool_call_id=tool_id,
+                            )
 
-            # verify that action has the correct keys
-            try:
-                thought, tool_name, tool_input, helpful_thought = self.extract_action(action)
-                self.debug(
-                    event_type="react_thought",
-                    content={
-                        "id": tool_id,
-                        "thought": thought,
-                        "tool_name": tool_name,
-                        "tool_input": tool_input,
-                        "helpful_thought": helpful_thought,
-                    }
-                )
-                self.last_tool_name = tool_name  # keep track of the last tool used
-            except AssertionError as e:
-                reaction = await self.error("Error", e, tool_id=tool_id)
-                continue
+                        # Always add tool response before handling state changes to ensure message history is correct.
+                        self.messages.append(tool_message)
 
-            if self.thought_handler:
-                self.thought_handler(thought, tool_name, tool_input)
+                        # Have the agent observe the result, and get the next action
+                        if self.verbose:
+                            self.display_observation(tool_output)
 
-            # exit ReAct loop if agent says final_answer or fail_task
-            if tool_name == "final_answer":
-                await self.summarize_messages()
-                self.debug(
-                    event_type="react_final_answer",
-                    content={
-                        "final_answer": tool_input,
-                    }
-                )
-                self.current_query = None
-                # Store final answer as response in message,
-                if not isinstance(tool_input, str):
-                    tool_input = str(tool_input)
-                self.messages.append(AIMessage(content=tool_input))
-                return tool_input
-            else:
-                message.tool_calls.append(
-                    ToolCall(
-                        id=tool_id,
-                        name=sanitize_toolname(tool_name),
-                        args={"arg_string": tool_input},
-                    )
-                )
-            if tool_name == "fail_task":
-                self.current_query = None
-                raise FailedTaskError(
-                    f"Unable to complete the requested task. Giving up.\n Tool input: {tool_input}",
-                    tool_call_id=tool_id
-                )
+                        # Log cases when tools override controller state
+                        if controller.state != LoopController.PROCEED:
+                            self.debug(
+                                event_type="react_controller_state",
+                                content={
+                                    "state": controller.state,
+                                }
+                            )
+                        # Check loop controller to see if we need to stop or error
+                        if controller.state == LoopController.STOP_SUCCESS:
+                            await self.summarize_messages()
+                            self.current_query = None
+                            return tool_output
+                        if controller.state == LoopController.STOP_FATAL:
+                            await self.summarize_messages()
+                            self.current_query = None
+                            raise FailedTaskError(
+                                tool_output,
+                                tool_call_id=tool_id
+                            )
+                    except Exception as e:
+                        self.messages.append(ToolMessage(
+                            content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
+                            tool_call_id=tool_id
+                        ))
 
-            # run tool
-            try:
-                tool_fn = self.tools[tool_name]
-            except KeyError:
-                reaction = await self.error(f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}', None, tool_id=tool_id)
-                continue
-
-            try:
-                tool_context = {
-                    "agent": self,
-                    "tool_name": tool_name,
-                    "raw_tool": tool_fn,
-                    "loop_controller": controller,
-                    "react_context": react_context,
-                }
-                tool_self_ref = getattr(tool_fn, "__self__", None)
-                self.debug(
-                    event_type="react_tool",
-                    content={
-                        "tool": tool_name,
-                        "input": tool_input,
-                    }
-                )
-                tool_output = await tool_fn.run(tool_input, tool_context=tool_context, self_ref=tool_self_ref)
-                self.debug(
-                    event_type="react_tool_output",
-                    content={
-                        "tool": tool_name,
-                        "input": tool_input,
-                        "output": tool_output,
-                    }
-                )
-            except Exception as e:
-                reaction = await self.error(f'error running tool "{tool_name}"', e, tool_id=tool_id)
-                continue
-
-            if controller.state != LoopController.PROCEED:
-                self.debug(
-                    event_type="react_controller_state",
-                    content={
-                        "state": controller.state,
-                    }
-                )
-            # Check loop controller to see if we need to stop or error
-            if controller.state == LoopController.STOP_SUCCESS:
-                await self.summarize_messages()
-                self.current_query = None
-                return tool_output
-            if controller.state == LoopController.STOP_FATAL:
-                await self.summarize_messages()
-                self.current_query = None
-                raise FailedTaskError(
-                    tool_output,
-                    tool_call_id=tool_id
-                )
-
-            # have the agent observe the result, and get the next action
-            if self.verbose:
-                self.display_observation(tool_output)
-            if getattr(tool_fn, "autosummarize", False):
-                reaction = await self.handle_message(AutoSummarizedToolMessage(
-                    tool_content=tool_output,
-                    summary_content=f"Summary of action: Executed command '{tool_name}' with input '{tool_input}'",
-                ))
-            else:
-                reaction = await self.handle_message(
-                    ToolMessage(
-                        content=tool_output,
-                        tool_call_id=tool_id,
-                    )
-                )
+            # Execute to fetch next step in the ReAct loop
+            reaction = await self.execute()
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str, bool]:
@@ -365,45 +422,19 @@ class ReActAgent(Agent):
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
         """
-        try:
-            self.steps += 1
-            if self.steps > self.max_react_steps:
-                last_tool_id = None
-                raise FailedTaskError(
-                    f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}",
-                    tool_call_id=last_tool_id,
-                )
-            result = super().execute(additional_messages)
-        except FailedTaskError as err:
-            # Ensure that the last message is a tool message, adding a new one if needed
-            if not isinstance(self.messages[-1], ToolMessage):
-                content = f"""\
-Task failed:
-{err.message}
-"""
-                if err.last_error:
-                    content += f"""
-During processing, the following error was raised:
-{err.last_error}
-"""
-                error_message = ToolMessage(
-                    content=content,
-                    tool_call_id=err.tool_call_id,
-                )
-                self.messages.append(error_message)
-            raise
-        return result
+        self.steps += 1
+        if self.steps > self.max_react_steps:
+            last_tool_id = None
+            raise FailedTaskError(
+                f"Too many steps ({self.steps} > max_react_steps) during task.\nLast action should have been either final_answer or fail_task. Instead got: {self.last_tool_name}",
+                tool_call_id=last_tool_id,
+            )
+        return super().execute(additional_messages, tools=self.tools)
 
     def error(self, mesg: str, err: BaseException, tool_id: str | None = None) -> str:
         """error handling. If too many errors, break the ReAct loop. Otherwise tell the agent, and continue"""
-        error_message = ToolMessage(
-            content=f"{mesg}: {err}",
-            tool_call_id=tool_id,
-        )
-
         self.errors += 1
         if self.errors >= self.max_errors:
-            self.messages.append(error_message)
             raise FailedTaskError(
                 f"Too many errors during task. Last error: {mesg}",
                 last_error=err,
@@ -414,9 +445,6 @@ During processing, the following error was raised:
                 self.print(f"[red]error: {mesg}[/red]", file=sys.stderr)
             else:
                 self.print(f"error: {mesg}", file=sys.stderr)
-
-        # tell the agent about the error, and get its response (call parent .error method)
-        return super().error(error_message)
 
     def display_observation(self, observation):
         """

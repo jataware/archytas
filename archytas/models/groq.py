@@ -59,8 +59,3 @@ Ensure all generated JSON is valid and would pass a JSON validator.
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
-
-    def process_result(self, response_message: AIMessage):
-        # This model has a bad habit of using """ in JSON results as if it were Python
-        text = super().process_result(response_message)
-        return text.replace('"""', '"')

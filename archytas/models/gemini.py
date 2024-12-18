@@ -13,6 +13,10 @@ if TYPE_CHECKING:
 class GeminiModel(BaseArchytasModel):
     api_key: str
 
+    MODEL_PROMPT_INSTRUCTIONS = """\
+When passing strings to tools, you do not need to escape the values. They are already formatted as expected.
+"""
+
     def auth(self, **kwargs) -> None:
         auth_token = None
         if 'api_key' in kwargs:
@@ -25,24 +29,7 @@ class GeminiModel(BaseArchytasModel):
             raise AuthenticationError("Gemini API key not provided.")
 
     def initialize_model(self, **kwargs):
-        from langchain_google_genai._function_utils import _dict_to_gapic_schema
-        schema = ToolUseRequest.model_json_schema()
-        for property in schema["properties"].values():
-            if "type" not in property:
-                property["type"] = "string"
-                property["description"] += " (As a JSON object encoded as a string)"
-        schema = _dict_to_gapic_schema(schema)
-        return ChatGoogleGenerativeAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.api_key).bind(
-                tool_config={
-                    "function_calling_config": {
-                        "mode": "NONE",
-                    }
-                },
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "response_schema": schema,
-                },
-            )
+        return ChatGoogleGenerativeAI(model=self.config.get("model_name", "gpt-4o"), api_key=self.api_key)
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         # Gemini doesn't accept a temperature keyword on invoke
@@ -68,11 +55,5 @@ class GeminiModel(BaseArchytasModel):
         raise ExecutionError(*error.args) from error
 
     def process_result(self, response_message: "AIMessage"):
-        content = response_message.content
-        try:
-            if isinstance(content, str):
-                content = json.loads(content)
-            content["tool_input"] = json.loads(content["tool_input"])
-        except json.JSONDecodeError:
-            pass
-        return content
+        response = super().process_result(response_message)
+        return response

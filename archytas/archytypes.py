@@ -1,5 +1,8 @@
 from types import UnionType, NoneType, EllipsisType
-from typing import Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING
+from typing import (
+    Any, Optional, Union, Literal, List, Dict, Tuple, Iterable, get_origin, get_args, overload, TYPE_CHECKING,
+    Generic, TypeVar, ClassVar, Sequence
+)
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
 from abc import ABC, abstractmethod
@@ -8,9 +11,6 @@ from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class NotProvided:
@@ -32,18 +32,59 @@ class NotProvided:
 # instance of the singleton
 notprovided = NotProvided()
 
+def stringify_type(t: type, args: Sequence | None = None):
+    origin = get_origin(t)
+    if args is None or args is notprovided:
+        args = get_args(t)
+    if not origin:
+        match t:
+            # NormalizedTypes
+            case type(sub_type=sub_type):
+                origin_str = stringify_type(sub_type)
+            # All other types
+            case type():
+                origin_str = t.__name__
+            case object(_name=name):
+                origin_str = name
+            case NormalizedType(sub_type=sub_type):
+                origin_str = stringify_type(sub_type)
+            case _:
+                origin_str = str(t)
+    else:
+        origin_str = stringify_type(origin)
+    if args:
+        args_str = ", ".join(stringify_type(arg) for arg in args)
+        return f"{origin_str}[{args_str}]"
+    else:
+        return origin_str
+
+T = TypeVar('T')
 
 @dataclass(frozen=True)
-class NormalizedType(ABC):
-    @abstractmethod
-    def __str__(self) -> str: ...
+class NormalizedType(Generic[T]):
+    sub_type: ClassVar[type]
+
+    def __str__(self) -> str:
+        return stringify_type(self.sub_type)
+
     @classmethod
-    def new(cls, value: Any) -> Any:
-        """Primitive types can use .new() to create an instance of the type"""
-        raise TypeError(f"Type Error: Cannot construct Type `{cls.__name__}.new()`")
+    def new(cls, value: T) -> str:
+        if not isinstance(value, cls.sub_type):
+            raise TypeError(f"Expected a {cls}, got {value}")
+        return value
+
+    def __init_subclass__(cls) -> NoneType:
+        super().__init_subclass__()
+        base_args = cls.__orig_bases__[0].__args__
+        if len(base_args) == 1:
+            cls.sub_type = base_args[0]
+        else:
+            cls.sub_type = None
+        cls.base_args = base_args
+
 
 # Too much of a hassle to make this one a dataclass since we need to flatten nested Union_t types
-class Union_t(NormalizedType):
+class Union_t(NormalizedType[UnionType]):
     # Union_t can take either an Iterable[NormalizedType] or multiple NormalizedType as arguments
     @overload
     def __init__(self, types: Iterable[NormalizedType]): ...
@@ -67,15 +108,15 @@ class Union_t(NormalizedType):
                 else:
                     new_types.add(t)
             _types = new_types
-        
+
         self.types = frozenset(_types)
 
     def __str__(self) -> str:
-        return ' | '.join(str(t) for t in self.types)
-    
+        return stringify_type(self.sub_type, self.types)
+
     def __repr__(self) -> str:
         return f"Union_t({set(self.types)})" # wrap with set() to print it nicer
-    
+
     def __eq__(self, other):
         if not isinstance(other, Union_t):
             return NotImplemented
@@ -85,99 +126,53 @@ class Union_t(NormalizedType):
         return hash(self.types)
 
 @dataclass(frozen=True)
-class List_t(NormalizedType):
+class List_t(NormalizedType[List]):
     element_type: NormalizedType | NotProvided = notprovided
-    
-    def __str__(self) -> str:
-        if isinstance(self.element_type, NotProvided):
-            return 'list'
-        return f'list[{self.element_type}]'
+    def __str__(self):
+        return stringify_type(self.sub_type, (self.element_type,))
 
 
 @dataclass(frozen=True)
-class Tuple_t(NormalizedType):
+class Tuple_t(NormalizedType[Tuple]):
     component_types: tuple[NormalizedType, ...] | tuple[NormalizedType, EllipsisType] | NotProvided = notprovided
 
     def __str__(self) -> str:
-        if isinstance(self.component_types, NotProvided):
-            return 'tuple'
-        return f'tuple[{", ".join(str(t) for t in self.component_types)}]'
+        return stringify_type(self.sub_type, self.component_types)
 
 
 @dataclass(frozen=True)
-class Dict_t(NormalizedType):
+class Dict_t(NormalizedType[Dict]):
     #TODO: tbd if this is the best way to store key_type and value_type
     #      e.g. could be params: tuple[NormalizedType, NormalizedType] | NotProvided
     key_type: NormalizedType | NotProvided = notprovided
     value_type: NormalizedType | NotProvided = notprovided
 
     def __str__(self) -> str:
-        if isinstance(self.key_type, NotProvided) and isinstance(self.value_type, NotProvided):
-            return 'dict'
-        if isinstance(self.key_type, NotProvided):
-            return f'dict[?, {self.value_type}]'
-        if isinstance(self.value_type, NotProvided):
-            return f'dict[{self.key_type}, ?]'
-        return f'dict[{self.key_type}, {self.value_type}]'
+        return stringify_type(self.sub_type, (self.key_type, self.value_type))
 
 
 @dataclass(frozen=True)
-class Int_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'int'
-    @classmethod
-    def new(cls, value: Any) -> int:
-        if not isinstance(value, (int, float)) or value != int(value):
-            raise TypeError(f"Expected an int, got {value}")
-        return int(value)
+class Int_t(NormalizedType[int]): ...
 
 
 @dataclass(frozen=True)
-class Float_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'float'
-    @classmethod
-    def new(cls, value: Any) -> float:
-        if not isinstance(value, (int, float)):
-            raise TypeError(f"Expected a float, got {value}")
-        return float(value)
+class Float_t(NormalizedType[float]): ...
 
 
 @dataclass(frozen=True)
-class Str_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'str'
-    @classmethod
-    def new(cls, value: Any) -> str:
-        if not isinstance(value, str):
-            raise TypeError(f"Expected a string, got {value}")
-        return value
+class Str_t(NormalizedType[str]): ...
 
 
 @dataclass(frozen=True)
-class Bool_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'bool'
-    @classmethod
-    def new(cls, value: Any) -> bool:
-        if not isinstance(value, bool):
-            raise TypeError(f"Expected a bool, got {value}")
-        return bool(value)
+class Bool_t(NormalizedType[bool]): ...
 
 
 @dataclass(frozen=True)
-class None_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'None'
-    @classmethod
-    def new(cls, value: Any) -> None:
-        if value is not None:
-            raise TypeError(f"Expected None, got {value}")
-        return None
+class None_t(NormalizedType[NoneType]): ...
 
 
 @dataclass(frozen=True)
-class Literal_t(NormalizedType): ... #TODO:
+class Literal_t(NormalizedType[Literal]): ... #TODO:
 
 
 @dataclass(frozen=True)
@@ -202,9 +197,7 @@ class PydanticModel_t(NormalizedType):
 
 # Any should compare equal to all types
 @dataclass(frozen=True)
-class Any_t(NormalizedType):
-    def __str__(self) -> str:
-        return 'Any'
+class Any_t(NormalizedType[Any]):
     def __eq__(self, other):
         return True
     def __req__(self, other):
@@ -241,7 +234,7 @@ def normalize_type(t: Any) -> NormalizedType:
     # Optional without a parameter doesn't make sense
     if t is Optional:
         raise ValueError("Underspecified type for tool. Optional should contain a type, e.g. Optional[int]. Note that Optional[T] is equivalent to Union[T, None]")
-    
+
     # Object_t shouldn't be used! It's not really useful for agent instructions
     if t is object:
         # return Object_t()
@@ -263,12 +256,12 @@ def normalize_type(t: Any) -> NormalizedType:
         return Bool_t()
     if t is None or t is NoneType:
         return None_t()
-    
+
 
     # Optional[a]
     if is_optional(t):
         return Union_t(normalize_type(a) for a in get_args(t))
-    
+
     # a | b
     if isinstance(t, UnionType):
         return Union_t(normalize_type(a) for a in t.__args__)
@@ -280,13 +273,13 @@ def normalize_type(t: Any) -> NormalizedType:
     if get_origin(t) is Literal:
         raise NotImplementedError("Literal type annotation is not yet supported")
         # return Literal_t()
-    
+
     #Tuple[a, b, c], Tuple, tuple
     if t is tuple or t is Tuple:
         return Tuple_t()
     if get_origin(t) is tuple:
         return Tuple_t(tuple(normalize_type(a) for a in get_args(t) if a != ...))
-    
+
     #List[a], List, list
     if t is list or t is List:
         return List_t()
@@ -320,7 +313,7 @@ def normalize_type(t: Any) -> NormalizedType:
 
 
 #TODO: the only real way to make this safe is to manually parse the types ourselves
-#      with `eval`, even if you restrict __builtins__ / etc., the user can still get access 
+#      with `eval`, even if you restrict __builtins__ / etc., the user can still get access
 #      to them through the the function the docstring is attached to, e.g. `func.__globals__`
 #      TBD on how necessary since generally we should be in control of the docstrings
 #      and if we're not, the user would be able to execute arbitrary code anyways
