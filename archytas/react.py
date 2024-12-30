@@ -390,6 +390,11 @@ class ReActAgent(Agent):
                                 tool_output,
                                 tool_call_id=tool_id
                             )
+                    except asyncio.CancelledError:
+                        self.messages.append(ToolMessage(
+                            content='Execution of this tool was interrupted by the user.',
+                            tool_call_id=tool_id
+                        ))
                     except Exception as e:
                         self.messages.append(ToolMessage(
                             content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
