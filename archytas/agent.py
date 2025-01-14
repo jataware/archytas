@@ -292,16 +292,10 @@ class Agent:
                                    calling `agent.auto_context_message.update_content()` when desired.
         """
         self.auto_update_context = auto_update
-        if not self.auto_context_message:
-            self.auto_context_message = AutoContextMessage(
-                default_content=default_content,
-                content_updater=content_updater,
-            )
-        else:
-            self.auto_context_message.update(
-                default_content=default_content,
-                content_updater=content_updater,
-            )
+        self.auto_context_message = AutoContextMessage(
+            default_content=default_content,
+            content_updater=content_updater,
+        )
 
     async def handle_message(self, message: BaseMessage):
         """Appends a message to the message list and executes."""
