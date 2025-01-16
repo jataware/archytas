@@ -13,6 +13,7 @@ from tenacity import (
 )
 from typing import Callable, ContextManager, Any, Optional
 
+from pydantic import Field
 from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
@@ -80,7 +81,7 @@ class AutoContextMessage(SystemMessage):
     """An automatically updating context message that remains towards the top of the message list."""
 
     default_content: str
-    content_updater: Callable[[], str]
+    content_updater: Callable[[], str] = Field(exclude=True)
 
     def __init__(self, default_content: str, content_updater: Callable[[], str], **kwargs):
         super().__init__(content=default_content, default_content=default_content, content_updater=content_updater, **kwargs)
