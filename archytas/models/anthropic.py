@@ -40,7 +40,7 @@ class AnthropicModel(BaseArchytasModel):
             raise AuthenticationError("No auth credentials found.")
 
     def initialize_model(self, **kwargs):
-        return ChatAnthropic(model=self.config.get("model_name", self.DEFAULT_MODEL), api_key=self.api_key)
+        return ChatAnthropic(model=self.config.get("model_name", self.DEFAULT_MODEL), api_key=self.api_key, max_tokens=self.config.get("max_tokens", 4096))
 
     def _preprocess_messages(self, messages):
         from ..agent import AutoContextMessage, ContextMessage
