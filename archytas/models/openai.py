@@ -78,6 +78,9 @@ class OpenAIModel(BaseArchytasModel):
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         if self.model is None or not getattr(self.model, 'openai_api_key', None):
             raise AuthenticationError("OpenAI API Key missing")
+        if "o3" in self.model.model_name.lower():
+            # o3 doesn't accept a temperature keyword on invoke
+            kwargs.pop("temperature")
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     def handle_invoke_error(self, error: BaseException):
