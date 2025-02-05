@@ -34,7 +34,9 @@ Ensure all generated JSON is valid and would pass a JSON validator.
             raise ValueError("No auth credentials found.")
 
     def initialize_model(self, **kwargs):
-        model = ChatGroq(model=self.config.get("model_name", "llama3-8b-8192"), api_key=self.api_key)
+        model = ChatGroq(model=self.config.get("model_name", "llama3-8b-8192"), 
+                         api_key=self.api_key,
+                         base_url="https://api.groq.com/")
         return model
 
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
