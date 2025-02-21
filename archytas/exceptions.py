@@ -9,3 +9,7 @@ class ModelError(Exception):
 
 class ExecutionError(Exception):
     pass
+
+
+class ContextWindowExceededError(ExecutionError):
+    pass

@@ -9,6 +9,7 @@ import uuid
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, ToolCall
 
 from .agent import Agent, BaseMessage, SystemMessage, AgentResponse
+from .chat_history import ChatHistory, AutoSummarizedToolMessage
 from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, sanitize_toolname
@@ -78,23 +79,23 @@ def catch_failure(fn):
                 )
                 messages.append(error_message)
 
-    async def inner_async(self, *args, **kwargs):
+    async def inner_async(self: "ReActAgent", *args, **kwargs):
         try:
             return await fn(self, *args, **kwargs)
         except FailedTaskError as failed_task:
-            handle_error(self.messages, failed_task)
+            handle_error(self.chat_history.raw_messages, failed_task)
             raise
         except Exception as error:
         # TODO: Is it good to handle other errors here too? Probably, but flow can be tricky.
         # TODO: Would need to find dangling tools and generate tool messages for any dangling tool calls
-            handle_error(self.messages, error)
+            handle_error(self.chat_history.raw_messages, error)
             raise
 
-    def inner(self, *args, **kwargs):
+    def inner(self: "ReActAgent", *args, **kwargs):
         try:
             return fn(self, *args, **kwargs)
         except FailedTaskError as failed_task:
-            handle_error(self.messages, failed_task)
+            handle_error(self.chat_history.messages, failed_task)
             raise
 
     if inspect.iscoroutine(fn) or inspect.iscoroutinefunction(fn) or inspect.isawaitable(fn):
@@ -119,17 +120,6 @@ class LoopController:
     def reset(self):
         self.state = 0
 
-
-class AutoSummarizedToolMessage(ToolMessage):
-    """A message that replaces its full tool output with a summary after the ReAct loop is complete."""
-
-    summary: str = ""
-    summarized: bool = False
-
-    async def update_content(self):
-        if not self.summarized:
-            self.content=self.summary
-            self.summarized = True
 
 class ReActAgent(Agent):
     def __init__(
@@ -198,7 +188,7 @@ class ReActAgent(Agent):
         self.prompt = build_prompt(self._raw_tools)
         if self.model.MODEL_PROMPT_INSTRUCTIONS:
             self.prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
-        self.system_message = SystemMessage(content=self.prompt)
+        self.chat_history.system_message = SystemMessage(content=self.prompt)
 
     def disable(self, *tool_names):
         if len(tool_names) == 0:
@@ -301,7 +291,7 @@ class ReActAgent(Agent):
                         if not response:
                             # TODO: Handle this case
                             raise ValueError("The LLM provided an empty message for a final_answer. This is not valid.")
-                        self.messages.append(ToolMessage(content=str(response), tool_call_id=tool_id))
+                        self.chat_history.add_message(ToolMessage(content=str(response), tool_call_id=tool_id))
                         return response
                     if tool_name == "fail_task":
                         self.current_query = None
@@ -321,7 +311,7 @@ class ReActAgent(Agent):
                     try:
                         tool_fn = self.tools[tool_name]
                     except KeyError:
-                        self.messages.append(ToolMessage(
+                        self.chat_history.add_message(ToolMessage(
                             content=f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}',
                             tool_call_id=tool_id,
                         ))
@@ -368,7 +358,7 @@ class ReActAgent(Agent):
                             )
 
                         # Always add tool response before handling state changes to ensure message history is correct.
-                        self.messages.append(tool_message)
+                        self.chat_history.add_message(tool_message)
 
                         # Have the agent observe the result, and get the next action
                         if self.verbose:
@@ -395,12 +385,12 @@ class ReActAgent(Agent):
                                 tool_call_id=tool_id
                             )
                     except asyncio.CancelledError:
-                        self.messages.append(ToolMessage(
+                        self.chat_history.add_message(ToolMessage(
                             content='Execution of this tool was interrupted by the user.',
                             tool_call_id=tool_id
                         ))
                     except Exception as e:
-                        self.messages.append(ToolMessage(
+                        self.chat_history.add_message(ToolMessage(
                             content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
                             tool_call_id=tool_id
                         ))
@@ -463,6 +453,6 @@ class ReActAgent(Agent):
 
     async def summarize_messages(self):
         """Summarizes and self-summarizing tool messages."""
-        for message in self.messages:
+        for message in self.chat_history.raw_messages:
             if isinstance(message, AutoSummarizedToolMessage) and not message.summarized:
                 await message.update_content()

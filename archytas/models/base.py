@@ -150,6 +150,22 @@ class BaseArchytasModel(ABC):
         self.lc_tools = tools
         return tools
 
+    async def token_estimate(
+        self,
+        messages: "Optional[list[BaseMessage]]"=None,
+        agent_tools: dict=None
+    ):
+        agent_tools = tuple(
+            sorted(
+                [(name, func) for name, func in agent_tools.items() if not getattr(func, '_disabled', False)],
+                key=lambda tool: tool[0]
+            )
+        )
+        tools = self.convert_tools(agent_tools)
+        messages = self._preprocess_messages(messages)
+
+        return self.model.get_num_tokens_from_messages(messages=messages, tools=tools)
+
     async def ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
         if self.lc_tools is None and agent_tools is not None:
             self.set_tools(agent_tools)
