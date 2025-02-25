@@ -2,7 +2,7 @@ import json
 import re
 import logging
 
-from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError
+from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError, BadRequestError
 from langchain_anthropic.chat_models import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
 from pydantic import BaseModel as PydanticModel, Field
@@ -10,7 +10,7 @@ from pydantic import BaseModel as PydanticModel, Field
 from archytas.agent import AIMessage, BaseMessage
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
-from ..exceptions import AuthenticationError, ExecutionError
+from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
 class DummyTool(PydanticModel):
     """
@@ -65,6 +65,18 @@ class AnthropicModel(BaseArchytasModel):
         # TODO: Retry with delay on rate limit errors?
         # elif isinstance(error, RateLimitError):
         #     raise
+        elif isinstance(error, BadRequestError) and "prompt is too long" in error.message:
+            sent = None
+            maximum = None
+            try:
+                body = error.response.json().get("error", {})
+                if "message" in body:
+                    match: re.Match = re.search(r'prompt is too long: (\d+) .* (\d+) maximum', body["message"])
+                    if match:
+                        sent, maximum = match.groups()
+            finally:
+                raise ContextWindowExceededError(*error.args, sent=sent, maximum=maximum) from error
+
         else:
             if self.last_messages:
                 message_output = [msg.model_dump() for msg in self.last_messages]

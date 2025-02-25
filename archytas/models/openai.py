@@ -6,9 +6,9 @@ from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
 from langchain.tools import StructuredTool
 
-from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError
+from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError, BadRequestError
 from .base import BaseArchytasModel, ModelConfig, set_env_auth
-from ..exceptions import AuthenticationError, ExecutionError
+from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
@@ -90,5 +90,7 @@ class OpenAIModel(BaseArchytasModel):
             raise ExecutionError(error.message) from error
         elif isinstance(error, (APIConnectionError, OpenAIError)) and not self.model.openai_api_key:
             raise AuthenticationError("OpenAI Authentication Error") from error
+        elif isinstance(error, (BadRequestError)) and error.code == "context_length_exceeded":
+            raise ContextWindowExceededError(error.body.get('message', None)) from error
         else:
             raise error

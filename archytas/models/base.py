@@ -89,14 +89,14 @@ class BaseArchytasModel(ABC):
 
     MODEL_PROMPT_INSTRUCTIONS: str = ""
 
-    model: "BaseChatModel"
+    _model: "BaseChatModel"
     config: ModelConfig
     lc_tools: "list[StructuredTool] | None"
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
         self.config = config
         self.auth(**kwargs)
-        self.model = self.initialize_model(**kwargs)
+        self._model = self.initialize_model(**kwargs)
         self.lc_tools = None
 
     def auth(self, **kwargs) -> None:
@@ -105,6 +105,13 @@ class BaseArchytasModel(ABC):
     @property
     def additional_prompt_info(self) -> str | None:
         return None
+
+    @property
+    def model(self) -> "BaseChatModel":
+        if self.lc_tools is not None:
+            return self._model.bind_tools(self.lc_tools)
+        else:
+            return self._model
 
     @abstractmethod
     def initialize_model(self, **kwargs):
@@ -172,12 +179,7 @@ class BaseArchytasModel(ABC):
 
         try:
             messages = self._preprocess_messages(input)
-            if self.lc_tools is not None:
-                model = self.model.bind_tools(self.lc_tools)
-            else:
-                model = self.model
-
-            return await model.ainvoke(
+            return await self.model.ainvoke(
                 messages,
                 config,
                 stop=stop,

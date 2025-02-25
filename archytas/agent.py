@@ -118,7 +118,7 @@ class Agent:
         if hasattr(self.model, 'MODEL_PROMPT_INSTRUCTIONS'):
             prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.chat_history = ChatHistory(messages)
-        self.chat_history.system_message = SystemMessage(content=prompt)
+        self.chat_history.set_system_message(SystemMessage(content=prompt))
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
@@ -240,7 +240,7 @@ class Agent:
 
     async def handle_message(self, message: BaseMessage):
         """Appends a message to the message list and executes."""
-        self.chat_history.add_message(message)
+        self.chat_history.add_message(message, model=self.model)
         return await self.execute()
 
     async def query(self, message: str) -> str:
@@ -271,7 +271,8 @@ class Agent:
     async def execute(self, additional_messages: list[BaseMessage] = [], tools=None) -> AgentResponse:
         with self.spinner():
             messages = (await self.chat_history.messages()) + additional_messages
-            # token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
+            token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
+            print("Token estimate for query: ", token_estimate)
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
             raw_result = await self.model.ainvoke(
@@ -279,8 +280,10 @@ class Agent:
                 temperature=self.temperature,
                 agent_tools=tools,
             )
+            print("Actual usage for query: ", getattr(raw_result, "usage_metadata", "Not provided"))
+
         # Add the raw result to history
-        self.chat_history.add_message(self.model._rectify_result(raw_result))
+        self.chat_history.add_message(self.model._rectify_result(raw_result), model=self.model)
 
         # Return processed result
         result = self.model.process_result(raw_result)

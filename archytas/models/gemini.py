@@ -4,7 +4,7 @@ from langchain_google_genai.chat_models import ChatGoogleGenerativeAI, ChatGoogl
 
 from .base import BaseArchytasModel
 from ..message_schemas import ToolUseRequest
-from ..exceptions import AuthenticationError, ExecutionError
+from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
 if TYPE_CHECKING:
     from ..agent import SystemMessage, AutoContextMessage, AIMessage, ToolMessage, FunctionMessage
@@ -52,6 +52,8 @@ When passing strings to tools, you do not need to escape the values. They are al
         if isinstance(error, ChatGoogleGenerativeAIError):
             if any(('400 API key not valid' in arg for arg in error.args)):
                 raise AuthenticationError("API key invalid.") from error
+            elif any(('exceeds the maximum number of tokens allowed' in arg for arg in error.args)):
+                raise ContextWindowExceededError("Context window maximum tokens exceeded.") from error
         raise ExecutionError(*error.args) from error
 
     def process_result(self, response_message: "AIMessage"):
