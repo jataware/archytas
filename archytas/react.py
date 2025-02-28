@@ -203,6 +203,7 @@ class ReActAgent(Agent):
     def disable(self, *tool_names):
         if len(tool_names) == 0:
             return
+        tool = None
         for tool_name in tool_names:
             if tool_name in self.tools:
                 tool = self.tools[tool_name]
@@ -211,6 +212,9 @@ class ReActAgent(Agent):
                 if len(matches) > 1:
                     raise ValueError(f"Ambiguous name: Multiple tools called '{tool_name}'")
                 tool = self.tools[matches[0]]
+            if tool is None:
+                # If tool is not enabled/included, it can't be disabled, so skip.
+                continue
             if inspect.ismethod(tool):
                 setattr(tool.__func__, '_disabled', True)
             else:
