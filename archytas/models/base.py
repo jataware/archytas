@@ -37,10 +37,12 @@ def set_env_auth(**env_settings: dict[str, str]) -> None:
 
 class ModelConfig(PydanticModel, extra='allow'):
     model_name: str
-    api_key: str
-
     model_config = ConfigDict(extra="allow", protected_namespaces=())
-
+    
+    api_key: str | None = None
+    max_tokens: int | None = None
+    # for hosted models
+    region: str | None = None
 
 class FinalAnswerSchema(PydanticModel):
     response: str = Field(..., description=(
