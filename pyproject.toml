@@ -31,6 +31,8 @@ langchain-groq = "^0.2"
 anthropic = "^0.40"
 langchain-ollama = "0.2"
 langchain-google-genai = "^2.0"
+botocore = "1.37.5"
+langchain-aws = "0.2.15"
 
 [tool.poetry.group.dev.dependencies]
 easyrepl = "^0.1.2"
