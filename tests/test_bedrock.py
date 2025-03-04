@@ -9,7 +9,8 @@ def run_bedrock_interactive():
         model=BedrockModel(
             credentials_profile_name='default',
             config=ModelConfig(
-                model_name='us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+                model_name='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+                region='us-east-1'
             )
         ), 
         verbose=True

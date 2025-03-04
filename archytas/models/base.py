@@ -38,11 +38,10 @@ def set_env_auth(**env_settings: dict[str, str]) -> None:
 class ModelConfig(PydanticModel, extra='allow'):
     model_name: str
     model_config = ConfigDict(extra="allow", protected_namespaces=())
-    
     api_key: str | None = None
-    max_tokens: int | None = None
-    # for hosted models
-    region: str | None = None
+    # extra fields --
+    # max_tokens: int | None = None
+    # region: str | None = None
 
 class FinalAnswerSchema(PydanticModel):
     response: str = Field(..., description=(
@@ -95,8 +94,11 @@ class BaseArchytasModel(ABC):
     config: ModelConfig
     lc_tools: "list[StructuredTool] | None"
 
-    def __init__(self, config: ModelConfig, **kwargs) -> None:
-        self.config = config
+    def __init__(self, config: ModelConfig | dict, **kwargs) -> None:
+        if isinstance(config, dict):
+            self.config = ModelConfig(**config)
+        else:
+            self.config = config
         self.auth(**kwargs)
         self.model = self.initialize_model(**kwargs)
         self.lc_tools = None

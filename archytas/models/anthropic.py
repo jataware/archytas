@@ -34,13 +34,20 @@ class AnthropicModel(BaseArchytasModel):
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
             self.api_key = kwargs['api_key']
-        elif 'api_key' in self.config:
-            self.api_key = self.config['api_key']
+        else:
+            self.api_key = self.config.api_key or ""
         if not self.api_key:
             raise AuthenticationError("No auth credentials found.")
 
     def initialize_model(self, **kwargs):
-        return ChatAnthropic(model=self.config.get("model_name", self.DEFAULT_MODEL), api_key=self.api_key, max_tokens=self.config.get("max_tokens", 4096))
+        max_tokens = 4096 
+        if self.config.model_extra:
+            max_tokens = self.config.model_extra.get('max_tokens', 4096)
+        return ChatAnthropic(
+            model=self.config.model_name or self.DEFAULT_MODEL, 
+            api_key=self.api_key, 
+            max_tokens=max_tokens
+        )
 
     def _preprocess_messages(self, messages):
         from ..agent import AutoContextMessage, ContextMessage
