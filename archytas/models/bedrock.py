@@ -1,20 +1,15 @@
 import json
 import logging
+import os
 
-from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError
-from langchain_anthropic.chat_models import ChatAnthropic
-from langchain_core.messages import AIMessage, SystemMessage
-
-from archytas.agent import AIMessage, BaseMessage
-
-from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
-from ..exceptions import AuthenticationError, ExecutionError
-
+from botocore.exceptions import ClientError, NoCredentialsError
 from langchain_aws import ChatBedrock
-from langchain.schema import HumanMessage, AIMessage
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage
 
-from botocore.exceptions import ClientError
+from archytas.agent import BaseMessage
+
+from ..exceptions import AuthenticationError
+from .base import BaseArchytasModel, ModelConfig
 
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
@@ -34,7 +29,6 @@ class BedrockModel(BaseArchytasModel):
     region: str
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
-        super().__init__(config, **kwargs)
         self.last_messages: list[BaseMessage] | None = None
         self.tool_name_map = {}
         self.rev_tool_name_map = {}
@@ -42,43 +36,66 @@ class BedrockModel(BaseArchytasModel):
         self.aws_access_key = None 
         self.aws_secret_key = None
         self.aws_session_token = None
+        super().__init__(config, **kwargs)
 
     def auth(self, **kwargs) -> None:
         # not handled - running on EC2 and expecting to authenticate via instance profile and IMDSv2
         # TODO: handle ec2/instance profile if we need it later. could be as easy as removing the exception below
         if 'credentials_profile_name' in kwargs:
             self.credentials_profile_name = kwargs['credentials_profile_name']
-        else:
-            # required if not using credentials
-            aws_keys = ['aws_access_key', 'aws_secret_key']
+            return 
+        
+        # required if not using credentials or env vars. manually passing the argument should take 
+        # precedence over env vars
+        aws_keys = ['aws_access_key', 'aws_secret_key']
+        if any([(key in kwargs) for key in aws_keys + ['aws_session_token']]):
             for key in aws_keys:
                 if key in kwargs:
                     setattr(self, key, kwargs['key'])
                 else: 
-                    raise AuthenticationError(f'No credentials profile name specified, and one of aws_access_key or aws_secret_key was missing: Missing key: {key}')
+                    raise AuthenticationError(f'one of aws_access_key or aws_secret_key was missing: Missing key: {key}')
             # NOT required, but if present, the above two also *must* exist.
-            if 'aws_session_token' in kwargs:
-                self.aws_session_token = kwargs['aws_session_token']
+            self.aws_session_token = kwargs.get('aws_session_token', None)
+            return 
+        
+        env_vars = {
+            'AWS_ACCESS_KEY_ID': 'aws_access_key',
+            'AWS_SECRET_KEY_ID': 'aws_secret_key'
+        }
+        if any([(var in os.environ) for var in list(env_vars.keys()) + ['AWS_SESSION_TOKEN']]):
+            for var in env_vars:
+                if var in os.environ:
+                    setattr(self, env_vars[var], os.environ[var])
+                else: 
+                    raise AuthenticationError(f'missing one of required env vars: access_key or secret_key: {var}')
+            self.aws_session_token = os.environ.get('AWS_SESSION_TOKEN', None)
+
 
     def initialize_model(self, **kwargs):
-        self.region: str = self.config.region or self.DEFAULT_REGION
+        region = None 
+        max_tokens = None
+        if self.config.model_extra:
+            region = self.config.model_extra.get('region', self.DEFAULT_REGION)
+            max_tokens = self.config.model_extra.get('max_tokens', 4096)
+
 
         model = self.config.model_name or self.DEFAULT_MODEL
+
         if self.credentials_profile_name:
             return ChatBedrock(
                 credentials_profile_name=self.credentials_profile_name,
-                region_name=self.region,
+                region_name=region,
                 model=model,
-                max_tokens=self.config.max_tokens or 4096
+                max_tokens=max_tokens
             )
         else:
             return ChatBedrock(
                 aws_access_key_id=self.aws_access_key,
                 aws_secret_access_key=self.aws_secret_key,
                 aws_session_token=self.aws_session_token or None,
-                region_name=self.region,
+                region_name=region,
                 model=model,
-                max_tokens=self.config.max_tokens or 4096
+                max_tokens=max_tokens or 4096
             ) 
 
     def _preprocess_messages(self, messages):
@@ -99,7 +116,8 @@ class BedrockModel(BaseArchytasModel):
         return output
 
     def handle_invoke_error(self, error: BaseException):
-        if isinstance(error, ClientError):
+        # client error catches a lot of credentials errors like incorrect profile names
+        if isinstance(error, ClientError) or isinstance(error, NoCredentialsError):
             raise AuthenticationError(f"{error}")
         # TODO: Retry with delay on rate limit errors?
         # elif isinstance(error, RateLimitError):
