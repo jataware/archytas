@@ -39,6 +39,16 @@ class BedrockModel(BaseArchytasModel):
         super().__init__(config, **kwargs)
 
     def auth(self, **kwargs) -> None:
+        if self.config.model_extra:
+            access = self.config.model_extra.get('aws_access_key', '')
+            secret = self.config.model_extra.get('aws_secret_key', '')
+            session = self.config.model_extra.get('aws_session_token', '')
+            if access != '' and secret != '':
+                self.aws_access_key = access 
+                self.aws_secret_key = secret 
+                self.aws_session_token = session if session != '' else None
+
+        
         # not handled - running on EC2 and expecting to authenticate via instance profile and IMDSv2
         # TODO: handle ec2/instance profile if we need it later. could be as easy as removing the exception below
         if 'credentials_profile_name' in kwargs:
@@ -72,12 +82,12 @@ class BedrockModel(BaseArchytasModel):
 
 
     def initialize_model(self, **kwargs):
-        region = None 
+        region = self.DEFAULT_REGION 
         max_tokens = None
         if self.config.model_extra:
-            region = self.config.model_extra.get('region', self.DEFAULT_REGION)
+            region = self.config.model_extra.get('region')
+            region = region if region != '' else self.DEFAULT_REGION
             max_tokens = self.config.model_extra.get('max_tokens', 4096)
-
 
         model = self.config.model_name or self.DEFAULT_MODEL
 
