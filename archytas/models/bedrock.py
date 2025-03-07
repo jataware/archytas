@@ -3,7 +3,7 @@ import logging
 import os
 
 from botocore.exceptions import ClientError, NoCredentialsError
-from langchain_aws import ChatBedrock
+from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import SystemMessage
 
 from archytas.agent import BaseMessage
@@ -92,14 +92,14 @@ class BedrockModel(BaseArchytasModel):
         model = self.config.model_name or self.DEFAULT_MODEL
 
         if self.credentials_profile_name:
-            return ChatBedrock(
+            return ChatBedrockConverse(
                 credentials_profile_name=self.credentials_profile_name,
                 region_name=region,
                 model=model,
                 max_tokens=max_tokens
             )
         else:
-            return ChatBedrock(
+            return ChatBedrockConverse(
                 aws_access_key_id=self.aws_access_key,
                 aws_secret_access_key=self.aws_secret_key,
                 aws_session_token=self.aws_session_token or None,
