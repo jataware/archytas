@@ -36,8 +36,8 @@ class OpenAIModel(BaseArchytasModel):
         auth_token = None
         if 'api_key' in kwargs:
             auth_token = kwargs['api_key']
-        elif 'api_key' in self.config:
-            auth_token = self.config['api_key']
+        else:
+            auth_token = self.config.api_key
         if not auth_token:
             auth_token = DEFERRED_TOKEN_VALUE
         set_env_auth(OPENAI_API_KEY=auth_token)
@@ -47,7 +47,7 @@ class OpenAIModel(BaseArchytasModel):
         auth_token = os.environ.get('OPENAI_API_KEY', DEFERRED_TOKEN_VALUE)
 
         if auth_token != DEFERRED_TOKEN_VALUE:
-            self.config['api_key'] = auth_token
+            self.config.api_key = auth_token
         # Reset the openai client with the new value, if needed.
         if getattr(self, "model", None):
             self.model.openai_api_key._secret_value = auth_token
@@ -68,9 +68,9 @@ class OpenAIModel(BaseArchytasModel):
 
     def initialize_model(self, **kwargs):
         try:
-            return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"))
+            return ChatOpenAI(model=self.config.model_name or "gpt-4o")
         except (APIConnectionError, OpenAIError) as err:
-            if not self.config.get('api_key', None):
+            if not self.config.api_key:
                 raise AuthenticationError("OpenAI API Key not set")
             else:
                 raise AuthenticationError("OpenAI Authentication Error") from err

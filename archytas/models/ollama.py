@@ -21,4 +21,4 @@ Be sure to always use the `final_answer` tool to report back to the user.
 
     def initialize_model(self, **kwargs):
         # Dummy tool in required to enable "tool mode" on the model
-        return ChatOllama(model=self.config.get("model_name", "llama3"))
+        return ChatOllama(model=self.config.model_name or "llama3")
