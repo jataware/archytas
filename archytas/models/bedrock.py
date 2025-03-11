@@ -82,11 +82,11 @@ class BedrockModel(BaseArchytasModel):
 
 
     def initialize_model(self, **kwargs):
-        region = self.DEFAULT_REGION 
+        region = os.environ.get('AWS_REGION', self.DEFAULT_REGION)
         max_tokens = None
         if self.config.model_extra:
-            region = self.config.model_extra.get('region')
-            region = region if region != '' else self.DEFAULT_REGION
+            if self.config.model_extra.get('region', '') != '':
+                region = self.config.model_extra.get('region')
             max_tokens = self.config.model_extra.get('max_tokens', 4096)
 
         model = self.config.model_name or self.DEFAULT_MODEL
