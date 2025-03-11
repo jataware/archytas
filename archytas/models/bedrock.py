@@ -23,8 +23,8 @@ class BedrockModel(BaseArchytasModel):
     rev_tool_name_map: dict
 
     credentials_profile_name: str | None
-    aws_access_key: str | None 
-    aws_secret_key: str | None 
+    aws_access_key: str | None
+    aws_secret_key: str | None
     aws_session_token: str | None
     region: str
 
@@ -32,8 +32,8 @@ class BedrockModel(BaseArchytasModel):
         self.last_messages: list[BaseMessage] | None = None
         self.tool_name_map = {}
         self.rev_tool_name_map = {}
-        self.credentials_profile_name = None 
-        self.aws_access_key = None 
+        self.credentials_profile_name = None
+        self.aws_access_key = None
         self.aws_secret_key = None
         self.aws_session_token = None
         super().__init__(config, **kwargs)
@@ -44,30 +44,30 @@ class BedrockModel(BaseArchytasModel):
             secret = self.config.model_extra.get('aws_secret_key', '')
             session = self.config.model_extra.get('aws_session_token', '')
             if access != '' and secret != '':
-                self.aws_access_key = access 
-                self.aws_secret_key = secret 
+                self.aws_access_key = access
+                self.aws_secret_key = secret
                 self.aws_session_token = session if session != '' else None
 
-        
+
         # not handled - running on EC2 and expecting to authenticate via instance profile and IMDSv2
         # TODO: handle ec2/instance profile if we need it later. could be as easy as removing the exception below
         if 'credentials_profile_name' in kwargs:
             self.credentials_profile_name = kwargs['credentials_profile_name']
-            return 
-        
-        # required if not using credentials or env vars. manually passing the argument should take 
+            return
+
+        # required if not using credentials or env vars. manually passing the argument should take
         # precedence over env vars
         aws_keys = ['aws_access_key', 'aws_secret_key']
         if any([(key in kwargs) for key in aws_keys + ['aws_session_token']]):
             for key in aws_keys:
                 if key in kwargs:
                     setattr(self, key, kwargs['key'])
-                else: 
+                else:
                     raise AuthenticationError(f'one of aws_access_key or aws_secret_key was missing: Missing key: {key}')
             # NOT required, but if present, the above two also *must* exist.
             self.aws_session_token = kwargs.get('aws_session_token', None)
-            return 
-        
+            return
+
         env_vars = {
             'AWS_ACCESS_KEY_ID': 'aws_access_key',
             'AWS_SECRET_ACCESS_KEY': 'aws_secret_key'
@@ -76,7 +76,7 @@ class BedrockModel(BaseArchytasModel):
             for var in env_vars:
                 if var in os.environ:
                     setattr(self, env_vars[var], os.environ[var])
-                else: 
+                else:
                     raise AuthenticationError(f'missing one of required env vars: access_key or secret_key: {var}')
             self.aws_session_token = os.environ.get('AWS_SESSION_TOKEN', None)
 
@@ -106,7 +106,7 @@ class BedrockModel(BaseArchytasModel):
                 region_name=region,
                 model=model,
                 max_tokens=max_tokens or 4096
-            ) 
+            )
 
     def _preprocess_messages(self, messages):
         from ..agent import AutoContextMessage, ContextMessage
@@ -127,7 +127,7 @@ class BedrockModel(BaseArchytasModel):
 
     def handle_invoke_error(self, error: BaseException):
         # client error catches a lot of credentials errors like incorrect profile names
-        if isinstance(error, ClientError) or isinstance(error, NoCredentialsError):
+        if isinstance(error, NoCredentialsError) or (isinstance(error, ClientError) and error.response["ResponseMetadata"]["HTTPStatusCode"] == 403):
             raise AuthenticationError(f"{error}")
         # TODO: Retry with delay on rate limit errors?
         # elif isinstance(error, RateLimitError):
