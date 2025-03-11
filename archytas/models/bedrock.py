@@ -70,7 +70,7 @@ class BedrockModel(BaseArchytasModel):
         
         env_vars = {
             'AWS_ACCESS_KEY_ID': 'aws_access_key',
-            'AWS_SECRET_KEY_ID': 'aws_secret_key'
+            'AWS_SECRET_ACCESS_KEY': 'aws_secret_key'
         }
         if any([(var in os.environ) for var in list(env_vars.keys()) + ['AWS_SESSION_TOKEN']]):
             for var in env_vars:
