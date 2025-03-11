@@ -1,10 +1,14 @@
+import json
 import logging
 import re
 from .constants import TAB
 from .agent import Agent
 from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
 from .structured_data_utils import get_structured_input_description, construct_structured_type
-from typing import Callable, Any, ParamSpec, TypeVar, overload
+from .summarizers import default_summarizer
+
+from types import NoneType
+from typing import Callable, Any, ParamSpec, TypeVar, overload, Optional, TYPE_CHECKING
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
@@ -12,6 +16,11 @@ from docstring_parser import parse as parse_docstring
 from textwrap import indent
 from types import FunctionType
 from typing import Callable, Any
+
+from .chat_history import ChatHistory
+
+if TYPE_CHECKING:
+    from .chat_history import ToolMessage, ToolCall
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +49,13 @@ INJECTION_MAPPING = {
     ReactContextRef: "react_context",
 }
 
+# def default_summarizer(message: "ToolMessage", chat_history: ChatHistory):
+#     calling_record, tool_call = next(((record.uuid, tc) for record in chat_history.raw_records for tc in getattr(record.message, "tool_calls", [])), None)
+#     message.content = f"""\
+# Summary of run: Ran tool {tool_call.get("name")} with arguments: {json.dumps(tool_call.get("args"))}, which completed with status "{message.status}".
+# """
+#     message.artifact["summarized"] = True
+
 
 def toolset(*args, **kwargs):
     """
@@ -63,15 +79,19 @@ def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
 
 @overload
 def tool(*, name: str | None = None, autosummarize: bool = False,
-         devmode: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+         summarizer: Optional[Callable[[ChatHistory], NoneType]] = None,
+         devmode: bool = False) -> Callable[P, R]: ...
 
 
-@overload
-def tool(func: Callable[P, R], /, *, name: str | None = None,
-         autosummarize: bool = False, devmode: bool = False) -> Callable[P, R]: ...
-
-
-def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False):
+def tool(
+    func=None,
+    /,
+    *,
+    name: str | None = None,
+    autosummarize: bool = False,
+    summarizer: Optional[Callable[[ChatHistory], NoneType]] = None,
+    devmode: bool = False
+) -> Callable[P, R]:
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
@@ -98,10 +118,8 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
     ```
     """
 
-    # decorator case where the decorator is used directly on the func
-    # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
-    if func is not None:
-        return tool(name=name, autosummarize=autosummarize, devmode=devmode)(func)
+    if autosummarize and summarizer is None:
+        summarizer = default_summarizer
 
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
@@ -113,6 +131,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
         func._name = name if name else func.__name__    # type: ignore
         func._is_tool = True                            # type: ignore
         func.autosummarize = autosummarize              # type: ignore
+        func.summarizer = summarizer
         func._devmode = devmode                         # type: ignore
 
         # attach usage description to the wrapper function
@@ -161,7 +180,12 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
 
         return func
 
-    return decorator
+    # decorator case where the decorator is used directly on the func
+    # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
+    if func is not None:
+        return decorator(func)
+    else:
+        return decorator
 
 
 def is_tool(obj: Callable | type) -> bool:

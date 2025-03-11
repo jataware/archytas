@@ -102,6 +102,7 @@ class Agent:
         Raises:
             Exception: If no API key is given.
         """
+        self.summarization_task = None
         self.rich_print = bool(
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
@@ -268,9 +269,16 @@ class Agent:
         result = await self.handle_message(error)
         return result
 
-    async def execute(self, additional_messages: list[BaseMessage] = [], tools=None) -> AgentResponse:
+    async def execute(
+        self,
+        additional_messages: list[BaseMessage] = [],
+        tools=None,
+        auto_append_response: bool = True
+    ) -> AgentResponse:
         with self.spinner():
-            messages = (await self.chat_history.messages()) + additional_messages
+            records = await self.chat_history.records()
+            messages = [record.message for record in records] + additional_messages
+            # TODO: Keep this here?
             token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
             print("Token estimate for query: ", token_estimate)
             if self.verbose:
@@ -280,10 +288,37 @@ class Agent:
                 temperature=self.temperature,
                 agent_tools=tools,
             )
-            print("Actual usage for query: ", getattr(raw_result, "usage_metadata", "Not provided"))
+            usage_metadata = getattr(raw_result, "usage_metadata", None)
+            print("Actual usage for query: ", usage_metadata)
+
+        response_token_count = await self.model.token_estimate(messages=[HumanMessage(content=raw_result.content)])
 
         # Add the raw result to history
-        self.chat_history.add_message(self.model._rectify_result(raw_result), model=self.model)
+        if auto_append_response:
+            self.chat_history.add_message(self.model._rectify_result(raw_result), model=self.model, token_count=response_token_count)
+
+        if isinstance(usage_metadata, dict):
+            total_token_count = usage_metadata.get("total_tokens", None)
+            if total_token_count > token_estimate:
+                self.chat_history.base_tokens = total_token_count - token_estimate
+        else:
+            total_token_count = token_estimate + response_token_count
+
+        # def callback(task: asyncio.Task):
+        #     print(f"Task {task} completed.")
+        #     self.summarization_task = None
+
+        # contextsize = self.model.contextsize()
+        # threshold = self.chat_history.summarization_threshold or 3800
+        # if contextsize and self.summarization_task is None:
+        #     print(f"total_token_count {total_token_count} > {threshold}")
+        #     if total_token_count > threshold:
+        #         task = asyncio.create_task(self.chat_history.summarize(model=self.model, token_threshold=threshold))
+        #         task.add_done_callback(callback)
+        #         self.summarization_task = task
+        #     print("Continuing")
+        # elif self.summarization_task is not None:
+        #     print("Skipping summarization since a task is already in progress.")
 
         # Return processed result
         result = self.model.process_result(raw_result)

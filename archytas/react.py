@@ -9,7 +9,7 @@ import uuid
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, ToolCall
 
 from .agent import Agent, BaseMessage, SystemMessage, AgentResponse
-from .chat_history import ChatHistory, AutoSummarizedToolMessage
+from .chat_history import ChatHistory
 from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, sanitize_toolname
@@ -83,12 +83,12 @@ def catch_failure(fn):
         try:
             return await fn(self, *args, **kwargs)
         except FailedTaskError as failed_task:
-            handle_error(self.chat_history.raw_messages, failed_task)
+            handle_error(self.chat_history.raw_records, failed_task)
             raise
         except Exception as error:
         # TODO: Is it good to handle other errors here too? Probably, but flow can be tricky.
         # TODO: Would need to find dangling tools and generate tool messages for any dangling tool calls
-            handle_error(self.chat_history.raw_messages, error)
+            handle_error(self.chat_history.raw_records, error)
             raise
 
     def inner(self: "ReActAgent", *args, **kwargs):
@@ -278,7 +278,7 @@ class ReActAgent(Agent):
 
                     # exit ReAct loop if agent says final_answer or fail_task
                     if tool_name == "final_answer":
-                        await self.summarize_messages()
+                        await self.chat_history.summarize_messages(agent=self)
                         self.debug(
                             event_type="react_final_answer",
                             content={
@@ -291,7 +291,12 @@ class ReActAgent(Agent):
                         if not response:
                             # TODO: Handle this case
                             raise ValueError("The LLM provided an empty message for a final_answer. This is not valid.")
-                        self.chat_history.add_message(ToolMessage(content=str(response), tool_call_id=tool_id))
+                        self.chat_history.add_message(
+                            ToolMessage(
+                                content=str(response),
+                                tool_call_id=tool_id,
+                            )
+                        )
                         return response
                     if tool_name == "fail_task":
                         self.current_query = None
@@ -343,19 +348,14 @@ class ReActAgent(Agent):
                             }
                         )
 
-                        # Auto-summarize if required
-                        if getattr(tool_fn, "autosummarize", False):
-                            summary = f"Summary of action: Executed command '{tool_name}' with arguments '{tool_args}'"
-                            tool_message = AutoSummarizedToolMessage(
-                                content=tool_output,
-                                summary=summary,
-                                tool_call_id=tool_id,
-                            )
-                        else:
-                            tool_message = ToolMessage(
-                                content=tool_output,
-                                tool_call_id=tool_id,
-                            )
+                        tool_message = ToolMessage(
+                            content=tool_output,
+                            tool_call_id=tool_id,
+                            artifact={
+                                "tool": tool_fn,
+                                "summarized": False
+                            }
+                        )
 
                         # Always add tool response before handling state changes to ensure message history is correct.
                         self.chat_history.add_message(tool_message)
@@ -374,11 +374,11 @@ class ReActAgent(Agent):
                             )
                         # Check loop controller to see if we need to stop or error
                         if controller.state == LoopController.STOP_SUCCESS:
-                            await self.summarize_messages()
+                            await self.chat_history.summarize_messages(agent=self)
                             self.current_query = None
                             return tool_output
                         if controller.state == LoopController.STOP_FATAL:
-                            await self.summarize_messages()
+                            await self.chat_history.summarize_messages(agent=self)
                             self.current_query = None
                             raise FailedTaskError(
                                 tool_output,
@@ -451,8 +451,8 @@ class ReActAgent(Agent):
         """
         self.print(f"observation: {observation}\n")
 
-    async def summarize_messages(self):
-        """Summarizes and self-summarizing tool messages."""
-        for message in self.chat_history.raw_messages:
-            if isinstance(message, AutoSummarizedToolMessage) and not message.summarized:
-                await message.update_content()
+    # async def summarize_messages(self):
+    #     """Summarizes and self-summarizing tool messages."""
+    #     for message in self.chat_history.raw_messages:
+    #         if isinstance(message, AutoSummarizedToolMessage) and not message.summarized:
+    #             await message.update_content()

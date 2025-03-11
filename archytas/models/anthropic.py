@@ -1,10 +1,12 @@
 import json
 import re
 import logging
+from functools import lru_cache
 
 from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError, BadRequestError
 from langchain_anthropic.chat_models import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
+from langchain_anthropic.llms import AnthropicLLM
 from pydantic import BaseModel as PydanticModel, Field
 
 from archytas.agent import AIMessage, BaseMessage
@@ -27,7 +29,6 @@ class AnthropicModel(BaseArchytasModel):
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
         super().__init__(config, **kwargs)
-        self.last_messages: list[BaseMessage] = None
         self.tool_name_map = {}
         self.rev_tool_name_map = {}
 
@@ -56,7 +57,6 @@ class AnthropicModel(BaseArchytasModel):
                     output.append(message)
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
-        self.last_messages = [msg.model_copy(deep=True) for msg in output]
         return output
 
     def handle_invoke_error(self, error: BaseException):
@@ -76,12 +76,23 @@ class AnthropicModel(BaseArchytasModel):
                         sent, maximum = match.groups()
             finally:
                 raise ContextWindowExceededError(*error.args, sent=sent, maximum=maximum) from error
-
         else:
-            if self.last_messages:
-                message_output = [msg.model_dump() for msg in self.last_messages]
-                logging.warning(
-                    "An exception has occurred. Below are the messages that were sent to in the most recent request:\n" +
-                    json.dumps(message_output, indent=2)
-                )
+            # if self.last_messages:
+            #     message_output = [msg.model_dump() for msg in self.last_messages]
+            #     logging.warning(
+            #         "An exception has occurred. Below are the messages that were sent to in the most recent request:\n" +
+            #         json.dumps(message_output, indent=2)
+            #     )
             raise
+
+    @lru_cache()
+    def contextsize(self, model_name = None):
+        if model_name is None:
+            model_name = self.model_name
+        # TODO: This is accurate for all current models (as of 2025-02-27), for all Haiku and Sonnet models. Seems like
+        # new models would have a new name if the context window changes. Hopefully in the future, this value can be
+        # retrieved programatically.
+        if model_name and ("haiku" in model_name or "sonnet" in model_name):
+            return 200_000
+        else:
+            return None

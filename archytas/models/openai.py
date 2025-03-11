@@ -3,6 +3,7 @@ import re
 from functools import lru_cache
 from typing import Any, Optional, Annotated
 from langchain_openai.chat_models import ChatOpenAI
+from langchain_openai.llms.base import OpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
 from langchain.tools import StructuredTool
 
@@ -13,6 +14,7 @@ from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExcee
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
 class OpenAIModel(BaseArchytasModel):
+    DEFAULT_MODEL = "gpt-4o"
     tool_descriptions: dict[str, str]
 
     @property
@@ -68,7 +70,7 @@ class OpenAIModel(BaseArchytasModel):
 
     def initialize_model(self, **kwargs):
         try:
-            return ChatOpenAI(model=self.config.get("model_name", "gpt-4o"))
+            return ChatOpenAI(model=self.config.get("model_name", self.DEFAULT_MODEL))
         except (APIConnectionError, OpenAIError) as err:
             if not self.config.get('api_key', None):
                 raise AuthenticationError("OpenAI API Key not set")
@@ -94,3 +96,9 @@ class OpenAIModel(BaseArchytasModel):
             raise ContextWindowExceededError(error.body.get('message', None)) from error
         else:
             raise error
+
+    @lru_cache()
+    def contextsize(self, model_name = None):
+        if model_name is None:
+            model_name = self.model_name
+        return OpenAI.modelname_to_contextsize(model_name)
