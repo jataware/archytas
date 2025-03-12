@@ -4,7 +4,10 @@ from .constants import TAB
 from .agent import Agent
 from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
 from .structured_data_utils import get_structured_input_description, construct_structured_type
-from typing import Callable, Any, ParamSpec, TypeVar, overload
+from .summarizers import default_summarizer
+
+from types import NoneType
+from typing import Callable, Any, ParamSpec, TypeVar, overload, Optional, TYPE_CHECKING
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
@@ -13,6 +16,8 @@ from textwrap import indent
 from types import FunctionType
 from typing import Callable, Any
 
+if TYPE_CHECKING:
+    from langchain_core.messages import ToolMessage, AIMessage, BaseMessage
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +68,19 @@ def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
 
 @overload
 def tool(*, name: str | None = None, autosummarize: bool = False,
-         devmode: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+         summarizer: "Optional[Callable[[ToolMessage, list[BaseMessage], Agent], None]]" = None,
+         devmode: bool = False) -> Callable[P, R]: ...
 
 
-@overload
-def tool(func: Callable[P, R], /, *, name: str | None = None,
-         autosummarize: bool = False, devmode: bool = False) -> Callable[P, R]: ...
-
-
-def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, devmode: bool = False):
+def tool(
+    func=None,
+    /,
+    *,
+    name: str | None = None,
+    autosummarize: bool = False,
+    summarizer: "Optional[Callable[[ToolMessage, list[BaseMessage], Agent], None]]" = None,
+    devmode: bool = False
+) -> Callable[P, R]:
     """
     Decorator to convert a function into a tool for ReAct agents to use.
 
@@ -98,10 +107,9 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
     ```
     """
 
-    # decorator case where the decorator is used directly on the func
-    # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
-    if func is not None:
-        return tool(name=name, autosummarize=autosummarize, devmode=devmode)(func)
+    # Disabled as this will be enabled in a future update, but is not ready yet.
+    # if autosummarize and summarizer is None:
+    #     summarizer = default_summarizer
 
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
@@ -113,6 +121,7 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
         func._name = name if name else func.__name__    # type: ignore
         func._is_tool = True                            # type: ignore
         func.autosummarize = autosummarize              # type: ignore
+        func.summarizer = summarizer                    # type: ignore
         func._devmode = devmode                         # type: ignore
 
         # attach usage description to the wrapper function
@@ -161,7 +170,12 @@ def tool(func=None, /, *, name: str | None = None, autosummarize: bool = False, 
 
         return func
 
-    return decorator
+    # decorator case where the decorator is used directly on the func
+    # either `@tool def func()` or `tool(func, name='name', autosummarize=True)`
+    if func is not None:
+        return decorator(func)
+    else:
+        return decorator
 
 
 def is_tool(obj: Callable | type) -> bool:
