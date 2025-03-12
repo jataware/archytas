@@ -125,10 +125,20 @@ class AutoSummarizedToolMessage(ToolMessage):
 
     summary: str = ""
     summarized: bool = False
+    summarizer: typing.Callable[[ToolMessage], str] = None
 
-    async def update_content(self):
+    async def update_content(self, all_messages: list[BaseMessage], agent: Agent):
         if not self.summarized:
-            self.content=self.summary
+            if self.summarizer:
+                try:
+                    self.summarizer(self, all_messages, agent)
+                except Exception as err:
+                    error_msg = f"Error attempting to summarize message {self}."
+                    logger.error(error_msg, exc_info=err)
+
+                    self.content = self.summary or "Message removed during summarization."
+            else:
+                self.content = self.summary
             self.summarized = True
 
 class ReActAgent(Agent):
@@ -355,10 +365,12 @@ class ReActAgent(Agent):
 
                         # Auto-summarize if required
                         if getattr(tool_fn, "autosummarize", False):
-                            summary = f"Summary of action: Executed command '{tool_name}' with arguments '{tool_args}'"
+                            summarizer_func = getattr(tool_fn, "summarizer", None)
+                            fallback_summary = f"Summary of action: Executed command '{tool_name}' with arguments '{tool_args}'"
                             tool_message = AutoSummarizedToolMessage(
                                 content=tool_output,
-                                summary=summary,
+                                summary=fallback_summary,
+                                summarizer=summarizer_func,
                                 tool_call_id=tool_id,
                             )
                         else:
@@ -463,6 +475,8 @@ class ReActAgent(Agent):
 
     async def summarize_messages(self):
         """Summarizes and self-summarizing tool messages."""
+        coroutines = []
         for message in self.messages:
             if isinstance(message, AutoSummarizedToolMessage) and not message.summarized:
-                await message.update_content()
+                coroutines.append(message.update_content(self.messages, self))
+        await asyncio.gather(*coroutines)
