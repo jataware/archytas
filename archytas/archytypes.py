@@ -62,29 +62,33 @@ T = TypeVar('T')
 
 @dataclass(frozen=True)
 class NormalizedType(Generic[T]):
-    sub_type: ClassVar[type]
+    _sub_type: ClassVar[type]
+    base_args: ClassVar[list[type]]
 
     def __str__(self) -> str:
         return stringify_type(self.sub_type)
 
     @classmethod
     def new(cls, value: T) -> str:
-        if not isinstance(value, cls.sub_type):
-            raise TypeError(f"Expected a {cls}, got {value}")
+        if not isinstance(value, cls._sub_type):
+            raise TypeError(f"Expected a {cls._sub_type}, got {value}")
         return value
 
     def __init_subclass__(cls) -> NoneType:
         super().__init_subclass__()
         base_args = cls.__orig_bases__[0].__args__
         if len(base_args) == 1:
-            cls.sub_type = base_args[0]
+            cls._sub_type = base_args[0]
         else:
-            cls.sub_type = None
+            cls._sub_type = None
         cls.base_args = base_args
 
+    @property
+    def sub_type(self) -> type:
+        return self._sub_type
 
 # Too much of a hassle to make this one a dataclass since we need to flatten nested Union_t types
-class Union_t(NormalizedType[UnionType]):
+class Union_t(NormalizedType[Union]):
     # Union_t can take either an Iterable[NormalizedType] or multiple NormalizedType as arguments
     @overload
     def __init__(self, types: Iterable[NormalizedType]): ...
@@ -125,12 +129,20 @@ class Union_t(NormalizedType[UnionType]):
     def __hash__(self):
         return hash(self.types)
 
+    @property
+    def sub_type(self) -> type:
+        type_args = tuple((type_arg.sub_type for type_arg in self.types))
+        return self._sub_type[type_args]
+
 @dataclass(frozen=True)
 class List_t(NormalizedType[List]):
     element_type: NormalizedType | NotProvided = notprovided
     def __str__(self):
         return stringify_type(self.sub_type, (self.element_type,))
 
+    @property
+    def sub_type(self) -> type:
+        return self._sub_type[self.element_type.sub_type]
 
 @dataclass(frozen=True)
 class Tuple_t(NormalizedType[Tuple]):
@@ -139,6 +151,10 @@ class Tuple_t(NormalizedType[Tuple]):
     def __str__(self) -> str:
         return stringify_type(self.sub_type, self.component_types)
 
+    @property
+    def sub_type(self) -> type:
+        type_args = tuple((type_arg.sub_type for type_arg in self.component_types))
+        return self._sub_type[type_args]
 
 @dataclass(frozen=True)
 class Dict_t(NormalizedType[Dict]):
@@ -150,6 +166,9 @@ class Dict_t(NormalizedType[Dict]):
     def __str__(self) -> str:
         return stringify_type(self.sub_type, (self.key_type, self.value_type))
 
+    @property
+    def sub_type(self) -> type:
+        return self._sub_type[self.key_type.sub_type, self.value_type.sub_type]
 
 @dataclass(frozen=True)
 class Int_t(NormalizedType[int]): ...
