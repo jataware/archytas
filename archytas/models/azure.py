@@ -38,7 +38,9 @@ class AzureOpenAIModel(OpenAIModel):
             self.model.validate_environment()
 
     def initialize_model(self, **kwargs):
-        if self.config.model_extra is None or 'endpoint' not in self.config.model_extra:
+        if 'AZURE_OPENAI_ENDPOINT' in os.environ:
+            self.endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
+        elif self.config.model_extra is None or 'endpoint' not in self.config.model_extra:
             raise AuthenticationError('Azure OpenAI models must have endpoint set.')
         else:
             self.endpoint = self.config.model_extra['endpoint']
@@ -53,7 +55,7 @@ class AzureOpenAIModel(OpenAIModel):
                 raise AuthenticationError("OpenAI API Key not set")
             else:
                 raise AuthenticationError("OpenAI Authentication Error") from err
-    
-    
+
+
 class AzureFoundryModel():
     pass
