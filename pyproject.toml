@@ -31,6 +31,9 @@ langchain-groq = "^0.2"
 anthropic = "^0.49"
 langchain-ollama = "^0.2"
 langchain-google-genai = "^2.1"
+botocore = "^1.37"
+langchain-aws = "^0.2"
+azure-ai-inference = ">=1.0.0b9"
 
 [tool.poetry.group.dev.dependencies]
 easyrepl = "^0.1.2"
