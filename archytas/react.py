@@ -426,11 +426,13 @@ class ReActAgent(Agent):
 
         return thought, tool, tool_input, helpful_thought
 
-    def execute(self, additional_messages: list[BaseMessage] = []) -> str:
+    def execute(self, additional_messages: list[BaseMessage] = None) -> str:
         """
         Execute the model and return the output (see `Agent.execute()`).
         Keeps track of the number of execute calls, and raises an error if there are too many.
         """
+        if additional_messages is None:
+            additional_messages = []
         self.steps += 1
         if self.steps > self.max_react_steps:
             last_tool_id = None

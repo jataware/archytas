@@ -329,7 +329,9 @@ class Agent:
 
         return result
 
-    async def execute(self, additional_messages: list[BaseMessage] = [], tools=None) -> AgentResponse:
+    async def execute(self, additional_messages: list[BaseMessage] = None, tools=None) -> AgentResponse:
+        if additional_messages is None:
+            additional_messages = []
         with self.spinner():
             messages = (await self.all_messages()) + additional_messages
             if self.verbose:
@@ -366,10 +368,12 @@ class Agent:
         Returns:
             str: The agent's response to the user query.
         """
+        if tools is None:
+            tools = []
         with self.spinner():
             if self.verbose:
                 self.debug(event_type="llm_oneshot", content=prompt)
-            completion = await self.model.ainvoke(
+            completion = await self.model.model.ainvoke(
                 input=[
                     SystemMessage(content=prompt),
                     HumanMessage(content=query),
