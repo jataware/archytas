@@ -28,6 +28,7 @@ class NotProvided:
         return isinstance(other, NotProvided)
     def __hash__(self):
         return hash(NotProvided)
+    sub_type=NoneType
 
 # instance of the singleton
 notprovided = NotProvided()
@@ -83,6 +84,7 @@ class NormalizedType(Generic[T]):
             cls._sub_type = None
         cls.base_args = base_args
 
+    @classmethod
     @property
     def sub_type(self) -> type:
         return self._sub_type
@@ -131,7 +133,17 @@ class Union_t(NormalizedType[Union]):
 
     @property
     def sub_type(self) -> type:
-        type_args = tuple((type_arg.sub_type for type_arg in self.types))
+        type_args = tuple(
+            (
+                type_arg.sub_type
+                if (
+                    (isinstance(type_arg, type) and issubclass(type_arg, NormalizedType))
+                    or isinstance(type_arg, NormalizedType)
+                )
+                else type_arg
+                for type_arg in self.types
+            )
+        )
         return self._sub_type[type_args]
 
 @dataclass(frozen=True)

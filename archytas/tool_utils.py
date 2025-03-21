@@ -1,10 +1,11 @@
+import json
 import logging
 import re
 from .constants import TAB
 from .agent import Agent
 from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
 from .structured_data_utils import get_structured_input_description, construct_structured_type
-from .summarizers import default_summarizer
+from .summarizers import default_tool_summarizer
 
 from types import NoneType
 from typing import Callable, Any, ParamSpec, TypeVar, overload, Optional, TYPE_CHECKING
@@ -16,8 +17,11 @@ from textwrap import indent
 from types import FunctionType
 from typing import Callable, Any
 
+from .chat_history import ChatHistory
+
 if TYPE_CHECKING:
-    from langchain_core.messages import ToolMessage, AIMessage, BaseMessage
+    from .chat_history import ToolMessage, ToolCall
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +72,7 @@ def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
 
 @overload
 def tool(*, name: str | None = None, autosummarize: bool = False,
-         summarizer: "Optional[Callable[[ToolMessage, list[BaseMessage], Agent], None]]" = None,
+         summarizer: "Optional[Callable[[ToolMessage, ChatHistory, Agent], None]]" = None,
          devmode: bool = False) -> Callable[P, R]: ...
 
 
@@ -78,7 +82,7 @@ def tool(
     *,
     name: str | None = None,
     autosummarize: bool = False,
-    summarizer: "Optional[Callable[[ToolMessage, list[BaseMessage], Agent], None]]" = None,
+    summarizer: "Optional[Callable[[ToolMessage, ChatHistory, Agent], None]]" = None,
     devmode: bool = False
 ) -> Callable[P, R]:
     """
@@ -107,9 +111,8 @@ def tool(
     ```
     """
 
-    # Disabled as this will be enabled in a future update, but is not ready yet.
-    # if autosummarize and summarizer is None:
-    #     summarizer = default_summarizer
+    if autosummarize and summarizer is None:
+        summarizer = default_tool_summarizer
 
     def decorator(func: Callable):
         # check that the decorator is being applied to a function
