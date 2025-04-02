@@ -7,6 +7,7 @@ from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 
 
 class OllamaModel(BaseArchytasModel):
+    DEFAULT_MODEL = "llama3"
 
     MODEL_PROMPT_INSTRUCTIONS = """
 If you receieve a message with a role of `tool` in response to a tool being called, the user has not seen the content
@@ -21,4 +22,4 @@ Be sure to always use the `final_answer` tool to report back to the user.
 
     def initialize_model(self, **kwargs):
         # Dummy tool in required to enable "tool mode" on the model
-        return ChatOllama(model=self.config.model_name or "llama3")
+        return ChatOllama(model=self.config.model_name or self.DEFAULT_MODEL)

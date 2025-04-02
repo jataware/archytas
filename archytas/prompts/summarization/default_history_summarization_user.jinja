@@ -1,0 +1,80 @@
+Please summarize all of the following messages into a single block of text that will replace the messages in future calls
+to the LLM. Please include all details needed to preserve fidelity with the original meaning, while being as short as
+reasonably possible so that the context window remains available for future conversation. Try to generate one sentence
+per message, but you can combine messages or use multiple sentences as needed due to light or heavy information load,
+respectively.
+
+While summarizing, please include each message UUID along with a brief summary of the message(s). Messages can be grouped
+for narrative sake, but try to keep each group to be 5 messages or less and be sure to include the UUIDs of each message
+in the group.
+
+If higher fidelity recall of the summarized messages are needed in the future, they original message content can be
+retrieved using the UUID. However, be sure to focus the summaries on semantic understanding for conversation over
+searching and retrieval.
+
+The header for each message will include the message type and the message's UUID. For example a human message with UUID
+ff06fc99e66d4d649406a670c9f9eb87, followed by an AI message response may look like this:
+
+-----
+
+```HumanMessage 857e620cf983428ea5a72f0c243414cb content
+What is the weather today in Chicago?
+```
+
+```AIMessage b64613f35e0951a8e88fac40d3552301 content
+Let me look that up by calling a tool.
+```
+```AIMessage b64613f35e0951a8e88fac40d3552301 tool_call
+tool_name: check_weather
+args: {"location": "Chicago, IL"}
+tool_call_id: 13255332
+```
+
+```ToolMessage 51cfc17a46edac9b09031d416d3fbd64 content
+{"temperature": "68F", "humidity": "33%", "precip_chance": "3%"}
+```
+
+-----
+
+These messages could be summarized as follows:
+```response
+Messages: 857e620cf983428ea5a72f0c243414cb, b64613f35e0951a8e88fac40d3552301, 51cfc17a46edac9b09031d416d3fbd64
+The user requested current weather conditions in Chicago, Illinois.
+The "check_weather" tool was called.
+The user was informed that it is a pleasant 68 degree day.
+```
+
+The above messages are just examples, do not include them in your summary.
+
+{% if summaries %}
+Below are previous summaries of this conversation. Please use them, if needed to inform the summaries for messages below,
+but do not resummarize them.
+
+### START OF PREVIOUS SUMMARIES ###
+{% for summary_record in summaries %}
+```Summary {{summary_record.uuid}}
+{{summary_record.message.content}}
+```
+{% endfor %}
+### END OF PREVIOUS SUMMARIES ###
+{% endif %}
+
+The messages to summarize start are below:
+
+### START OF MESSAGES ###
+{% for record in records_to_summarize %}
+```{{record.message.__class__.__name__}} {{record.uuid}} content
+{{record.message.text().strip()}}
+```
+
+{% if isinstance(record.message, AIMessage) and record.message.tool_calls %}
+{% for tool_call in record.message.tool_calls %}
+```{{record.message.__class__.__name__}} {{record.uuid}} tool_call
+tool_name: {{tool_call.get('name')}}
+args: {{tool_call.get('args')}}
+tool_call_id: {{tool_call.get('id')}}
+```
+{% endfor %}
+{% endif %}
+{% endfor %}
+### END OF MESSAGES ###

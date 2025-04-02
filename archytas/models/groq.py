@@ -1,5 +1,11 @@
 import json
 import re
+import groq.resources
+import requests
+from functools import lru_cache
+from typing import Optional, cast, ClassVar
+
+import groq
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_groq import ChatGroq
@@ -14,8 +20,11 @@ class Structure(PydanticModel):
     helpful_thoguht: bool
 
 class GroqModel(BaseArchytasModel):
+    model: ChatGroq
+    _client: groq.Groq
     api_key: str = ""
 
+    DEFAULT_MODEL: ClassVar[str] = "llama3-8b-8192"
     MODEL_PROMPT_INSTRUCTIONS: str = """\
 When generating JSON, remember to not wrap strings in triple quotes such as \'\'\' or \"\"\". If you want to add newlines \
 to the JSON text, use `\\n` to add newlines.
@@ -24,6 +33,7 @@ Ensure all generated JSON is valid and would pass a JSON validator.
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__(config)
+        self._client = cast(groq.resources.chat.Completions, self.model.client)._client
 
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
@@ -35,11 +45,19 @@ Ensure all generated JSON is valid and would pass a JSON validator.
 
     def initialize_model(self, **kwargs):
         model = ChatGroq(
-            model=self.config.get.model_name or "llama3-8b-8192", 
+            model=self.config.model_name or self.DEFAULT_MODEL,
             api_key=self.api_key,
             base_url="https://api.groq.com/"
         )
         return model
+
+    @property
+    def model_name(self) -> str | None:
+        model_name = getattr(self.model, "model_name", None)
+        if model_name is not None:
+            return model_name
+        else:
+            return getattr(self.config, "model_name", self.DEFAULT_MODEL)
 
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
@@ -63,3 +81,13 @@ Ensure all generated JSON is valid and would pass a JSON validator.
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
+
+    @lru_cache()
+    def contextsize(self, model_name: Optional[str]=None) -> int | None:
+        if model_name is None:
+            model_name = self.model_name
+        model_list = self._client.models.list()
+        model_index = {model.id: model for model in model_list.data}
+        model_info = model_index.get(model_name, None)
+        context_window = getattr(model_info, "context_window", None)
+        return context_window

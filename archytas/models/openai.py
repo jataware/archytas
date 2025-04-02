@@ -3,16 +3,18 @@ import re
 from functools import lru_cache
 from typing import Any, Optional, Annotated
 from langchain_openai.chat_models import ChatOpenAI
+from langchain_openai.llms.base import OpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
 from langchain.tools import StructuredTool
 
-from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError
+from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError, BadRequestError
 from .base import BaseArchytasModel, ModelConfig, set_env_auth
-from ..exceptions import AuthenticationError, ExecutionError
+from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
 class OpenAIModel(BaseArchytasModel):
+    DEFAULT_MODEL = "gpt-4o"
     tool_descriptions: dict[str, str]
 
     @property
@@ -68,7 +70,7 @@ class OpenAIModel(BaseArchytasModel):
 
     def initialize_model(self, **kwargs):
         try:
-            return ChatOpenAI(model=self.config.model_name or "gpt-4o")
+            return ChatOpenAI(model=self.config.model_name or self.DEFAULT_MODEL)
         except (APIConnectionError, OpenAIError) as err:
             if not self.config.api_key:
                 raise AuthenticationError("OpenAI API Key not set")
@@ -90,5 +92,13 @@ class OpenAIModel(BaseArchytasModel):
             raise ExecutionError(error.message) from error
         elif isinstance(error, (APIConnectionError, OpenAIError)) and not self.model.openai_api_key:
             raise AuthenticationError("OpenAI Authentication Error") from error
+        elif isinstance(error, (BadRequestError)) and error.code == "context_length_exceeded":
+            raise ContextWindowExceededError(error.body.get('message', None)) from error
         else:
             raise error
+
+    @lru_cache()
+    def contextsize(self, model_name = None):
+        if model_name is None:
+            model_name = self.model_name
+        return OpenAI.modelname_to_contextsize(model_name)
