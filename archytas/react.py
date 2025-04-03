@@ -346,7 +346,7 @@ class ReActAgent(Agent):
                             "react_context": react_context,
                         }
                         tool_self_ref = getattr(tool_fn, "__self__", None)
-                        self.debug(
+                        self.log(
                             event_type="react_tool",
                             content={
                                 "tool": tool_name,
@@ -354,7 +354,7 @@ class ReActAgent(Agent):
                             }
                         )
                         tool_output = await tool_fn.run(args=tool_args, tool_context=tool_context, self_ref=tool_self_ref)
-                        self.debug(
+                        self.log(
                             event_type="react_tool_output",
                             content={
                                 "tool": tool_name,
