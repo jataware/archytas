@@ -190,6 +190,9 @@ class Agent:
         """
         logger.debug(event_type, content)
 
+    def log(self, event_type: str, content: Any) -> None:
+        logger.info(event_type, content)
+
     def set_openai_key(self, key):
         import openai
         from .models.openai import OpenAIModel
