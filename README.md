@@ -45,7 +45,7 @@ from archytas.tools import PythonTool
 
 from easyrepl import REPL
 
-# create the agent with the tools list
+# create the agent with the tools list or a `custom_prelude` (if desired)
 some_tools = [PythonTool, ..., etc.]
 agent = ReActAgent(tools=some_tools, verbose=True)
 
