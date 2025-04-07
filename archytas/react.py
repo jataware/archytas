@@ -153,6 +153,7 @@ class ReActAgent(Agent):
         max_react_steps: int | None = None,
         thought_handler: typing.Callable | None = Undefined,
         messages: typing.Optional[list[BaseMessage]] | None = None,
+        custom_prelude: str = None,
         **kwargs,
     ):
         """
@@ -168,6 +169,8 @@ class ReActAgent(Agent):
             thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
                     print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
             messages (list[BaseMessage], optional): A list of messages to start the agent with. Defaults to None.
+            custom_prelude (str, optional): A custom prelude to use instead of the default.
+                If provided, this will completely replace the default prelude.
         """
         # create a dictionary for looking up tools by name
         tools = tools or []
@@ -177,6 +180,7 @@ class ReActAgent(Agent):
         self._raw_tools = tools
         self.tools = make_tool_dict(tools)
         self.current_query = None
+        self.custom_prelude = custom_prelude
 
         if thought_handler is Undefined:
             self.thought_handler = self.thought_callback
@@ -190,7 +194,7 @@ class ReActAgent(Agent):
         ), f"Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}"
 
         # create the prompt with the tools, and initialize the agent
-        self.prompt = build_prompt(tools)
+        self.prompt = build_prompt(custom_prelude=custom_prelude)
         super().__init__(model=model, prompt=self.prompt, api_key=api_key, messages=messages, **kwargs)
 
         # react settings
@@ -205,7 +209,7 @@ class ReActAgent(Agent):
         self.last_tool_name = ""
 
     def update_prompt(self):
-        self.prompt = build_prompt(self._raw_tools)
+        self.prompt = build_prompt(custom_prelude=self.custom_prelude)
         if self.model.MODEL_PROMPT_INSTRUCTIONS:
             self.prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.system_message = SystemMessage(content=self.prompt)
