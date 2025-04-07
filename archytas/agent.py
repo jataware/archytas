@@ -9,6 +9,7 @@ from tenacity import (
     wait_exponential,
 )
 from typing import Callable, ContextManager, Any, Optional
+from uuid import UUID
 
 from rich import print as rprint
 from rich.spinner import Spinner
@@ -168,53 +169,42 @@ class Agent:
             int: The id of the context message.
         """
         if lifetime is not None:
-            raise DeprecationWarning()
+            raise DeprecationWarning("Context message lifetimes have deprecated and will be ignored.")
         context_message = ContextMessage(
             content=context,
             lifetime=None,
         )
         record = self.chat_history.add_message(context_message)
-        return record.uuid
+        uuid = UUID(hex=record.uuid, version=4)
+        return uuid.int
 
-    # def update_timed_context(self) -> None:
-    #     """
-    #     Update the lifetimes of all timed contexts, and remove any that have expired.
-    #     This should be called after every LLM response.
-    #     """
-    #     # decrement lifetimes of all timed context messages
-    #     for message in self.messages:
-    #         if isinstance(message, ContextMessage) and message.lifetime is not None:
-    #             message.lifetime -= 1
+    def clear_context(self, id: int) -> None:
+        """
+        Remove a single context message from the agent's conversation.
 
-    #     # remove expired context messages
-    #     new_messages = []
-    #     for message in self.messages:
-    #         if isinstance(message, ContextMessage) and message.lifetime == 0:
-    #             continue
-    #         new_messages.append(message)
-    #     self.messages = new_messages
+        Args:
+            id (int): The id of the context message to remove.
+        """
+        from .chat_history import MessageRecord
+        idx: int = -1
+        for index, record in enumerate(self.chat_history.raw_records):
+            if isinstance(record, MessageRecord) and isinstance(record.message, ContextMessage):
+                if UUID(hex=record.uuid, version=4).int == id:
+                    idx = index
+                    break
+        if idx > -1:
+            del self.chat_history.raw_records[idx]
 
-    # def clear_context(self, id: int) -> None:
-    #     """
-    #     Remove a single context message from the agent's conversation.
-
-    #     Args:
-    #         id (int): The id of the context message to remove.
-    #     """
-    #     new_messages = []
-    #     for message in self.messages:
-    #         if isinstance(message, ContextMessage) and message.id == id:
-    #             continue
-    #         new_messages.append(message)
-    #     self.messages = new_messages
-
-    # def clear_all_context(self) -> None:
-    #     """Remove all context messages from the agent's conversation."""
-    #     self.messages = [
-    #         message
-    #         for message in self.messages
-    #         if not isinstance(message, ContextMessage)
-    #     ]
+    def clear_all_context(self) -> None:
+        """Remove all context messages from the agent's conversation."""
+        from .chat_history import MessageRecord
+        to_remove = []
+        for index, record in enumerate(self.chat_history.raw_records):
+            if isinstance(record, MessageRecord) and isinstance(record.message, ContextMessage):
+                to_remove.append(index)
+        # Remove from the back to front so that removals don't change the indexs of subsequent items
+        for idx in reversed(sorted(to_remove)):
+            del self.chat_history.raw_records[idx]
 
     def set_auto_context(
         self,

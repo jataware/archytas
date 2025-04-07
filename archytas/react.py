@@ -269,11 +269,6 @@ class ReActAgent(Agent):
         # Set the current query for use in tools, auto context, etc
         self.current_query = query
 
-        # if not self.chat_history.raw_records:
-        #     import dill
-        #     with open('chat_history.dill', 'rb') as f:
-        #         self.chat_history = dill.load(f)
-
         self.chat_history.current_loop_id = uuid.uuid4().int
         action = await self.handle_message(HumanMessage(content=query))
 

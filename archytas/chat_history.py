@@ -331,14 +331,7 @@ class ChatHistory:
             else:
                 summarized_messages.update(summary_record.summarized_messages)
         for message_record in self.raw_records:
-            if message_record.uuid in summarized_messages:
-                if seen_unsummarized_message:
-                    # TODO: Determine if need. If not, how do we enforce order, since we process all summaries before raw messages?
-                    raise ValueError("Summarized message found after unsummarized message. All summaries should be at the beginning of message list")
-                else:
-                    continue
-            else:
-                seen_unsummarized_message = True
+            if message_record.uuid not in summarized_messages:
                 records.append(message_record)
         return records
 
