@@ -179,7 +179,6 @@ class ChatHistory:
         agent: "Agent" = None,
         force_update: bool = False
     ):
-        print("I'm summarizing the loop!")
         if not loop_records:
             if not loop_record_id:
                 loop_record_id: int = self.current_loop_id
@@ -191,8 +190,10 @@ class ChatHistory:
                 in await self.all_records()
                 if record.react_loop_id == loop_record_id
             ]
-        if self.loop_summarizer:
-            return await self.loop_summarizer(loop_records, self, agent, model=agent.model, force_update=force_update)
+        if loop_records and self.loop_summarizer:
+            logger.debug("Initiating loop summarization")
+            await self.loop_summarizer(loop_records, self, agent, model=agent.model, force_update=force_update)
+            logger.debug("Loop summarization completed")
 
     async def summarize_history(
             self,
@@ -213,7 +214,7 @@ class ChatHistory:
             token_threshold = agent.model.summarization_threshold
 
         def task_callback(task: asyncio.Task):
-            print(f"Task {task} completed.")
+            print(f"Summarization task {task} completed.")
             self.history_summarization_task = None
 
         threshold = token_threshold or self.summarization_threshold

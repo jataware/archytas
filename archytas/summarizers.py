@@ -110,7 +110,7 @@ async def default_history_summarizer(
     force_update: bool = False,
 ):
     from .chat_history import MessageRecord, SummaryRecord, AIMessage, SystemMessage, HumanMessage, BaseMessage
-    print(f"Summarizing history {chat_history=}, {agent=}, {force_update=}")
+    logger.debug(f"Summarizing history {chat_history=}, {agent=}, {force_update=}")
 
     if not recordset:
         return
@@ -151,12 +151,9 @@ async def default_history_summarizer(
     response = await agent.model._model.ainvoke(
         input=messages,
     )
-    print(response)
     summary_text = response.content
     usage_metadata = getattr(response, "usage_metadata", None)
     summary_tokens = usage_metadata.get("output_tokens")
-    print("Actual usage for query: ", usage_metadata)
-    print("Estimated tokens", summary_tokens)
 
     summary_record = SummaryRecord(
         message=SystemMessage(

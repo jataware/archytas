@@ -169,9 +169,6 @@ class BaseArchytasModel(ABC):
             agent_tools=agent_tools,
             **kwargs
         )
-        usage_metadata = getattr(result, "usage_metadata", None)
-        if usage_metadata.get("", 10) > 3000:
-            print("foo")
         return result
 
     @staticmethod
