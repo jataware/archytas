@@ -150,6 +150,7 @@ class ChatHistory:
         )
 
     def get_tool_caller(self, tool_call_id: str) -> tuple[MessageRecord, ToolCall]:
+        # First try the exact ID match
         calling_record, tool_call = next(
             (
                 (record, tc) for record
@@ -159,6 +160,16 @@ class ChatHistory:
             ),
             (None, None),
         )
+        
+        # If not found and it's a Groq-style ID (call_XXXX), try to find any tool call
+        # This is a fallback for Groq models
+        if calling_record is None and tool_call_id and tool_call_id.startswith('call_'):
+            for record in reversed(self.raw_records):
+                tool_calls = getattr(record.message, "tool_calls", [])
+                if tool_calls:
+                    # Just use the most recent message with tool calls
+                    return (record, tool_calls[0])
+        
         return (cast(MessageRecord, calling_record), tool_call)
 
     async def needs_summarization(self, model: Optional[BaseArchytasModel]=None):
