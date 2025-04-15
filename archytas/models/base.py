@@ -249,51 +249,6 @@ class BaseArchytasModel(ABC):
                 stop=stop,
                 **kwargs
             )
-            
-            # Generic logging for all model providers
-            print(f"\n=== {self.__class__.__name__} RESPONSE ===")
-            print(f"Response type: {type(result)}")
-            
-            # Print all attributes of the response object
-            print("Response attributes:")
-            for attr in dir(result):
-                # Skip private attributes and methods
-                if attr.startswith('_') or callable(getattr(result, attr)):
-                    continue
-                
-                try:
-                    value = getattr(result, attr)
-                    # For large attributes, just print a summary
-                    if isinstance(value, str) and len(value) > 500:
-                        print(f"  {attr}: {type(value)} - '{value[:500]}...' (truncated)")
-                    elif isinstance(value, (list, dict)) and len(str(value)) > 500:
-                        print(f"  {attr}: {type(value)} - {str(value)[:500]}... (truncated)")
-                    else:
-                        print(f"  {attr}: {type(value)} - {value}")
-                except Exception as e:
-                    print(f"  {attr}: Error accessing attribute - {e}")
-            
-            # Print specific important attributes in more detail
-            if hasattr(result, 'content'):
-                print(f"\nContent type: {type(result.content)}")
-                print(f"Content: {result.content[:500]}...")  # Print first 500 chars to avoid huge logs
-            
-            if hasattr(result, 'tool_calls') and result.tool_calls:
-                print(f"\nTool calls: {result.tool_calls}")
-            
-            if hasattr(result, 'additional_kwargs') and result.additional_kwargs:
-                print(f"\nAdditional kwargs: {result.additional_kwargs}")
-            
-            # If the response has a model_dump method (Pydantic model), use it
-            if hasattr(result, 'model_dump'):
-                try:
-                    dump = result.model_dump()
-                    print(f"\nModel dump: {dump}")
-                except Exception as e:
-                    print(f"Error dumping model: {e}")
-            
-            print(f"=== END {self.__class__.__name__} RESPONSE ===\n")
-            
             return result
         except Exception as error:
             print(error)
