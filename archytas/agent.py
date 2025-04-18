@@ -224,10 +224,10 @@ class Agent:
             content_updater (callable): A function/lambda that takes no arguments and returns a string. The returned string
                                         becomes the new context value.
             auto_update (boolean): If true, the context will be updated on every call. Otherwise, the context can be updated by
-                                   calling `agent.auto_context_message.update_content()` when desired.
+                                   calling `chat_history.auto_context_message.update_content()` when desired.
         """
-        self.auto_update_context = auto_update
-        self.auto_context_message = AutoContextMessage(
+        self.chat_history.auto_update_context = auto_update
+        self.chat_history.auto_context_message = AutoContextMessage(
             default_content=default_content,
             content_updater=content_updater,
         )
@@ -275,7 +275,7 @@ class Agent:
         if additional_messages is None:
             additional_messages = []
         with self.spinner():
-            records = await self.chat_history.records()
+            records = await self.chat_history.records(auto_update_context=True)
             messages = [record.message for record in records] + additional_messages
             # TODO: Keep this here?
             token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)

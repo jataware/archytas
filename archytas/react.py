@@ -98,7 +98,7 @@ def catch_failure(fn):
         try:
             return fn(self, *args, **kwargs)
         except FailedTaskError as failed_task:
-            handle_error(self.chat_history.messages, failed_task, self)
+            handle_error(self.chat_history.raw_records, failed_task, self)
             raise
 
     if inspect.iscoroutine(fn) or inspect.iscoroutinefunction(fn) or inspect.isawaitable(fn):

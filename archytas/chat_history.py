@@ -214,7 +214,7 @@ class ChatHistory:
                 return []
             loop_records: list[MessageRecord] = [
                 record for record
-                in await self.all_records()
+                in await self.all_records(auto_update_context=False)
                 if record.react_loop_id == loop_record_id
             ]
         if loop_records and self.loop_summarizer:
@@ -288,7 +288,7 @@ class ChatHistory:
         """
 
         if messages is None:
-            messages = await self.records()
+            messages = await self.records(auto_update_context=False)
 
         message_records: list[RecordType] = []
         base_messages: list[BaseMessage] = []
@@ -350,16 +350,28 @@ class ChatHistory:
         self._token_estimate = None
         return None
 
-    async def records(self) -> list[RecordType]:
+    async def records(self, auto_update_context: bool = True) -> list[RecordType]:
         """
         Messages
         """
         records: list[RecordType] = []
         summarized_messages: set[str] = set()
-        seen_unsummarized_message = False
 
         if self.system_message:
             records.append(self.system_message)
+
+        if self.auto_update_context and auto_update_context:
+            coroutines: list[Coroutine] = [
+                self.auto_context_message.update_content()
+            ]
+            for message in self.raw_records:
+                if isinstance(message.message, AutoContextMessage):
+                    coroutines.append(message.message.update_content())
+            if coroutines:
+                await asyncio.gather(*coroutines)
+        if self.auto_context_message:
+            records.append(
+                MessageRecord(message=self.auto_context_message))
 
         for summary_record in self.summaries:
             records.append(summary_record)
@@ -373,29 +385,31 @@ class ChatHistory:
                 records.append(message_record)
         return records
 
-    async def messages(self) -> list[MessageType]:
-        records = await self.records()
+    async def messages(self, auto_update_context: bool = True) -> list[MessageType]:
+        records = await self.records(auto_update_context=auto_update_context)
         return [cast(MessageType, record.message) for record in records]
 
-    async def all_records(self) -> list[RecordType]:
+    async def all_records(self, auto_update_context: bool = True) -> list[RecordType]:
         messages: list[RecordType] = []
         if self.system_message:
             messages.append(self.system_message)
-        # if self.auto_context_message:
-        if self.auto_update_context:
-            coroutines: list[Coroutine] = []
+        if self.auto_update_context and auto_update_context:
+            coroutines: list[Coroutine] = [
+                self.auto_context_message.update_content()
+            ]
             for message in self.raw_records:
                 if isinstance(message.message, AutoContextMessage):
                     coroutines.append(message.message.update_content())
             if coroutines:
                 await asyncio.gather(*coroutines)
-        messages.append(
-            MessageRecord(message=self.auto_context_message))
+        if self.auto_context_message:
+            messages.append(
+                MessageRecord(message=self.auto_context_message))
         messages.extend(self.raw_records)
         return messages
 
-    async def all_messages(self) -> list[MessageType]:
-        records = await self.all_records()
+    async def all_messages(self, auto_update_context: bool = True) -> list[MessageType]:
+        records = await self.all_records(auto_update_context=auto_update_context)
         return [cast(MessageType, record.message) for record in records]
 
     def add_message(

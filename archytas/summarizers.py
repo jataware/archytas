@@ -30,7 +30,7 @@ MESSAGE_SUMMARIZATION_SNIPPET_SIZE: int = 1000
 
 async def get_summarizable_records(chat_history: "ChatHistory") -> "list[RecordType]":
     from .chat_history import RecordType, SummaryRecord, SystemMessage, AutoContextMessage, AIMessage
-    all_records = await chat_history.records()
+    all_records = await chat_history.records(auto_update_context=False)
     summarizable_records: list[RecordType] = [
         record for record in all_records
         if record.message is not None
