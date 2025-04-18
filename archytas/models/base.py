@@ -4,7 +4,7 @@ import os
 from abc import ABC, abstractmethod
 from pydantic import BaseModel as PydanticModel, ConfigDict, create_model, Field
 from pydantic.fields import FieldInfo
-from typing import TYPE_CHECKING, Annotated, Any, Optional, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, Optional, ClassVar, Sequence
 from functools import cache
 
 from langchain.tools import StructuredTool
@@ -202,6 +202,18 @@ class BaseArchytasModel(ABC):
         self.lc_tools = tools
         return tools
 
+    async def get_num_tokens_from_messages(
+        self,
+        messages: "list[BaseMessage]",
+        tools: Optional[Sequence] = None,
+    ) -> int:
+        try:
+            return self._model.get_num_tokens_from_messages(messages=messages, tools=tools)
+        except Exception as err:
+            print(err)
+            pass
+        return 0
+
     async def token_estimate(
         self,
         messages: "Optional[list[BaseMessage]]" = None,
@@ -235,7 +247,7 @@ class BaseArchytasModel(ABC):
                             content.append(content_object)
                 message.content = content
 
-        return self._model.get_num_tokens_from_messages(messages=messages, tools=tools)
+        return await self.get_num_tokens_from_messages(messages=messages, tools=tools)
 
     async def ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
         if self.lc_tools is None and agent_tools is not None:

@@ -86,6 +86,31 @@ class SummaryRecord(MessageRecord[SystemMessage]):
 RecordType: TypeAlias = MessageRecord | SummaryRecord
 
 
+@dataclass
+class OutputMessage:
+    content: str | list[str | dict]
+
+
+@dataclass
+class OutboundModel:
+    provider: str
+    model_name: str
+    context_window: Optional[int]
+
+
+@dataclass
+class OutboundChatHistory:
+    records: list[RecordType]
+    system_message: Optional[MessageRecord[SystemMessage]]
+    tool_token_usage_estimate: Optional[int]
+    model: OutboundModel
+    token_estimate: Optional[int]
+    message_token_count: Optional[int]
+    summary_token_count: Optional[int]
+    overhead_token_count: Optional[int]
+    summarization_threshold: Optional[int]
+
+
 class ChatHistory:
     base_tokens: int
     current_loop_id: int|None
@@ -98,6 +123,7 @@ class ChatHistory:
     summarization_threshold: int
     tool_token_estimate: int
     _tool_hash: str
+    _token_estimate: int|None
     history_summarization_task: Optional[asyncio.Task]
 
     _current_context_id: int
@@ -120,6 +146,7 @@ class ChatHistory:
         self.model = model
         self.tool_token_estimate = 0
         self._tool_hash = ""
+        self._token_estimate = None
         self.loop_summarizer = loop_summarizer
         self.history_summarizer = history_summarizer
         if messages:
@@ -282,7 +309,7 @@ class ChatHistory:
                     }
                     for tool in lc_tools
                 }
-                self.tool_token_estimate = model._model.get_num_tokens_from_messages([HumanMessage(content=json.dumps(tool_content))])
+                self.tool_token_estimate = await model.get_num_tokens_from_messages([HumanMessage(content=json.dumps(tool_content))])
 
         for item in messages:
             if isinstance(item, MessageRecord):
@@ -301,16 +328,26 @@ class ChatHistory:
                 if force_update or record.token_count is None:
                     content = record.message.content
                     message = HumanMessage(content=content)
-                    message_token_est = model._model.get_num_tokens_from_messages([message])
+                    try:
+                        message_token_est = await model.get_num_tokens_from_messages([message])
+                    except NotImplementedError:
+                        message_token_est = 0
                     record.token_count = message_token_est
                     # print(f"``` = {message_token_est}\n{message}\n```")
                 sum += record.token_count
+            self._token_estimate = sum
             return sum
 
         if base_messages:
-            token_estimate = model._model.get_num_tokens_from_messages([base_messages])
-            return self.base_tokens + self.tool_token_estimate + token_estimate
+            try:
+                token_estimate = await model.get_num_tokens_from_messages([base_messages])
+            except NotImplementedError:
+                token_estimate = 0
+            sum = self.base_tokens + self.tool_token_estimate + token_estimate
+            self._token_estimate = sum
+            return sum
 
+        self._token_estimate = None
         return None
 
     async def records(self) -> list[RecordType]:

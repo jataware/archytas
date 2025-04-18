@@ -101,4 +101,9 @@ class OpenAIModel(BaseArchytasModel):
     def contextsize(self, model_name = None):
         if model_name is None:
             model_name = self.model_name
-        return OpenAI.modelname_to_contextsize(model_name)
+        try:
+            return OpenAI.modelname_to_contextsize(model_name)
+        except ValueError as err:
+            if 'gpt-4.1' in model_name:
+                return 1_000_000
+            raise
