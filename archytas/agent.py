@@ -230,6 +230,7 @@ class Agent:
         self.chat_history.auto_context_message = AutoContextMessage(
             default_content=default_content,
             content_updater=content_updater,
+            model=self.model,
         )
 
     async def handle_message(self, message: BaseMessage):

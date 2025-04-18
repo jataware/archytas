@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -41,23 +42,37 @@ def tool_hash(tools: list[any]) -> str:
 class ContextMessage(SystemMessage):
     """Simple wrapper around a system message to facilitate message disambiguation."""
 
-
 class AutoContextMessage(ContextMessage):
     """An automatically updating context message that remains towards the top of the message list."""
 
     default_content: str = Field(exclude=True)
     content_updater: Callable[[], str] = Field(exclude=True)
 
-    def __init__(self, default_content: str, content_updater: Callable[[], str], **kwargs):
+    def __init__(self, default_content: str, content_updater: Callable[[], str], model: Optional[BaseArchytasModel] = None, **kwargs):
         kwargs.update({"default_content": default_content, "content_updater": content_updater})
         super().__init__(content=default_content, **kwargs)
+        self._token_count = None
+        self._model = model
+
+    @property
+    def content_hash(self):
+        return hashlib.sha1(self.text().encode()).hexdigest()
+
+    @property
+    def token_count(self):
+        return self._token_count
 
     async def update_content(self):
+        orig_content = self.content
+        orig_hash = self.content_hash
         if inspect.iscoroutinefunction(self.content_updater):
             result = await self.content_updater()
         else:
             result = self.content_updater()
         self.content = result
+        if self.content_hash != orig_hash and self._model:
+            print("Need to update count")
+            self._token_count = await self._model.get_num_tokens_from_messages([self])
 
 
 MessageType = TypeVar("MessageType", bound=BaseMessage)
@@ -175,6 +190,32 @@ class ChatHistory:
         self.system_message = MessageRecord(
             message=system_message,
         )
+
+    @property
+    def auto_context_message_token_estimate(self) -> int:
+        if self.auto_context_message:
+            return self.auto_context_message.token_count
+        else:
+            return 0
+
+    async def update_auto_context(self):
+        coroutines: list[Coroutine] = []
+        if self.auto_update_context:
+            if self.auto_context_message:
+                coroutines.append(self.auto_context_message.update_content())
+            for message in self.raw_records:
+                if isinstance(message.message, AutoContextMessage):
+                    coroutines.append(message.message.update_content())
+            if coroutines:
+                await asyncio.gather(*coroutines)
+
+    @property
+    def token_overhead(self):
+        return sum((value for value in (
+            self.base_tokens,
+            self.tool_token_estimate,
+            self.auto_context_message_token_estimate,
+        ) if isinstance(value, int)))
 
     def get_tool_caller(self, tool_call_id: str) -> tuple[MessageRecord, ToolCall]:
         calling_record, tool_call = next(
@@ -323,7 +364,7 @@ class ChatHistory:
                 raise ValueError("It is invalid to mix ChatHistory MessageRecords and LangChain BaseMessages.")
 
         if message_records:
-            sum = self.base_tokens + self.tool_token_estimate
+            token_estimate_sum = self.token_overhead
             for record in message_records:
                 if force_update or record.token_count is None:
                     content = record.message.content
@@ -333,19 +374,18 @@ class ChatHistory:
                     except NotImplementedError:
                         message_token_est = 0
                     record.token_count = message_token_est
-                    # print(f"``` = {message_token_est}\n{message}\n```")
-                sum += record.token_count
-            self._token_estimate = sum
-            return sum
+                token_estimate_sum += record.token_count
+            self._token_estimate = token_estimate_sum
+            return token_estimate_sum
 
         if base_messages:
             try:
                 token_estimate = await model.get_num_tokens_from_messages([base_messages])
             except NotImplementedError:
                 token_estimate = 0
-            sum = self.base_tokens + self.tool_token_estimate + token_estimate
-            self._token_estimate = sum
-            return sum
+            token_estimate_sum = self.base_tokens + self.tool_token_estimate + token_estimate
+            self._token_estimate = token_estimate_sum
+            return token_estimate_sum
 
         self._token_estimate = None
         return None
@@ -360,26 +400,17 @@ class ChatHistory:
         if self.system_message:
             records.append(self.system_message)
 
-        if self.auto_update_context and auto_update_context:
-            coroutines: list[Coroutine] = [
-                self.auto_context_message.update_content()
-            ]
-            for message in self.raw_records:
-                if isinstance(message.message, AutoContextMessage):
-                    coroutines.append(message.message.update_content())
-            if coroutines:
-                await asyncio.gather(*coroutines)
+        if auto_update_context:
+            await self.update_auto_context()
+
         if self.auto_context_message:
             records.append(
                 MessageRecord(message=self.auto_context_message))
 
         for summary_record in self.summaries:
             records.append(summary_record)
-            if summary_record.summarized_messages.intersection(summarized_messages):
-                # TODO: Determine if this is needed
-                raise ValueError("Message is included in multiple summaries")
-            else:
-                summarized_messages.update(summary_record.summarized_messages)
+            summarized_messages.update(summary_record.summarized_messages)
+
         for message_record in self.raw_records:
             if message_record.uuid not in summarized_messages:
                 records.append(message_record)
@@ -393,15 +424,10 @@ class ChatHistory:
         messages: list[RecordType] = []
         if self.system_message:
             messages.append(self.system_message)
-        if self.auto_update_context and auto_update_context:
-            coroutines: list[Coroutine] = [
-                self.auto_context_message.update_content()
-            ]
-            for message in self.raw_records:
-                if isinstance(message.message, AutoContextMessage):
-                    coroutines.append(message.message.update_content())
-            if coroutines:
-                await asyncio.gather(*coroutines)
+
+        if auto_update_context:
+            await self.update_auto_context()
+
         if self.auto_context_message:
             messages.append(
                 MessageRecord(message=self.auto_context_message))

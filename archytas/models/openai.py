@@ -70,7 +70,9 @@ class OpenAIModel(BaseArchytasModel):
 
     def initialize_model(self, **kwargs):
         try:
-            return ChatOpenAI(model=self.config.model_name or self.DEFAULT_MODEL)
+            model = self.config.model_name or self.DEFAULT_MODEL
+            titoken_model_name =  "gpt-4o" if 'gpt-4.1' in model else model
+            return ChatOpenAI(model=model, tiktoken_model_name=titoken_model_name)
         except (APIConnectionError, OpenAIError) as err:
             if not self.config.api_key:
                 raise AuthenticationError("OpenAI API Key not set")
