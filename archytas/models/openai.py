@@ -19,16 +19,18 @@ class OpenAIModel(BaseArchytasModel):
 
     @property
     def MODEL_PROMPT_INSTRUCTIONS(self):
-
-        tool_desc = ["The following tools are available:"]
-        for tool_name, tool_description in self.tool_descriptions.items():
-            tool_desc.append(
-                f"""\
+        if self.tool_descriptions:
+            tool_desc = ["The following tools are available:"]
+            for tool_name, tool_description in self.tool_descriptions.items():
+                tool_desc.append(
+                    f"""\
 {tool_name}:
     {tool_description}
 """
-            )
-        return "\n------\n".join(tool_desc)
+                )
+            return "\n------\n".join(tool_desc)
+        else:
+            return ""
 
     def __init__(self, config, **kwargs):
         super().__init__(config, **kwargs)
