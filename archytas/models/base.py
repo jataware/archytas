@@ -41,7 +41,10 @@ class ModelConfig(PydanticModel, extra='allow'):
     model_name: str
     model_config = ConfigDict(extra="allow", protected_namespaces=())
     api_key: str | None = None
-    summarization_ratio: float | None = 0.7
+    summarization_ratio: float | None = None
+    summarization_threshold: int | None = None
+    summarization_threshold_pct: int | None = None
+
     # extra fields --
     # max_tokens: int | None = None
     # region: str | None = None
@@ -91,7 +94,7 @@ fail_task = StructuredTool(
 
 class BaseArchytasModel(ABC):
     DEFAULT_MODEL: ClassVar[Optional[str]] = None
-    DEFAULT_SUMMARIZATION_RATIO: float = 0.7
+    DEFAULT_SUMMARIZATION_RATIO: float = 0.5
     MODEL_PROMPT_INSTRUCTIONS: str = ""
 
     _model: "BaseChatModel"
@@ -123,11 +126,22 @@ class BaseArchytasModel(ABC):
 
     @property
     def summarization_threshold(self) -> int | None:
-        summarization_ratio = getattr(self.config, "summarization_ratio", self.DEFAULT_SUMMARIZATION_RATIO)
-        context_max = self.contextsize(self.model_name)
-        if context_max is None:
+        context_size = self.contextsize(self.model_name)
+        if summarization_threshold := getattr(self.config, 'summarization_threshold', None):
+            if context_size is None:
+                return summarization_threshold
+            else:
+                return min(int(summarization_threshold), context_size)
+        elif summarization_ratio := getattr(self.config, 'summarization_ratio', None):
+            pass
+        elif summarization_threshold_pct := getattr(self.config, 'summarization_threshold_pct', None):
+            summarization_ratio = float(summarization_threshold_pct) / 100
+            self.config.summarization_ratio = summarization_ratio
+        else:
+            summarization_ratio = self.DEFAULT_SUMMARIZATION_RATIO
+        if context_size is None:
             return None
-        return int(context_max * summarization_ratio)
+        return int(context_size * summarization_ratio)
 
     @property
     def model(self) -> "BaseChatModel":
