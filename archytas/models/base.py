@@ -1,9 +1,11 @@
+import copy
+import json
 import os
 from abc import ABC, abstractmethod
 from pydantic import BaseModel as PydanticModel, ConfigDict, create_model, Field
 from pydantic.fields import FieldInfo
-from typing import TYPE_CHECKING, Annotated, Any, Optional
-from functools import lru_cache
+from typing import TYPE_CHECKING, Annotated, Any, Optional, ClassVar, Sequence
+from functools import cache
 
 from langchain.tools import StructuredTool
 
@@ -39,6 +41,10 @@ class ModelConfig(PydanticModel, extra='allow'):
     model_name: str
     model_config = ConfigDict(extra="allow", protected_namespaces=())
     api_key: str | None = None
+    summarization_ratio: float | None = None
+    summarization_threshold: int | None = None
+    summarization_threshold_pct: int | None = None
+
     # extra fields --
     # max_tokens: int | None = None
     # region: str | None = None
@@ -87,10 +93,11 @@ fail_task = StructuredTool(
 
 
 class BaseArchytasModel(ABC):
-
+    DEFAULT_MODEL: ClassVar[Optional[str]] = None
+    DEFAULT_SUMMARIZATION_RATIO: float = 0.5
     MODEL_PROMPT_INSTRUCTIONS: str = ""
 
-    model: "BaseChatModel"
+    _model: "BaseChatModel"
     config: ModelConfig
     lc_tools: "list[StructuredTool] | None"
 
@@ -100,7 +107,7 @@ class BaseArchytasModel(ABC):
         else:
             self.config = config
         self.auth(**kwargs)
-        self.model = self.initialize_model(**kwargs)
+        self._model = self.initialize_model(**kwargs)
         self.lc_tools = None
 
     def auth(self, **kwargs) -> None:
@@ -110,21 +117,76 @@ class BaseArchytasModel(ABC):
     def additional_prompt_info(self) -> str | None:
         return None
 
+    @property
+    def default_summarization_threshold(self) -> int | None:
+        context_max = self.contextsize(self.model_name)
+        if context_max is None:
+            return None
+        return int(context_max * self.DEFAULT_SUMMARIZATION_RATIO)
+
+    @property
+    def summarization_threshold(self) -> int | None:
+        context_size = self.contextsize(self.model_name)
+        if summarization_threshold := getattr(self.config, 'summarization_threshold', None):
+            if context_size is None:
+                return summarization_threshold
+            else:
+                return min(int(summarization_threshold), context_size)
+        elif summarization_ratio := getattr(self.config, 'summarization_ratio', None):
+            pass
+        elif summarization_threshold_pct := getattr(self.config, 'summarization_threshold_pct', None):
+            summarization_ratio = float(summarization_threshold_pct) / 100
+            self.config.summarization_ratio = summarization_ratio
+        else:
+            summarization_ratio = self.DEFAULT_SUMMARIZATION_RATIO
+        if context_size is None:
+            return None
+        return int(context_size * summarization_ratio)
+
+    @property
+    def model(self) -> "BaseChatModel":
+        if self.lc_tools is not None:
+            return self._model.bind_tools(self.lc_tools)
+        else:
+            return self._model
+
+    @property
+    def model_name(self) -> str | None:
+
+        lc_model_name = getattr(self._model, "model", None)
+        if isinstance(lc_model_name, str):
+            return lc_model_name
+
+        config_model_name = getattr(self.config, "model_name", None)
+        if isinstance(config_model_name, str):
+            return config_model_name
+
+        class_default_modelname = getattr(self, "DEFAULT_MODEL", None)
+        return class_default_modelname
+
+
+    @cache
+    def contextsize(self, model_name: Optional[str]=None) -> int | None:
+        if model_name is None:
+            model_name = self.model_name
+        return None
+
     @abstractmethod
     def initialize_model(self, **kwargs):
         ...
 
     def invoke(self, input, *, config=None, stop=None, agent_tools=None, **kwargs):
-        return self.model.invoke(
+        result = self.model.invoke(
             self._preprocess_messages(input),
             config,
             stop=stop,
             agent_tools=agent_tools,
             **kwargs
         )
+        return result
 
     @staticmethod
-    @lru_cache()
+    @cache
     def convert_tools(archytas_tools: tuple[tuple[str, Any], ...])-> "list[StructuredTool]":
         tools = [final_answer, fail_task]
         for name, tool in archytas_tools:
@@ -154,23 +216,66 @@ class BaseArchytasModel(ABC):
         self.lc_tools = tools
         return tools
 
+    async def get_num_tokens_from_messages(
+        self,
+        messages: "list[BaseMessage]",
+        tools: Optional[Sequence] = None,
+    ) -> int:
+        try:
+            return self._model.get_num_tokens_from_messages(messages=messages, tools=tools)
+        except Exception as err:
+            print(err)
+            pass
+        return 0
+
+    async def token_estimate(
+        self,
+        messages: "Optional[list[BaseMessage]]" = None,
+        tools: Optional[dict] = None
+    ):
+        if tools:
+            tools = tuple(
+                sorted(
+                    [(name, func) for name, func in tools.items() if not getattr(func, '_disabled', False)],
+                    key=lambda tool: tool[0]
+                )
+            )
+            tools = self.convert_tools(tools)
+        messages = self._preprocess_messages(messages)
+        messages: list[BaseMessage] = copy.deepcopy(messages)
+        for message in messages:
+            if isinstance(message.content, list):
+                content = []
+                for content_object in message.content:
+                    match content_object:
+                        case {"type": "text"}:
+                            content.append(content_object)
+                        case dict():
+                            content.append(
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(content_object)
+                                }
+                            )
+                        case _:
+                            content.append(content_object)
+                message.content = content
+
+        return await self.get_num_tokens_from_messages(messages=messages, tools=tools)
+
     async def ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
         if self.lc_tools is None and agent_tools is not None:
             self.set_tools(agent_tools)
 
         try:
             messages = self._preprocess_messages(input)
-            if self.lc_tools is not None:
-                model = self.model.bind_tools(self.lc_tools)
-            else:
-                model = self.model
-
-            return await model.ainvoke(
+            result = await self.model.ainvoke(
                 messages,
                 config,
                 stop=stop,
                 **kwargs
             )
+            return result
         except Exception as error:
             print(error)
             return self.handle_invoke_error(error)

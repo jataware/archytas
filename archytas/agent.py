@@ -1,9 +1,6 @@
 import asyncio
-import inspect
 import logging
 import os
-from dataclasses import dataclass
-from enum import Enum
 from tenacity import (
     before_sleep_log,
     retry as tenacity_retry,
@@ -12,8 +9,8 @@ from tenacity import (
     wait_exponential,
 )
 from typing import Callable, ContextManager, Any, Optional
+from uuid import UUID
 
-from pydantic import Field
 from rich import print as rprint
 from rich.spinner import Spinner
 from rich.live import Live
@@ -21,6 +18,7 @@ from rich.live import Live
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage, ToolCall
 
+from .chat_history import ChatHistory, ContextMessage, AutoContextMessage, AgentResponse
 from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
 
@@ -57,47 +55,6 @@ def retry(fn):
 
 logger = logging.getLogger(__name__)
 
-class Role(str, Enum):
-    system = "system"
-    assistant = "ai"
-    user = "human"
-
-
-class Message(BaseMessage):
-    """Message format for communicating with the OpenAI API."""
-
-    def __init__(self, role: Role, content: str):
-        super().__init__(type=role.value, content=content)
-
-
-class ContextMessage(SystemMessage):
-    """Simple wrapper around a message that adds an id and optional lifetime."""
-
-    id: int
-    lifetime: int | None = None
-
-
-class AutoContextMessage(SystemMessage):
-    """An automatically updating context message that remains towards the top of the message list."""
-
-    default_content: str
-    content_updater: Callable[[], str] = Field(exclude=True)
-
-    def __init__(self, default_content: str, content_updater: Callable[[], str], **kwargs):
-        super().__init__(content=default_content, default_content=default_content, content_updater=content_updater, **kwargs)
-
-    async def update_content(self):
-        if inspect.iscoroutinefunction(self.content_updater):
-            result = await self.content_updater()
-        else:
-            result = self.content_updater()
-        self.content = result
-
-@dataclass
-class AgentResponse:
-    text: str
-    tool_calls: list[ToolCall]
-
 
 def cli_spinner():
     return Live(
@@ -116,6 +73,8 @@ class no_spinner:
 
 
 class Agent:
+    chat_history: ChatHistory
+
     def __init__(
         self,
         *,
@@ -158,23 +117,15 @@ class Agent:
             prompt = ""
         if hasattr(self.model, 'MODEL_PROMPT_INSTRUCTIONS'):
             prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
-        self.system_message = SystemMessage(content=prompt)
-        self.messages: list[BaseMessage] = []
-        if messages:
-            self.messages.extend(messages)
+        self.chat_history = ChatHistory(messages)
+        self.chat_history.set_system_message(SystemMessage(content=prompt))
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
             self.spinner = no_spinner
 
-        # use to generate unique ids for context messages
-        self._current_context_id = 0
-
-        # Initialize the auto_context_message to empty
-        self.auto_context_message = None
-        self.auto_update_context = False
-
         self.temperature = temperature
+        self.post_execute_task = None
 
     def print(self, *args, **kwargs):
         if self.rich_print:
@@ -201,19 +152,9 @@ class Agent:
         if isinstance(self.model, OpenAIModel):
             self.model.auth(api_key=key)
 
-    def new_context_id(self) -> int:
-        """Generate a new context id."""
-        self._current_context_id += 1
-        return self._current_context_id
 
     async def all_messages(self) -> list[BaseMessage]:
-        messages = [self.system_message]
-        if self.auto_context_message:
-            if self.auto_update_context:
-                await self.auto_context_message.update_content()
-            messages.append(self.auto_context_message)
-        messages.extend(self.messages)
-        return messages
+        return await self.chat_history.all_messages()
 
     def add_context(self, context: str, *, lifetime: int | None = None) -> int:
         """
@@ -225,36 +166,20 @@ class Agent:
 
         Args:
             context (str): The context to add to the agent's conversation.
-            lifetime (int, optional): The number of time steps the context will live for. Defaults to None (i.e. it will never be removed).
+            lifetime (Optional[int]): DEPRECATED. Ignored.
 
         Returns:
             int: The id of the context message.
         """
+        if lifetime is not None:
+            raise DeprecationWarning("Context message lifetimes have deprecated and will be ignored.")
         context_message = ContextMessage(
             content=context,
-            id=self.new_context_id(),
-            lifetime=lifetime,
+            lifetime=None,
         )
-        self.messages.append(context_message)
-        return context_message.id
-
-    def update_timed_context(self) -> None:
-        """
-        Update the lifetimes of all timed contexts, and remove any that have expired.
-        This should be called after every LLM response.
-        """
-        # decrement lifetimes of all timed context messages
-        for message in self.messages:
-            if isinstance(message, ContextMessage) and message.lifetime is not None:
-                message.lifetime -= 1
-
-        # remove expired context messages
-        new_messages = []
-        for message in self.messages:
-            if isinstance(message, ContextMessage) and message.lifetime == 0:
-                continue
-            new_messages.append(message)
-        self.messages = new_messages
+        record = self.chat_history.add_message(context_message)
+        uuid = UUID(hex=record.uuid, version=4)
+        return uuid.int
 
     def clear_context(self, id: int) -> None:
         """
@@ -263,20 +188,26 @@ class Agent:
         Args:
             id (int): The id of the context message to remove.
         """
-        new_messages = []
-        for message in self.messages:
-            if isinstance(message, ContextMessage) and message.id == id:
-                continue
-            new_messages.append(message)
-        self.messages = new_messages
+        from .chat_history import MessageRecord
+        idx: int = -1
+        for index, record in enumerate(self.chat_history.raw_records):
+            if isinstance(record, MessageRecord) and isinstance(record.message, ContextMessage):
+                if UUID(hex=record.uuid, version=4).int == id:
+                    idx = index
+                    break
+        if idx > -1:
+            del self.chat_history.raw_records[idx]
 
     def clear_all_context(self) -> None:
         """Remove all context messages from the agent's conversation."""
-        self.messages = [
-            message
-            for message in self.messages
-            if not isinstance(message, ContextMessage)
-        ]
+        from .chat_history import MessageRecord
+        to_remove = []
+        for index, record in enumerate(self.chat_history.raw_records):
+            if isinstance(record, MessageRecord) and isinstance(record.message, ContextMessage):
+                to_remove.append(index)
+        # Remove from the back to front so that removals don't change the indexs of subsequent items
+        for idx in reversed(sorted(to_remove)):
+            del self.chat_history.raw_records[idx]
 
     def set_auto_context(
         self,
@@ -293,17 +224,18 @@ class Agent:
             content_updater (callable): A function/lambda that takes no arguments and returns a string. The returned string
                                         becomes the new context value.
             auto_update (boolean): If true, the context will be updated on every call. Otherwise, the context can be updated by
-                                   calling `agent.auto_context_message.update_content()` when desired.
+                                   calling `chat_history.auto_context_message.update_content()` when desired.
         """
-        self.auto_update_context = auto_update
-        self.auto_context_message = AutoContextMessage(
+        self.chat_history.auto_update_context = auto_update
+        self.chat_history.auto_context_message = AutoContextMessage(
             default_content=default_content,
             content_updater=content_updater,
+            model=self.model,
         )
 
     async def handle_message(self, message: BaseMessage):
         """Appends a message to the message list and executes."""
-        self.messages.append(message)
+        self.chat_history.add_message(message)
         return await self.execute()
 
     async def query(self, message: str) -> str:
@@ -329,14 +261,26 @@ class Agent:
         if not isinstance(error, BaseMessage):
             error = AIMessage(content=error)
         result = await self.handle_message(error)
-
         return result
 
-    async def execute(self, additional_messages: list[BaseMessage] = None, tools=None) -> AgentResponse:
+    async def post_execute(self):
+        if await self.chat_history.needs_summarization(model=self.model):
+            await self.chat_history.summarize_history(agent=self)
+
+    async def execute(
+        self,
+        additional_messages: list[BaseMessage] = None,
+        tools=None,
+        auto_append_response: bool = True
+    ) -> AgentResponse:
         if additional_messages is None:
             additional_messages = []
         with self.spinner():
-            messages = (await self.all_messages()) + additional_messages
+            records = await self.chat_history.records(auto_update_context=True)
+            messages = [record.message for record in records] + additional_messages
+            # TODO: Keep this here?
+            token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
+            print("Token estimate for query: ", token_estimate)
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
             raw_result = await self.model.ainvoke(
@@ -344,8 +288,21 @@ class Agent:
                 temperature=self.temperature,
                 agent_tools=tools,
             )
+            usage_metadata = getattr(raw_result, "usage_metadata", None)
+            print("Actual usage for query: ", usage_metadata)
+
+        response_token_count = await self.model.token_estimate(messages=[HumanMessage(content=raw_result.content)])
+
         # Add the raw result to history
-        self.messages.append(self.model._rectify_result(raw_result))
+        if auto_append_response:
+            self.chat_history.add_message(self.model._rectify_result(raw_result), token_count=response_token_count)
+
+        if isinstance(usage_metadata, dict):
+            total_token_count = usage_metadata.get("total_tokens", None)
+            if total_token_count > token_estimate:
+                self.chat_history.base_tokens = total_token_count - token_estimate
+        else:
+            total_token_count = token_estimate + response_token_count
 
         # Return processed result
         result = self.model.process_result(raw_result)
@@ -353,8 +310,12 @@ class Agent:
         if self.verbose:
             self.debug(event_type="llm_response", content=result)
 
-        # remove any timed contexts that have expired
-        self.update_timed_context()
+        def task_callback(task):
+            self.post_execute_task = None
+        if self.post_execute_task is None:
+            task = asyncio.create_task(self.post_execute())
+        task.add_done_callback(task_callback)
+        self.post_execute_task = task
 
         return result
 
@@ -393,7 +354,7 @@ class Agent:
 
     def all_messages_sync(self) -> list[BaseMessage]:
         """Synchronous wrapper around the asynchronous all_messages method."""
-        return asyncio.run(self.all_messages())
+        return asyncio.run(self.chat_history.all_messages())
 
     def query_sync(self, message: str) -> str:
         """Synchronous wrapper around the asynchronous query method."""
