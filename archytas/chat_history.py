@@ -63,7 +63,6 @@ class AutoContextMessage(ContextMessage):
         return self._token_count
 
     async def update_content(self):
-        orig_content = self.content
         orig_hash = self.content_hash
         if inspect.iscoroutinefunction(self.content_updater):
             result = await self.content_updater()
