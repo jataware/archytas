@@ -180,6 +180,8 @@ class ReActAgent(Agent):
         # create the prompt with the tools, and initialize the agent
         self.prompt = build_prompt(custom_prelude=custom_prelude)
         super().__init__(model=model, prompt=self.prompt, api_key=api_key, messages=messages, **kwargs)
+        self.model.set_tools(self.tools)
+        self.update_prompt()
 
         # react settings
         self.max_errors = max_errors or float("inf")
@@ -194,9 +196,10 @@ class ReActAgent(Agent):
 
     def update_prompt(self):
         self.prompt = build_prompt(custom_prelude=self.custom_prelude)
-        if self.model.MODEL_PROMPT_INSTRUCTIONS:
-            self.prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
-        self.chat_history.system_message = SystemMessage(content=self.prompt)
+        model_prompt = self.model.MODEL_PROMPT_INSTRUCTIONS
+        if model_prompt:
+            self.prompt += "\n\n" + model_prompt
+        self.chat_history.set_system_message(SystemMessage(content=self.prompt))
 
     def disable(self, *tool_names):
         if len(tool_names) == 0:
@@ -218,9 +221,9 @@ class ReActAgent(Agent):
             else:
                 setattr(tool, '_disabled', True)
 
-        self.update_prompt()
         if self.model:
             self.model.set_tools(self.tools)
+        self.update_prompt()
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:

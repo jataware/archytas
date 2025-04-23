@@ -10,7 +10,6 @@ DEFERRED_TOKEN_VALUE = "***deferred***"
 class AzureOpenAIModel(OpenAIModel):
     def __init__(self, config: ModelConfig, **kwargs):
         super().__init__(config, **kwargs)
-        self.tool_descriptions = {}
 
     def auth(self, **kwargs) -> None:
         auth_token = None

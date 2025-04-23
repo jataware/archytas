@@ -11,30 +11,16 @@ from openai import AuthenticationError as OpenAIAuthenticationError, APIError, A
 from .base import BaseArchytasModel, ModelConfig, set_env_auth
 from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
+import logging
+logger = logging.getLogger(__name__)
+
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
 class OpenAIModel(BaseArchytasModel):
     DEFAULT_MODEL = "gpt-4o"
-    tool_descriptions: dict[str, str]
-
-    @property
-    def MODEL_PROMPT_INSTRUCTIONS(self):
-        if self.tool_descriptions:
-            tool_desc = ["The following tools are available:"]
-            for tool_name, tool_description in self.tool_descriptions.items():
-                tool_desc.append(
-                    f"""\
-{tool_name}:
-    {tool_description}
-"""
-                )
-            return "\n------\n".join(tool_desc)
-        else:
-            return ""
 
     def __init__(self, config, **kwargs):
         super().__init__(config, **kwargs)
-        self.tool_descriptions = {}
 
     def auth(self, **kwargs) -> None:
         auth_token = None
@@ -60,15 +46,6 @@ class OpenAIModel(BaseArchytasModel):
 
             # This method reinitializes the clients
             self.model.validate_environment()
-
-    def convert_tools(self, archytas_tools: tuple[tuple[str, Any], ...])-> "list[StructuredTool]":
-        tools = super().convert_tools(archytas_tools)
-        self.tool_descriptions = {}
-        for tool in tools:
-            if len(tool.description) > 1024:
-                self.tool_descriptions[tool.name] = tool.description
-                tool.description = f"The description for this tool, `{tool.name}`, can be found in the system message on this call."
-        return tools
 
     def initialize_model(self, **kwargs):
         try:
