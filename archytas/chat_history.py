@@ -17,6 +17,7 @@ from pydantic import Field
 
 from .exceptions import AuthenticationError, ExecutionError, ModelError, ContextWindowExceededError
 from .models.base import BaseArchytasModel
+from .utils import ensure_async
 
 from .exceptions import AuthenticationError
 from .summarizers import (
@@ -64,10 +65,7 @@ class AutoContextMessage(ContextMessage):
 
     async def update_content(self):
         orig_hash = self.content_hash
-        if inspect.iscoroutinefunction(self.content_updater):
-            result = await self.content_updater()
-        else:
-            result = self.content_updater()
+        result = await ensure_async(self.content_updater())
         self.content = result
         if self.content_hash != orig_hash and self._model:
             print("Need to update count")

@@ -1,8 +1,9 @@
+import inspect
 import json
 import re
 from json.decoder import JSONDecoder
 from types import GenericAlias, UnionType
-from typing import Any, Union, get_origin, get_args as get_type_args
+from typing import Any, Union, get_origin, get_args as get_type_args, Coroutine, Callable
 
 json_regex = re.compile(r'(```)(json)?(.*?)(```)')
 
@@ -52,3 +53,10 @@ class InstanceMethod:
                 "This method should only be accessed from an instance of the class"
             )
         return self.func.__get__(instance, owner)
+
+
+async def ensure_async(fn: Coroutine|Callable):
+    if inspect.iscoroutine(fn) or inspect.iscoroutinefunction(fn):
+        return await fn
+    else:
+        return fn
