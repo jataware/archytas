@@ -427,6 +427,8 @@ class ReActAgent(Agent):
                             tool_call_id=tool_id
                         ))
                         self.chat_history.current_loop_id = None
+                        if self.verbose:
+                            self.print(f"[red]Exception raised in tool: '{tool_name}'[/red]\n[yellow]{''.join(traceback.format_exception(e))}[/yellow]")
 
             # Execute to fetch next step in the ReAct loop
             try:
