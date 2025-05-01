@@ -440,7 +440,8 @@ class ReActAgent(Agent):
                     # This will kick off a task, tracked via the history_summarization_task variable on chat_history
                     history_summarization_task = await self.chat_history.summarize_history(agent=self, in_loop=True)
                 # Wait for summarization task to complete.
-                await history_summarization_task
+                if history_summarization_task:
+                    await history_summarization_task
                 # Now that summarization has completed, try to execute again.
                 reaction = await self.execute()
 
