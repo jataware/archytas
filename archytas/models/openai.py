@@ -87,4 +87,6 @@ class OpenAIModel(BaseArchytasModel):
         except ValueError as err:
             if 'gpt-4.1' in model_name:
                 return 1_000_000
+            elif model_name.startswith('o3'):
+                return 200_000
             raise
