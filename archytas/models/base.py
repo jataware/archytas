@@ -190,15 +190,22 @@ class BaseArchytasModel(ABC):
     def convert_tools(archytas_tools: tuple[tuple[str, Any], ...])-> "list[StructuredTool]":
         tools = [final_answer, fail_task]
         for name, tool in archytas_tools:
+            if hasattr(tool, '_desc'):
+                short_desc, long_desc, _ = getattr(tool, '_desc')
+                description = "\n".join((desc for desc in (short_desc, long_desc) if desc and isinstance(desc, str)))
+            else:
+                description = tool.__doc__
             arg_dict = {}
             for arg_name, arg_type, arg_desc, _ in tool._args_list:
                 arg_dict[arg_name] = Annotated[arg_type.sub_type, FieldInfo(description=arg_desc)]
             if "thought" not in arg_dict:
-                arg_dict["thought"] = Annotated[str, FieldInfo(description="Reasoning around why this tool is being called.")]
+                arg_dict["thought"] = Annotated[str, FieldInfo(
+                    description="Reasoning around why this tool is being called. This will be shown to the user so they can follow along with you as you work."
+                )]
             tool_model = create_model(name, **arg_dict)
             lc_tool = StructuredTool(
                 name=name,
-                description=tool.__doc__,
+                description=description,
                 args_schema=tool_model,
                 func=tool,
             )
