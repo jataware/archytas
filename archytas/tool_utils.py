@@ -6,6 +6,7 @@ from .agent import Agent
 from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
 from .structured_data_utils import get_structured_input_description, construct_structured_type
 from .summarizers import default_tool_summarizer
+from .utils import ensure_async
 
 from types import NoneType
 from typing import Callable, Any, ParamSpec, TypeVar, overload, Optional, TYPE_CHECKING
@@ -157,10 +158,7 @@ def tool(
                 if context_value:
                     kwargs[inj_name] = context_value
 
-            if inspect.iscoroutinefunction(func):
-                result = await func(*pargs, **kwargs)
-            else:
-                result = func(*pargs, **kwargs)
+            result = await ensure_async(func(*pargs, **kwargs))
 
             # convert the result to a string if it is not already a string
             if not isinstance(result, str):

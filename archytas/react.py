@@ -15,7 +15,7 @@ from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, sanitize_toolname, tool, AgentRef
 from .models.base import BaseArchytasModel
-from .utils import extract_json
+from .utils import extract_json, ensure_async
 
 
 logger = logging.Logger("archytas")
@@ -84,7 +84,7 @@ def catch_failure(fn):
 
     async def inner_async(self: "ReActAgent", *args, **kwargs):
         try:
-            return await fn(self, *args, **kwargs)
+            return await ensure_async(fn(self, *args, **kwargs))
         except FailedTaskError as failed_task:
             handle_error(self.chat_history.raw_records, failed_task, self)
             raise
@@ -94,17 +94,7 @@ def catch_failure(fn):
             handle_error(self.chat_history.raw_records, error, self)
             raise
 
-    def inner(self: "ReActAgent", *args, **kwargs):
-        try:
-            return fn(self, *args, **kwargs)
-        except FailedTaskError as failed_task:
-            handle_error(self.chat_history.raw_records, failed_task, self)
-            raise
-
-    if inspect.iscoroutine(fn) or inspect.iscoroutinefunction(fn) or inspect.isawaitable(fn):
-        return inner_async
-    else:
-        return inner
+    return inner_async
 
 
 class LoopController:
