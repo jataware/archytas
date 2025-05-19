@@ -225,6 +225,10 @@ class PydanticModel_t(NormalizedType):
     def __str__(self) -> str:
         return self.cls.__name__
 
+    @property
+    def sub_type(self) -> type:
+        return self.cls
+
 
 # Any should compare equal to all types
 @dataclass(frozen=True)
