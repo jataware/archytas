@@ -1,8 +1,10 @@
 import json
 import logging
 import os
+from functools import lru_cache
 
-from botocore.exceptions import ClientError, NoCredentialsError
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError, ValidationError
 from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import SystemMessage
 
@@ -140,3 +142,51 @@ class BedrockModel(BaseArchytasModel):
                     json.dumps(message_output, indent=2)
                 )
             raise
+
+    @lru_cache()
+    def contextsize(self, model_name = None):
+        # Reasonable but small default
+        limit = 20_000
+
+        if model_name is None:
+            model_name = self.model_name
+
+        bedrock = boto3.client('bedrock', region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        quota_service = boto3.client('service-quotas', region_name=os.environ.get("AWS_REGION", "us-east-1"))
+
+        # Determine if the model name is an inference profile. If so, extract the model id for the profile.
+        try:
+            response = bedrock.get_inference_profile(inferenceProfileIdentifier=model_name)
+            model_ids = set(model["modelArn"].split("foundation-model/")[1] for model in response["models"])
+            if len(model_ids) > 1:
+                logging.warning(f"Found multiple separate model ids. This shouldn't happen. ({', '.join(model_ids)})")
+            if len(model_ids) == 0:
+                logging.warning("No model ids found. Something is broken.")
+            model_id = list(model_ids)[0]
+        except ClientError as err:
+            model_id = model_name
+        except Exception as err:
+            model_id = model_name
+            logging.error("Unexpected error caught. Proceeding anyway.", exc_info=err)
+
+        # Look up human name for model. Used in quota names.
+        try:
+            response = bedrock.get_foundation_model(
+                modelIdentifier=model_id
+            )
+            model_human_name = response["modelDetails"]["modelName"]
+        except ValidationError as err:
+            model_human_name = None
+            logging.error(err)
+
+        # Iterate over quotas to extra quota limit
+        paginator = quota_service.get_paginator('list_service_quotas')
+        response_iterator = paginator.paginate(ServiceCode='bedrock')
+
+        for page in response_iterator:
+            for quota in page['Quotas']:
+                if model_human_name in quota['QuotaName'] and 'tokens per minute' in quota['QuotaName']:
+                    limit = int(quota["Value"])
+                    break
+
+        return limit
