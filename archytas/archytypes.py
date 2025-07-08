@@ -84,7 +84,6 @@ class NormalizedType(Generic[T]):
             cls._sub_type = None
         cls.base_args = base_args
 
-    @classmethod
     @property
     def sub_type(self) -> type:
         return self._sub_type
