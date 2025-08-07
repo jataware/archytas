@@ -1,6 +1,8 @@
 from langchain_ollama import ChatOllama, OllamaLLM
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from pydantic import BaseModel as PydanticModel, Field
+from typing import Optional
+from functools import lru_cache
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 
@@ -23,3 +25,10 @@ Be sure to always use the `final_answer` tool to report back to the user.
     def initialize_model(self, **kwargs):
         # Dummy tool in required to enable "tool mode" on the model
         return ChatOllama(model=self.config.model_name or self.DEFAULT_MODEL)
+    
+    def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+        if "options" not in kwargs:
+            kwargs["options"] = {"temperature": kwargs.pop("temperature")}
+        else:
+            kwargs["options"].update({"temperature": kwargs.pop("temperature")})
+        return super().ainvoke(input, config=config, stop=stop, **kwargs)
