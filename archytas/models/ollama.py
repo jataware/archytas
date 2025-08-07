@@ -32,3 +32,17 @@ Be sure to always use the `final_answer` tool to report back to the user.
         else:
             kwargs["options"].update({"temperature": kwargs.pop("temperature")})
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
+    
+    @lru_cache()
+    def contextsize(self, model_name: Optional[str]=None) -> int | None:
+        if model_name is None:
+            model_name = self.model_name
+        show_response = self.model._client.show(self.model_name)
+        model_info = show_response.modelinfo
+        try:
+            model_arch = model_info["general.architecture"]
+            context_length = model_info[f"{model_arch}.context_length"]
+            return int(context_length)
+        except KeyError:
+            print("No context length in model info")
+            return None
