@@ -93,6 +93,12 @@ class BedrockModel(BaseArchytasModel):
 
         model = self.config.model_name or self.DEFAULT_MODEL
 
+        # Check permissions early - warn if missing but don't fail
+        try:
+            self._check_service_quotas_permission()
+        except AuthenticationError as e:
+            logging.warning(f"AWS ListServiceQuotas permission missing - using default token limits: {e}")
+
         if self.credentials_profile_name:
             return ChatBedrockConverse(
                 credentials_profile_name=self.credentials_profile_name,
@@ -163,9 +169,6 @@ class BedrockModel(BaseArchytasModel):
 
     @lru_cache()
     def contextsize(self, model_name = None):
-        # Check permissions first - fail fast if missing
-        self._check_service_quotas_permission()
-        
         # Reasonable but small default
         limit = 50_000
 
