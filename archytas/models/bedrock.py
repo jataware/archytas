@@ -38,6 +38,7 @@ class BedrockModel(BaseArchytasModel):
         self.aws_access_key = None
         self.aws_secret_key = None
         self.aws_session_token = None
+        self.has_quota_permissions = False  # Track if we have ListServiceQuotas permission
         super().__init__(config, **kwargs)
 
     def auth(self, **kwargs) -> None:
@@ -96,8 +97,10 @@ class BedrockModel(BaseArchytasModel):
         # Check permissions early - warn if missing but don't fail
         try:
             self._check_service_quotas_permission()
+            self.has_quota_permissions = True
         except AuthenticationError as e:
             logging.warning(f"AWS ListServiceQuotas permission missing - using default token limits: {e}")
+            self.has_quota_permissions = False
 
         if self.credentials_profile_name:
             return ChatBedrockConverse(
@@ -174,6 +177,11 @@ class BedrockModel(BaseArchytasModel):
 
         if model_name is None:
             model_name = self.model_name
+
+        # Skip AWS API calls if we know permissions are missing
+        if not self.has_quota_permissions:
+            logging.info(f"BedrockModel.contextsize: Skipping AWS quota lookup (no permissions), using default limit: {limit}")
+            return limit
 
         try:
             bedrock = boto3.client('bedrock', region_name=os.environ.get("AWS_REGION", "us-east-1"))
