@@ -143,10 +143,31 @@ class BedrockModel(BaseArchytasModel):
                 )
             raise
 
+    def _check_service_quotas_permission(self):
+        """Quick check if we have ListServiceQuotas permission - fail fast if not"""
+        logging.info("BedrockModel._check_service_quotas_permission: Starting permission check")
+        try:
+            quota_service = boto3.client('service-quotas', region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            logging.info("BedrockModel._check_service_quotas_permission: About to test ListServiceQuotas")
+            # Just try to list the first quota to test permission
+            quota_service.list_service_quotas(ServiceCode='bedrock', MaxResults=1)
+            logging.info("BedrockModel._check_service_quotas_permission: Permission check passed")
+        except ClientError as e:
+            logging.error(f"BedrockModel._check_service_quotas_permission: ClientError - {e.response['Error']['Code']}")
+            if e.response['Error']['Code'] == 'AccessDeniedException':
+                raise AuthenticationError(f"AWS credentials lack ListServiceQuotas permission. This is required for Bedrock token limits. Error: {e}")
+            raise
+        except Exception as e:
+            logging.error(f"BedrockModel._check_service_quotas_permission: Unexpected error - {e}")
+            raise
+
     @lru_cache()
     def contextsize(self, model_name = None):
+        # Check permissions first - fail fast if missing
+        self._check_service_quotas_permission()
+        
         # Reasonable but small default
-        limit = 20_000
+        limit = 50_000
 
         if model_name is None:
             model_name = self.model_name
