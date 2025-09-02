@@ -175,8 +175,12 @@ class BedrockModel(BaseArchytasModel):
         if model_name is None:
             model_name = self.model_name
 
-        bedrock = boto3.client('bedrock', region_name=os.environ.get("AWS_REGION", "us-east-1"))
-        quota_service = boto3.client('service-quotas', region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        try:
+            bedrock = boto3.client('bedrock', region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            quota_service = boto3.client('service-quotas', region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        except Exception as e:
+            logging.error(f"BedrockModel.contextsize: Failed to create AWS clients, using default limit: {e}")
+            return limit
 
         # Determine if the model name is an inference profile. If so, extract the model id for the profile.
         try:
@@ -204,13 +208,21 @@ class BedrockModel(BaseArchytasModel):
             logging.error(err)
 
         # Iterate over quotas to extra quota limit
-        paginator = quota_service.get_paginator('list_service_quotas')
-        response_iterator = paginator.paginate(ServiceCode='bedrock')
+        try:
+            paginator = quota_service.get_paginator('list_service_quotas')
+            response_iterator = paginator.paginate(ServiceCode='bedrock')
 
-        for page in response_iterator:
-            for quota in page['Quotas']:
-                if model_human_name in quota['QuotaName'] and 'tokens per minute' in quota['QuotaName']:
-                    limit = int(quota["Value"])
-                    break
+            for page in response_iterator:
+                for quota in page['Quotas']:
+                    if model_human_name in quota['QuotaName'] and 'tokens per minute' in quota['QuotaName']:
+                        limit = int(quota["Value"])
+                        break
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'AccessDeniedException':
+                logging.error(f"BedrockModel.contextsize: ListServiceQuotas permission denied, using default limit: {limit}")
+            else:
+                logging.error(f"BedrockModel.contextsize: AWS API error, using default limit: {e}")
+        except Exception as e:
+            logging.error(f"BedrockModel.contextsize: Unexpected error getting quotas, using default limit: {e}")
 
         return limit
