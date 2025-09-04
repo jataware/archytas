@@ -193,8 +193,6 @@ class BaseArchytasModel(ABC):
             arg_dict = {}
             for arg_name, arg_type, arg_desc, _ in tool._args_list:
                 arg_dict[arg_name] = Annotated[arg_type.sub_type, FieldInfo(description=arg_desc)]
-            if "thought" not in arg_dict:
-                arg_dict["thought"] = Annotated[str, FieldInfo(description="Reasoning around why this tool is being called.")]
             tool_model = create_model(name, **arg_dict)
             lc_tool = StructuredTool(
                 name=name,
