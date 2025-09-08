@@ -3,14 +3,15 @@ import os
 import asyncio
 import requests
 import json
-from typing import Generator, Literal, overload, TypedDict, Any, Optional, Sequence, ClassVar
+from typing import Generator, Literal, overload, TypedDict, Any, Optional, Sequence, ClassVar, cast
 from pathlib import Path
 from functools import lru_cache
+import logging
 
 here = Path(__file__).parent
 
 
-from .openrouter_models import ModelName
+from .openrouter_models import ModelName, context_sizes
 from .base import BaseArchytasModel, ModelConfig
 from ..exceptions import AuthenticationError, ExecutionError
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage, FunctionMessage
@@ -352,20 +353,13 @@ class OpenRouterModel(BaseArchytasModel):
 
     @lru_cache()
     def contextsize(self, model_name: Optional[str] = None) -> int | None:
-        try:
-            name = model_name or self.model_name
-            # Attempt to fetch metadata from the models endpoint
-            models = _get_openrouter_models(self.api_key)
-            by_id = {m.get("id"): m for m in models}
-            meta = by_id.get(name)
-            if isinstance(meta, dict):
-                # Common fields: context_length or input/context window
-                for key in ("context_length", "context_length_tokens", "input_context_length", "context_window"):
-                    value = meta.get(key)
-                    if isinstance(value, int):
-                        return value
-        except Exception as e:
-            pdb.set_trace()
-            pass
+        name = model_name or self.model_name
+        default_value = 200_000
+        if model_name is not None:
+            try:
+                return context_sizes[cast(ModelName, model_name)]
+            except KeyError:
+                pass
         # Fallback default for safety so summarization threshold is usable
-        return 200_000
+        logging.warning(f"OpenRouter context size unknown for model '{name}' (this implies model is not officially listed in archytas/models/openrouter_models.py, i.e. consider regenerating the file with `create_models_types_file()`). Using default context size: {default_value}.")
+        return default_value
