@@ -241,9 +241,33 @@ class ChatOpenRouter:
         self.base_url = base_url
         self._tools: Optional[Sequence[Any]] = None
 
+        # get the model attributes
+        try:
+            self._attrs = attributes_map[cast(ModelName, model)]
+        except KeyError:
+            from .openrouter_models import Attr
+            self._attrs = Attr(context_size=200_000, supports_tools=True)
+            logging.warning(f"Unrecognized OpenRouter model: '{model}' (this implies model is not officially listed in archytas/models/openrouter_models.py). Consider regenerating the file with `create_models_types_file()` to get most up-to-date models list. Attempting to continue with the following Attributes: {self._attrs}")
+        
+        if not self._attrs.supports_tools:
+            raise ValueError(f"OpenRouter model '{model}' does not support tools. Archytas requires models to support tools. Please use a different model.")
+
     def bind_tools(self, tools: Sequence[Any]):
-        # Store but do not use for now (no function calling support yet)
         self._tools = tools
+        self._schemas = []
+        for tool in tools:
+            langchain_schema: dict = tool.tool_call_schema.schema()
+            schema = {
+                'type': 'function',
+                'function': {
+                    'name': tool.name,
+                    'description': tool.description,
+                    'parameters': langchain_schema['properties'],
+                    'required': langchain_schema['required'],
+                }
+            }
+            self._schemas.append(schema)
+        
         return self
 
     def _convert_messages(self, messages: list[BaseMessage]) -> list[dict[str, str]]:
@@ -371,7 +395,7 @@ class OpenRouterModel(BaseArchytasModel):
     # bind_tools is accepted by the adapter but ignored.
 
     @lru_cache()
-    def contextsize(self, model_name: Optional[str] = None) -> int:
+    def contextsize(self, model_name: Optional[str] = None) -> int | None:
         name = model_name or self.model_name
         default_value = 200_000
         if model_name is not None:
