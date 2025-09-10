@@ -1,140 +1,135 @@
+import sys
+import traceback
+from io import StringIO
+from types import ModuleType
 from typing import Any
-from archytas.tool_utils import tool, is_tool
-from archytas.python import Python
+from archytas.utils import get_local_name
+
+import pdb
 
 
-@tool()
-def ask_user(query: str) -> str:
-    """
-    Ask the user a question and get their response.
+class Python:
+    def __init__(self):
+        self.locals: dict[str, Any] = {}
+        self._added_locals: dict[
+            str, Any
+        ] = {}  # keep track of any modules/classes/functions/etc. added to locals
+        self.imports: list[str] = []  # keep track of any imports added
+        self.all_scripts: list[str] = []  # keep track of all scripts run
 
-    You should ask the user a question if you do not have enough information to complete the task, and there is no suitable tool to help you.
+    def update_locals(self, new_locals: dict):
+        self.locals.update(new_locals)
 
-    Args:
-        query (str): The question to ask the user
-
-    Returns:
-        str: The user's response
-    """
-    return input(f"{query} $ ")
-
-
-from datetime import datetime
-import pytz
-
-
-@tool(name="datetime")
-def datetime_tool(format: str = "%Y-%m-%d %H:%M:%S %Z", timezone: str = "UTC") -> str:
-    """
-    Get the current date and time.
-
-    Args:
-        format (str, optional): The format to return the date and time in. Defaults to '%Y-%m-%d %H:%M:%S %Z'.
-        timezone (str, optional): The timezone to return the date and time in. Defaults to 'UTC'.
-
-    Returns:
-        str: The current date and time in the specified format
-    """
-    # TODO: See https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes for more information.
-    # TODO: list of valid timezones: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-
-    tz = pytz.timezone(timezone)
-    return datetime.now(tz).strftime(format)
-
-
-@tool()
-def timestamp() -> float:
-    """
-    Returns the current unix timestamp in seconds
-
-    Returns:
-        float: The current unix timestamp in seconds
-
-    Examples:
-        >>> timestamp()
-        1681445698.726113
-    """
-    return datetime.now().timestamp()
-
-
-class PythonTool:
-    """
-    Tool for running python code. If the user asks you to write code, you can run it here.
-    """
-
-    def __init__(self, locals: dict[str, Any] | None = None, prelude: str = ""):
-        """
-        Create a PythonTool instance
-
-        Args:
-            locals (dict[str,Any], optional): A dictionary of variables/classes/functions/modules/etc. to add to the python environment. Defaults to {}. @tools will be correctly extracted from their wrappers so they can be used in the environment.
-            prelude (str, optional): Code to run before any other code. Defaults to ''. This could be used to import modules, or define functions/classes/etc. that will be used in the environment.
-        """
-        # create the python env instance
-        self.env = Python()
-
-        if locals is None:
-            locals = {}
-
-        prompt_chunks = []
-
-        # collect any @tools from the locals, unwrap them
-        # collect the description for each tool or function
-        # TODO: make class tools collect the docstring for all tool methods
-        env_update = {}
-        for name, obj in locals.items():
-            if is_tool(obj):
-                env_update[name] = obj
-                prompt_chunks.append(f"{name} = {obj.__doc__}")
+    def add_locals(
+        self, new_locals: list[type | ModuleType | Any], outer_locals: dict[str, Any]
+    ):
+        for local in new_locals:
+            if isinstance(local, type):
+                update = {local.__name__: local}
+            elif isinstance(local, ModuleType):
+                name = get_local_name(local, outer_locals)
+                update = {name: local}
             else:
-                env_update[name] = obj
-                prompt_chunks.append(f"{name} = {obj} ({type(obj)})")
+                # TODO: not sure if best way to handle other types...
+                name = get_local_name(local, outer_locals)
+                update = {name: local}
 
-        # update the env with the locals
-        self.env.update_locals(env_update)
+            self._added_locals.update(update)
+            self.locals.update(update)
 
-        # run the prelude code
-        if prelude:
-            self.env.run_script(prelude)
-            prompt_chunks.append(
-                f"The following prelude code was run in the environment:\n```{prelude}```"
-            )
+    def run_script(self, script: str):
+        print('run_script')
+        exception_info = None
+        
+        # capture any stdout/stderr from the script
+        captured_stdout = StringIO()
+        captured_stderr = StringIO()
+        sys.stdout = captured_stdout
+        sys.stderr = captured_stderr
 
-        # based on the locals+prelude, update the docstring for the run method to include descriptions about what is available in the environment
-        # TODO: this is illegal...
-        # self.run.__doc__ += f'\n\nThe following variables are available in the environment:\n\n' + '\n'.join(prompt_chunks)
+        # save the script text
+        self.all_scripts.append(script)
 
-        # if locals and prelude were empty, the prompt should say this is a fresh instance and anything needs to be imported
+        # run the script
+        try:
+            exec(script, self.locals)
+        except Exception as e:
+            exception_info = {
+                'type'      : type(e).__name__,
+                'message'   : str(e),
+                'traceback' : traceback.format_exc()
+            }
 
-    @tool()
-    def run(self, code: str) -> str:
+        # restore stdout/stderr
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+
+        return {
+            "stdout"    : captured_stdout.getvalue(),
+            "stderr"    : captured_stderr.getvalue(),
+            "exception" : exception_info
+        }
+
+    # def add_imports(self, imports:list[str]):
+    #     #TODO: this should import them into the locals dict by calling exec() on the import statements
+    #     #      also handle splitting up multiple imports in a single string
+    #     #TODO: this could also be a more generic add_code() method
+    #     self.imports.extend(imports)
+
+
+def main():
+    import numpy as np
+
+    class MyClass:
+        def __init__(self, value):
+            self.value = value
+
+    p = Python()
+
+    # prog0
+    print('----- prog0 -----')
+    out = p.run_script(
         """
-        Runs python code in a python environment.
+print('Hello world!')
+    """
+    )
+    print(f"out: {out}")
 
-        The environment is persistent between runs, so any variables created will be available in subsequent runs.
-        The only visible effects of this tool are from output to stdout/stderr. If you want to view a result, you MUST print it.
-
-        Args:
-            code (str): The code to run
-
-        Returns:
-            str: The stdout output of the code
+    # prog1
+    print('----- prog1 -----')
+    out = p.run_script(
         """
-        out, err = self.env.run_script(code)
-        if err:
-            raise Exception(err)
-
-        return out
-
-
-# @tool()
-# def _man(objname:str) -> str:
-#     ...
-import pydoc
-
-
-def pyman(obj: Any) -> str:
+raise Exception('Hello world!')
     """
-    Get the documentation for an object in a python environment
+    )
+    print(f"out: {out}")
+
+    # prog2
+    p.add_locals([np], locals())
+    print('----- prog2 -----')
+    out = p.run_script(
+        """
+a = np.array([1, 2, 3])
+b = np.array([4, 5, 6])
     """
-    return pydoc.render_doc(obj, renderer=pydoc.plaintext)
+    )
+    print(f"out: {out}")
+    print(f'a: {p.locals["a"]}')
+    print(f'b: {p.locals["b"]}')
+
+    p.add_locals([MyClass], locals())
+
+    print('----- prog3 -----')
+    out = p.run_script(
+        """
+result = np.dot(a, b)
+my_obj = MyClass(np.array([1, 2, 3]))
+    """
+    )
+    print(f"out: {out}")
+    print(f'result: {p.locals["result"]}')
+    print(f'my_obj: {p.locals["my_obj"]}')
+
+
+if __name__ == "__main__":
+    main()
