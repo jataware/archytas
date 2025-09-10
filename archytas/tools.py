@@ -57,6 +57,7 @@ def timestamp() -> float:
     return datetime.now().timestamp()
 
 
+
 class PythonTool:
     """
     Tool for running python code. If the user asks you to write code, you can run it here.
@@ -120,11 +121,15 @@ class PythonTool:
         Returns:
             str: The stdout output of the code
         """
-        out, err = self.env.run_script(code)
-        if err:
-            raise Exception(err)
+        out = self.env.run_script(code)
+        print('-------------- PythonTool.run --------------')
+        print(f"PythonTool.run: ", out)
+        
+        if out['exception']:
+            raise Exception(out['exception'])
 
-        return out
+        return out['stdout']
+
 
 
 # @tool()
