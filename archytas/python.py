@@ -1,4 +1,5 @@
 import sys
+import traceback
 from io import StringIO
 from types import ModuleType
 from typing import Any
@@ -37,6 +38,9 @@ class Python:
             self.locals.update(update)
 
     def run_script(self, script: str):
+        print('run_script')
+        exception_info = None
+        
         # capture any stdout/stderr from the script
         captured_stdout = StringIO()
         captured_stderr = StringIO()
@@ -50,13 +54,21 @@ class Python:
         try:
             exec(script, self.locals)
         except Exception as e:
-            sys.stderr.write(str(e))
+            exception_info = {
+                'type'      : type(e).__name__,
+                'message'   : str(e),
+                'traceback' : traceback.format_exc()
+            }
 
         # restore stdout/stderr
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
 
-        return captured_stdout.getvalue(), captured_stderr.getvalue()
+        return {
+            "stdout"    : captured_stdout.getvalue(),
+            "stderr"    : captured_stderr.getvalue(),
+            "exception" : exception_info
+        }
 
     # def add_imports(self, imports:list[str]):
     #     #TODO: this should import them into the locals dict by calling exec() on the import statements
@@ -75,46 +87,46 @@ def main():
     p = Python()
 
     # prog0
-    out, err = p.run_script(
+    print('----- prog0 -----')
+    out = p.run_script(
         """
 print('Hello world!')
     """
     )
     print(f"out: {out}")
-    print(f"err: {err}")
 
     # prog1
-    out, err = p.run_script(
+    print('----- prog1 -----')
+    out = p.run_script(
         """
 raise Exception('Hello world!')
     """
     )
     print(f"out: {out}")
-    print(f"err: {err}")
 
     # prog2
     p.add_locals([np], locals())
-    out, err = p.run_script(
+    print('----- prog2 -----')
+    out = p.run_script(
         """
 a = np.array([1, 2, 3])
 b = np.array([4, 5, 6])
     """
     )
     print(f"out: {out}")
-    print(f"err: {err}")
     print(f'a: {p.locals["a"]}')
     print(f'b: {p.locals["b"]}')
 
     p.add_locals([MyClass], locals())
 
-    out, err = p.run_script(
+    print('----- prog3 -----')
+    out = p.run_script(
         """
 result = np.dot(a, b)
 my_obj = MyClass(np.array([1, 2, 3]))
     """
     )
     print(f"out: {out}")
-    print(f"err: {err}")
     print(f'result: {p.locals["result"]}')
     print(f'my_obj: {p.locals["my_obj"]}')
 
