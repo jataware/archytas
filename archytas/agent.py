@@ -82,7 +82,7 @@ class Agent:
         prompt: str = "You are a helpful assistant.",
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
-        rich_print: bool = True,
+        rich_print: bool = False,
         verbose: bool = False,
         messages: Optional[list[BaseMessage]] | None = None,
         temperature: float = 0.0,
@@ -119,10 +119,15 @@ class Agent:
             prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
         self.chat_history = ChatHistory(messages)
         self.chat_history.set_system_message(SystemMessage(content=prompt))
-        if spinner is not None and self.rich_print:
-            self.spinner = spinner
-        else:
-            self.spinner = no_spinner
+
+        # << BKJ
+        self.spinner = no_spinner
+        # --
+        # if spinner is not None and self.rich_print:
+        #     self.spinner = spinner
+        # else:
+        #     self.spinner = no_spinner
+        # >>
 
         self.temperature = temperature
         self.post_execute_task = None
@@ -278,8 +283,8 @@ class Agent:
         with self.spinner():
             records = await self.chat_history.records(auto_update_context=True)
             messages = [record.message for record in records] + additional_messages
-            # TODO: Keep this here?
-            # << BKJ
+            # <<
+            token_estimate = 0 # BKJ
             # token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
             # print("Token estimate for query: ", token_estimate)
             # >>
@@ -291,7 +296,7 @@ class Agent:
                 agent_tools=tools,
             )
             usage_metadata = getattr(raw_result, "usage_metadata", None)
-            print("Actual usage for query: ", usage_metadata)
+            # print("Actual usage for query: ", usage_metadata)
 
         response_token_count = await self.model.token_estimate(messages=[HumanMessage(content=raw_result.content)])
 
