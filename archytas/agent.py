@@ -279,8 +279,10 @@ class Agent:
             records = await self.chat_history.records(auto_update_context=True)
             messages = [record.message for record in records] + additional_messages
             # TODO: Keep this here?
-            token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
-            print("Token estimate for query: ", token_estimate)
+            # << BKJ
+            # token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
+            # print("Token estimate for query: ", token_estimate)
+            # >>
             if self.verbose:
                 self.debug(event_type="llm_request", content=messages)
             raw_result = await self.model.ainvoke(
