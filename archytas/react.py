@@ -284,6 +284,14 @@ class ReActAgent(Agent):
                         action_json = json.loads(action.text)
                         if isinstance(action_json, dict) and "id" in action_json and "name" in action_json and "args" in action_json:
                             action.tool_calls.append(action_json)
+                        else:
+                            action.tool_calls.append({
+                                "id": uuid.uuid4().hex,
+                                "name": "final_answer",
+                                "args": {
+                                    "response": action.text
+                                }
+                            })
                     except json.JSONDecodeError:
                         # Presume content to be a final answer
                         action.tool_calls.append({
