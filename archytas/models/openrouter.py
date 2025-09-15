@@ -14,7 +14,7 @@ here = Path(__file__).parent
 from .openrouter_models import ModelName, attributes_map
 from .base import BaseArchytasModel, ModelConfig
 from ..exceptions import AuthenticationError, ExecutionError
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage, FunctionMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolCall as LangChainToolCall, ToolMessage, FunctionMessage
 Role = Literal["user", "assistant", 'system']
 
 class Message(TypedDict):
@@ -22,20 +22,25 @@ class Message(TypedDict):
     content: str
 
 # TODO: class for tool response...
-class ToolResponse(TypedDict):
+class OpenRouterToolResponse(TypedDict):
     thought: str
-    tool_calls: 'list[ToolCall]'
+    tool_calls: 'list[OpenRouterToolCall]'
 
-class ToolCall(TypedDict):
+class OpenRouterToolCall(TypedDict):
     id: str
-    index: int
+    # index: int
     type: Literal["function"]  # TODO: other types?
-    function: 'ToolFunction'
+    function: 'OpenRouterToolFunction'
 
-class ToolFunction(TypedDict):
+class OpenRouterToolFunction(TypedDict):
     name: str
-    arguments: dict[str, Any]
+    arguments: str # needs to be converted to dict via json.loads
 
+def to_langchain_tool_call(tool_call: OpenRouterToolCall) -> LangChainToolCall:
+    return LangChainToolCall(name=tool_call['function']['name'], args=json.loads(tool_call['function']['arguments']), id=tool_call['id'], type="tool_call")
+
+def to_openrouter_tool_call(tool_call: LangChainToolCall) -> OpenRouterToolCall:
+    return OpenRouterToolCall(id=tool_call['id'] or '', type="function", function=OpenRouterToolFunction(name=tool_call["name"], arguments=json.dumps(tool_call["args"])))
 
 class Model:
     """A simple class for talking to OpenRouter models directly via requests to the API"""
@@ -48,18 +53,18 @@ class Model:
 
 
     @overload
-    def complete(self, messages: list[Message], *, stream:Literal[False]=False, tools:list|None=None, **kwargs) -> str | ToolResponse: ...
+    def complete(self, messages: list[Message], *, stream:Literal[False]=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse: ...
     @overload
     def complete(self, messages: list[Message], *, stream:Literal[True], tools:list|None=None, **kwargs) -> Generator[str, None, None]: ...
-    def complete(self, messages: list[Message], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | ToolResponse | Generator[str, None, None]:
+    def complete(self, messages: list[Message], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse | Generator[str, None, None]:
         if stream:
             return self._streaming_complete(messages, tools, **kwargs)
         else:
             return self._blocking_complete(messages, tools, **kwargs)
 
 
-    def _blocking_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> str | ToolResponse:
-        tool_payload = {"tools": tools} if tools else {}
+    def _blocking_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse:
+        tool_payload = {"tools": tools, "parallel_tool_calls": False} if tools else {}
         payload = {"model": self.model, "messages": messages, **tool_payload, **kwargs}
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -72,7 +77,7 @@ class Model:
             # TODO: handle case where server sends tool call as response...
             self._usage_metadata = data['usage']
             if len(data['choices'][0]['message']['tool_calls']) > 0:
-                return ToolResponse(thought=data['choices'][0]['message']['content'], tool_calls=data['choices'][0]['message']['tool_calls'])
+                return OpenRouterToolResponse(thought=data['choices'][0]['message']['content'], tool_calls=data['choices'][0]['message']['tool_calls'])
             return data['choices'][0]['message']['content']
         except KeyError as e:
             raise ValueError(f"Unexpected response format: '{data}'. Please check the API response. {e}") from e
@@ -80,6 +85,7 @@ class Model:
             raise ValueError(f"An error occurred while processing the response: '{data}'. {e}") from e
 
     # TODO: should request timeout be a setting rather than hardcoded?
+    # TODO: streaming with tools not handled...
     def _streaming_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> Generator[str, None, None]:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
@@ -87,7 +93,7 @@ class Model:
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         }
-        tool_payload = {"tools": tools} if tools else {}
+        tool_payload = {"tools": tools, "parallel_tool_calls": False} if tools else {}
         payload = {"model": self.model, "messages": messages, "stream": True, **tool_payload, **kwargs}
 
         with requests.post(url, headers=headers, json=payload, stream=True, timeout=(10, 60)) as r:
@@ -322,20 +328,26 @@ class ChatOpenRouter:
                 return "\n".join(parts)
             return json.dumps(content)
 
-        converted: list[Message] = []
+        converted: list = []#[Message] = []
         for msg in messages:
             match msg:
                 case HumanMessage():
                     converted.append({"role": "user", "content": serialize_content(msg.content)})
+                case AIMessage(tool_calls=list() as tool_calls):
+                    converted.append({"role": "assistant", 'content': msg.content, 'tool_calls': list(map(to_openrouter_tool_call, tool_calls))})
                 case AIMessage():
-                    converted.append({"role": "assistant", "content": serialize_content(msg.content)})
+                    pdb.set_trace()
+                    ...
                 case SystemMessage():
                     converted.append({"role": "system", "content": serialize_content(msg.content)})
                 case ToolMessage():
-                    converted.append({"role": "system", "content": f"Tool {getattr(msg, 'name', 'output')}: {serialize_content(msg.content)}"})
+                    # convert tool call result back to openrouter dict response format
+                    converted.append({"role": "tool", "tool_call_id": msg.tool_call_id, "content": msg.content})
                 case FunctionMessage():
+                    pdb.set_trace()
                     converted.append({"role": "system", "content": f"Observation from {getattr(msg, 'name', 'function')}: {serialize_content(msg.content)}"})
                 case _:
+                    pdb.set_trace()
                     converted.append({"role": "user", "content": serialize_content(msg.content)})
         return converted
 
@@ -375,6 +387,7 @@ class ChatOpenRouter:
         if isinstance(response, str):
             return AIMessage(content=response, usage_metadata=usage_metadata)
         elif isinstance(response, dict):
+            return AIMessage(content=response['thought'], tool_calls=list(map(to_langchain_tool_call, response['tool_calls'])), usage_metadata=usage_metadata)
             pdb.set_trace()
             # TODO: find the correct tool message class to return
             #       probably need to reshape the response to match the schema 
@@ -413,6 +426,12 @@ class OpenRouterModel(BaseArchytasModel):
     def initialize_model(self, **kwargs):  # pyright: ignore[reportIncompatibleMethodOverride]
         model_name = getattr(self.config, "model_name", None) or self.DEFAULT_MODEL
         return ChatOpenRouter(model=str(model_name), api_key=self.api_key)
+
+    
+    # def _preprocess_messages(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+    #     pdb.set_trace()
+    #     ...
+    #     raise NotImplementedError("Preprocessing messages is not implemented for OpenRouter")
 
     async def get_num_tokens_from_messages(
         self,
