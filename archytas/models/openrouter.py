@@ -21,32 +21,58 @@ class Message(TypedDict):
     role: Role
     content: str
 
+# TODO: class for tool response...
+class ToolResponse(TypedDict):
+    thought: str
+    tool_calls: 'list[ToolCall]'
+
+class ToolCall(TypedDict):
+    id: str
+    index: int
+    type: Literal["function"]  # TODO: other types?
+    function: 'ToolFunction'
+
+class ToolFunction(TypedDict):
+    name: str
+    arguments: dict[str, Any]
+
 
 class Model:
     """A simple class for talking to OpenRouter models directly via requests to the API"""
     def __init__(self, model:ModelName, openrouter_api_key:str):
         self.model = model
         self.openrouter_api_key = openrouter_api_key
-    
+
+        # updated after every completion
+        self._usage_metadata: dict|None = None
+
+
     @overload
-    def complete(self, messages: list[Message], stream:Literal[False]=False) -> str: ...
+    def complete(self, messages: list[Message], *, stream:Literal[False]=False, tools:list|None=None, **kwargs) -> str | ToolResponse: ...
     @overload
-    def complete(self, messages: list[Message], stream:Literal[True]) -> Generator[str, None, None]: ...
-    def complete(self, messages: list[Message], stream:bool=False) -> str | Generator[str, None, None]:
+    def complete(self, messages: list[Message], *, stream:Literal[True], tools:list|None=None, **kwargs) -> Generator[str, None, None]: ...
+    def complete(self, messages: list[Message], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | ToolResponse | Generator[str, None, None]:
         if stream:
-            return self._streaming_complete(messages)
+            return self._streaming_complete(messages, tools, **kwargs)
         else:
-            return self._blocking_complete(messages)
+            return self._blocking_complete(messages, tools, **kwargs)
 
 
-    def _blocking_complete(self, messages: list[Message]) -> str:
+    def _blocking_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> str | ToolResponse:
+        tool_payload = {"tools": tools} if tools else {}
+        payload = {"model": self.model, "messages": messages, **tool_payload, **kwargs}
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {self.openrouter_api_key}"},
-            data=json.dumps({"model": self.model, "messages": messages})
+            data=json.dumps(payload)
         )
         data = response.json()
         try:
+            # TODO: handle case where server returns an error as a response
+            # TODO: handle case where server sends tool call as response...
+            self._usage_metadata = data['usage']
+            if len(data['choices'][0]['message']['tool_calls']) > 0:
+                return ToolResponse(thought=data['choices'][0]['message']['content'], tool_calls=data['choices'][0]['message']['tool_calls'])
             return data['choices'][0]['message']['content']
         except KeyError as e:
             raise ValueError(f"Unexpected response format: '{data}'. Please check the API response. {e}") from e
@@ -54,14 +80,15 @@ class Model:
             raise ValueError(f"An error occurred while processing the response: '{data}'. {e}") from e
 
     # TODO: should request timeout be a setting rather than hardcoded?
-    def _streaming_complete(self, messages: list[Message]) -> Generator[str, None, None]:
+    def _streaming_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> Generator[str, None, None]:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         }
-        payload = {"model": self.model, "messages": messages, "stream": True}
+        tool_payload = {"tools": tools} if tools else {}
+        payload = {"model": self.model, "messages": messages, "stream": True, **tool_payload, **kwargs}
 
         with requests.post(url, headers=headers, json=payload, stream=True, timeout=(10, 60)) as r:
             r.raise_for_status()
@@ -96,6 +123,10 @@ class Model:
                             yield content
                     except KeyError as e:
                         raise ValueError(f"Unexpected response format: '{data}'. Please check the API response. {e}") from e
+                    
+                    # update the usage metadata (typically on the final chunk)
+                    if "usage" in obj:
+                        self._usage_metadata = obj["usage"]
                     
                     continue
 
@@ -182,9 +213,10 @@ attributes_map: dict[ModelName, Attr] = {{
 
 class Agent:
     """Basically just a model paired with message history tracking"""
-    def __init__(self, model: Model):
+    def __init__(self, model: Model, tools:list|None=None):
         self.model = model
         self.messages: list[Message] = []
+        self.tools = tools
 
     def add_message(self, role: Role, content: str):
         message = Message(role=role, content=content)
@@ -210,14 +242,14 @@ class Agent:
             return self._blocking_execute()
     
     def _blocking_execute(self) -> str:
-        result = self.model.complete(self.messages, stream=False)
+        result = self.model.complete(self.messages, stream=False, tools=self.tools)
         self.add_assistant_message(result)
         return result
 
     def _streaming_execute(self) -> Generator[str, None, None]:
         # stream the chunks while also capturing them
         result_chunks = []
-        for chunk in self.model.complete(self.messages, stream=True):
+        for chunk in self.model.complete(self.messages, stream=True, tools=self.tools):
             result_chunks.append(chunk)
             yield chunk
         
@@ -240,6 +272,12 @@ class ChatOpenRouter:
         self.api_key = api_key
         self.base_url = base_url
         self._tools: Optional[Sequence[Any]] = None
+        # Delegate to the minimal client
+        try:
+            self._client = Model(model=cast(ModelName, model), openrouter_api_key=api_key)
+        except Exception:
+            # If model isn't recognized in our Literal list, still construct with raw string
+            self._client = Model(model=cast("ModelName", model), openrouter_api_key=api_key)  # type: ignore[arg-type]
 
         # get the model attributes
         try:
@@ -270,7 +308,7 @@ class ChatOpenRouter:
         
         return self
 
-    def _convert_messages(self, messages: list[BaseMessage]) -> list[dict[str, str]]:
+    def _convert_messages(self, messages: list[BaseMessage]) -> list[Message]:
         def serialize_content(content: Any) -> str:
             if isinstance(content, str):
                 return content
@@ -284,7 +322,7 @@ class ChatOpenRouter:
                 return "\n".join(parts)
             return json.dumps(content)
 
-        converted: list[dict[str, str]] = []
+        converted: list[Message] = []
         for msg in messages:
             match msg:
                 case HumanMessage():
@@ -302,6 +340,7 @@ class ChatOpenRouter:
         return converted
 
     def get_num_tokens_from_messages(self, *, messages: list[BaseMessage], tools: Optional[Sequence[Any]] = None) -> int:
+        # TODO: pull the actual token count from the OpenRouter API... this is just a placeholder
         # Rough heuristic: 4 chars per token
         total_chars = 0
         for msg in messages:
@@ -312,51 +351,45 @@ class ChatOpenRouter:
         return max(1, total_chars // 4)
 
     def invoke(self, input: list[BaseMessage], *args, **kwargs) -> AIMessage:
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": self._convert_messages(input),
+        # Convert LangChain messages to OpenRouter format
+        converted_messages = self._convert_messages(input)
+
+        # # Breakpoint if generation params are requested; minimal Model doesn't support them yet
+        # unsupported_gen_params = {k: v for k, v in kwargs.items() if k in ("temperature", "top_p", "max_tokens", "stop", "response_format", "seed") and v is not None}
+        # if unsupported_gen_params:
+        #     pdb.set_trace()  # Missing: forward generation params to OpenRouter. Update Model.complete to accept and include these in the request payload.
+
+        # Breakpoint if tools are bound; minimal Model doesn't handle tool schemas/calls
+        # if getattr(self, "_schemas", None):
+        #     pdb.set_trace()  # Missing: pass tool schemas and enable tool/function calling. Extend Model.complete to accept `tools` and `tool_choice`.
+
+        response = self._client.complete(converted_messages, stream=False, tools=self._schemas, **kwargs)
+
+        assert self._client._usage_metadata is not None, "INTERNAL ERROR: Usage metadata was not set for previous completion call"
+        usage_metadata = {
+            'input_tokens': self._client._usage_metadata['prompt_tokens'],
+            'output_tokens': self._client._usage_metadata['completion_tokens'],
+            'total_tokens': self._client._usage_metadata['total_tokens']
         }
-        # Pass through common generation params if present
-        for key in ("temperature", "top_p", "max_tokens"):
-            if key in kwargs and kwargs[key] is not None:
-                payload[key] = kwargs[key]
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        resp = requests.post(self.base_url, headers=headers, json=payload)
-        if resp.status_code == 401:
-            raise AuthenticationError("OpenRouter Authentication Error")
-        if resp.status_code >= 400:
-            try:
-                data = resp.json()
-            except Exception:
-                data = {"error": resp.text}
-            raise ExecutionError(str(data))
+        if isinstance(response, str):
+            return AIMessage(content=response, usage_metadata=usage_metadata)
+        elif isinstance(response, dict):
+            pdb.set_trace()
+            # TODO: find the correct tool message class to return
+            #       probably need to reshape the response to match the schema 
+            return TODO_ToolMessage(content=response['thought'], usage_metadata=usage_metadata, tool_calls=response['tool_calls'])
+        else:
+            pdb.set_trace()
+            raise ValueError(f"Unexpected response type: {type(response)}")
 
-        data = resp.json()
-        try:
-            content = data["choices"][0]["message"].get("content") or ""
-        except Exception as err:
-            raise ExecutionError(f"Unexpected response from OpenRouter: {data}") from err
+        # match response:
+        #     case str():
+        #         return AIMessage(content=response, usage_metadata=usage_metadata)
+        #     case dict():
+        #         return AIMessage(content=response['thought'], usage_metadata=usage_metadata)
 
-        usage = data.get("usage")
-        usage_metadata = None
-        if isinstance(usage, dict):
-            # Only include ints; omit missing/unknowns to satisfy typing
-            meta: dict[str, int] = {}
-            if isinstance(usage.get("prompt_tokens"), int):
-                meta["input_tokens"] = usage["prompt_tokens"]
-            if isinstance(usage.get("completion_tokens"), int):
-                meta["output_tokens"] = usage["completion_tokens"]
-            if isinstance(usage.get("total_tokens"), int):
-                meta["total_tokens"] = usage["total_tokens"]
-            if meta:
-                usage_metadata = meta
-
-        message = AIMessage(content=content, usage_metadata=usage_metadata)
-        return message
+        # return AIMessage(content=content_text, usage_metadata=usage_metadata)
 
     async def ainvoke(self, input: list[BaseMessage], *args, **kwargs) -> AIMessage:
         loop = asyncio.get_running_loop()
