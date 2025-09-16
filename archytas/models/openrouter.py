@@ -19,7 +19,7 @@ from ..exceptions import AuthenticationError, ExecutionError
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolCall as LangChainToolCall, ToolMessage, FunctionMessage
 Role = Literal["user", "assistant", 'system', 'tool']
 
-class Message(TypedDict):
+class OpenRouterMessage(TypedDict):
     role: Role
     content: str
     tool_calls: 'NotRequired[list[OpenRouterToolCall]]'
@@ -73,17 +73,17 @@ class Model:
 
 
     @overload
-    def complete(self, messages: list[Message], *, stream:Literal[False]=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse: ...
+    def complete(self, messages: list[OpenRouterMessage], *, stream:Literal[False]=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse: ...
     @overload
-    def complete(self, messages: list[Message], *, stream:Literal[True], tools:list|None=None, **kwargs) -> Generator[str | OpenRouterToolResponse, None, None]: ...
-    def complete(self, messages: list[Message], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse | Generator[str | OpenRouterToolResponse, None, None]:
+    def complete(self, messages: list[OpenRouterMessage], *, stream:Literal[True], tools:list|None=None, **kwargs) -> Generator[str | OpenRouterToolResponse, None, None]: ...
+    def complete(self, messages: list[OpenRouterMessage], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse | Generator[str | OpenRouterToolResponse, None, None]:
         if stream:
             return self._streaming_complete(messages, tools, **kwargs)
         else:
             return self._blocking_complete(messages, tools, **kwargs)
 
 
-    def _blocking_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse:
+    def _blocking_complete(self, messages: list[OpenRouterMessage], tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse:
         tool_payload = {"tools": tools, "parallel_tool_calls": self.allow_parallel_tool_calls} if tools else {}
         payload = {"model": self.model, "messages": messages, **tool_payload, **kwargs}
         response = requests.post(
@@ -105,7 +105,7 @@ class Model:
 
     # TODO: should request timeout be a setting rather than hardcoded?
     # TODO: streaming with tools not handled...
-    def _streaming_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> Generator[str|OpenRouterToolResponse, None, None]:
+    def _streaming_complete(self, messages: list[OpenRouterMessage], tools:list|None=None, **kwargs) -> Generator[str|OpenRouterToolResponse, None, None]:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -239,7 +239,7 @@ class Agent:
     """Basically just a model paired with message history tracking"""
     def __init__(self, model: Model, tools:list|None=None):
         self.model = model
-        self.messages: list[Message] = []
+        self.messages: list[OpenRouterMessage] = []
         self.tools = tools
 
     @overload
@@ -251,11 +251,11 @@ class Agent:
     def add_message(self, *, role: Role, content: str, tool_calls: list[OpenRouterToolCall]|None=None, tool_call_id: str|None=None):
         assert tool_calls is None or tool_call_id is None, "tool_calls and tool_call_id cannot both be provided"
         if tool_calls:
-            message = Message(role=role, content=content, tool_calls=tool_calls)
+            message = OpenRouterMessage(role=role, content=content, tool_calls=tool_calls)
         elif tool_call_id:
-            message = Message(role=role, content=content, tool_call_id=tool_call_id)
+            message = OpenRouterMessage(role=role, content=content, tool_call_id=tool_call_id)
         else:
-            message = Message(role=role, content=content)
+            message = OpenRouterMessage(role=role, content=content)
         self.messages.append(message)
     
     def add_user_message(self, content: str):
@@ -361,7 +361,7 @@ class ChatOpenRouter:
         
         return self
 
-    def _convert_messages(self, messages: list[BaseMessage]) -> list[Message]:
+    def _convert_messages(self, messages: list[BaseMessage]) -> list[OpenRouterMessage]:
         def serialize_content(content: Any) -> str:
             if isinstance(content, str):
                 return content
@@ -375,7 +375,7 @@ class ChatOpenRouter:
                 return "\n".join(parts)
             return json.dumps(content)
 
-        converted: list[Message] = []
+        converted: list[OpenRouterMessage] = []
         for msg in messages:
             content = serialize_content(msg.content)
             match msg:
