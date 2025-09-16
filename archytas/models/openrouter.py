@@ -38,6 +38,17 @@ class OpenRouterToolFunction(TypedDict):
     name: str
     arguments: str # needs to be converted to dict via json.loads
 
+class OpenRouterResponseDeltaPayload(TypedDict):
+    content: NotRequired[str]
+    tool_calls: NotRequired[list[OpenRouterToolCall]]
+
+class OpenRouterResponseChoice(TypedDict):
+    delta: OpenRouterResponseDeltaPayload
+
+class OpenRouterResponseDelta(TypedDict):
+    choices: list[OpenRouterResponseChoice]
+    usage: NotRequired[dict]
+
 def to_langchain_tool_call(tool_call: OpenRouterToolCall) -> LangChainToolCall:
     return LangChainToolCall(name=tool_call['function']['name'], args=json.loads(tool_call['function']['arguments']), id=tool_call['id'], type="tool_call")
 
@@ -129,7 +140,7 @@ class Model:
 
                     # parse the chunk and yield any content
                     try:
-                        obj = json.loads(data)  #TODO: make a typed dict to annotate the response here
+                        obj: OpenRouterResponseDelta = cast(OpenRouterResponseDelta, json.loads(data))
                     except json.JSONDecodeError:
                         continue # wait for the next complete event
                     try:
