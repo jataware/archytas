@@ -3,7 +3,8 @@ import os
 import asyncio
 import requests
 import json
-from typing import Generator, Literal, overload, TypedDict, Any, Optional, Sequence, ClassVar, cast
+from typing import Generator, Literal, overload, TypedDict, Any, Optional, Sequence, cast
+from typing_extensions import NotRequired
 from pathlib import Path
 from functools import lru_cache
 import logging
@@ -20,15 +21,14 @@ Role = Literal["user", "assistant", 'system']
 class Message(TypedDict):
     role: Role
     content: str
+    tool_calls: 'NotRequired[list[OpenRouterToolCall]]'
 
-# TODO: class for tool response...
 class OpenRouterToolResponse(TypedDict):
     thought: str
     tool_calls: 'list[OpenRouterToolCall]'
 
 class OpenRouterToolCall(TypedDict):
     id: str
-    # index: int
     type: Literal["function"]  # TODO: other types?
     function: 'OpenRouterToolFunction'
 
@@ -41,6 +41,12 @@ def to_langchain_tool_call(tool_call: OpenRouterToolCall) -> LangChainToolCall:
 
 def to_openrouter_tool_call(tool_call: LangChainToolCall) -> OpenRouterToolCall:
     return OpenRouterToolCall(id=tool_call['id'] or '', type="function", function=OpenRouterToolFunction(name=tool_call["name"], arguments=json.dumps(tool_call["args"])))
+
+def pretty_tool_call(tool_call: OpenRouterToolCall) -> str:
+    """Return a string representation of the tool call, i.e. `tool_name(arg1=value1, arg2=value2, ...)`"""
+    args = json.loads(tool_call["function"]["arguments"])
+    args_str = ', '.join([f'{k}={v}' for k, v in args.items()])
+    return f'{tool_call["function"]["name"]}({args_str})'
 
 class Model:
     """A simple class for talking to OpenRouter models directly via requests to the API"""
@@ -55,8 +61,8 @@ class Model:
     @overload
     def complete(self, messages: list[Message], *, stream:Literal[False]=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse: ...
     @overload
-    def complete(self, messages: list[Message], *, stream:Literal[True], tools:list|None=None, **kwargs) -> Generator[str, None, None]: ...
-    def complete(self, messages: list[Message], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse | Generator[str, None, None]:
+    def complete(self, messages: list[Message], *, stream:Literal[True], tools:list|None=None, **kwargs) -> Generator[str | OpenRouterToolResponse, None, None]: ...
+    def complete(self, messages: list[Message], *, stream:bool=False, tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse | Generator[str | OpenRouterToolResponse, None, None]:
         if stream:
             return self._streaming_complete(messages, tools, **kwargs)
         else:
@@ -74,9 +80,8 @@ class Model:
         data = response.json()
         try:
             # TODO: handle case where server returns an error as a response
-            # TODO: handle case where server sends tool call as response...
             self._usage_metadata = data['usage']
-            if len(data['choices'][0]['message']['tool_calls']) > 0:
+            if 'tool_calls' in data['choices'][0]['message'] and len(data['choices'][0]['message']['tool_calls']) > 0:
                 return OpenRouterToolResponse(thought=data['choices'][0]['message']['content'], tool_calls=data['choices'][0]['message']['tool_calls'])
             return data['choices'][0]['message']['content']
         except KeyError as e:
@@ -86,7 +91,7 @@ class Model:
 
     # TODO: should request timeout be a setting rather than hardcoded?
     # TODO: streaming with tools not handled...
-    def _streaming_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> Generator[str, None, None]:
+    def _streaming_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> Generator[str|OpenRouterToolResponse, None, None]:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -102,11 +107,12 @@ class Model:
 
             buf = []
             for line in r.iter_lines(decode_unicode=True, chunk_size=1024):
+                line = cast(str|None, line)
                 if line is None:
                     continue
                 
-                if line.startswith("data: "):
-                    buf.append(line[6:])
+                if line.startswith("data:"):
+                    buf.append(line[5:].lstrip())
                     continue
 
                 if line == "":  # end of one SSE event
@@ -120,12 +126,15 @@ class Model:
 
                     # parse the chunk and yield any content
                     try:
-                        obj = json.loads(data)
+                        obj = json.loads(data)  #TODO: make a typed dict to annotate the response here
                     except json.JSONDecodeError:
                         continue # wait for the next complete event
                     try:
-                        content = obj["choices"][0]["delta"].get("content")
-                        if content:
+                        content: str|None = obj["choices"][0]["delta"].get("content")
+                        tool_calls: list[OpenRouterToolCall]|None = obj["choices"][0]["delta"].get("tool_calls")
+                        if tool_calls:
+                            yield OpenRouterToolResponse(thought=content or '', tool_calls=tool_calls)
+                        elif content:
                             yield content
                     except KeyError as e:
                         raise ValueError(f"Unexpected response format: '{data}'. Please check the API response. {e}") from e
@@ -207,11 +216,6 @@ attributes_map: dict[ModelName, Attr] = {{
 #     create_models_types_file(api_key=os.getenv('OPENROUTER_API_KEY'))
 
 
-# model['supported_parameters']
-# """
-# possible parameters: {'response_format', 'max_tokens', 'top_k', 'top_p', 'logprobs', 'temperature', 'structured_outputs', 'top_a', 'min_p', 'include_reasoning', 'reasoning', 'tool_choice', 'stop', 'top_logprobs', 'seed', 'frequency_penalty', 'repetition_penalty', 'tools', 'presence_penalty', 'web_search_options', 'logit_bias'}
-# """
-
 
 
 # from .model import Model, Message, Role
@@ -224,43 +228,53 @@ class Agent:
         self.messages: list[Message] = []
         self.tools = tools
 
-    def add_message(self, role: Role, content: str):
-        message = Message(role=role, content=content)
+    def add_message(self, role: Role, content: str, tool_calls: list[OpenRouterToolCall]|None=None):
+        if tool_calls:
+            message = Message(role=role, content=content, tool_calls=tool_calls)
+        else:
+            message = Message(role=role, content=content)
         self.messages.append(message)
     
     def add_user_message(self, content: str):
         self.add_message(role='user', content=content)
 
-    def add_assistant_message(self, content: str):
-        self.add_message(role='assistant', content=content)
+    def add_assistant_message(self, content: str, tool_calls: list[OpenRouterToolCall]|None=None):
+        self.add_message(role='assistant', content=content, tool_calls=tool_calls)
 
     def add_system_message(self, content: str):
         self.add_message(role='system', content=content)
     
     @overload
-    def execute(self, stream:Literal[False]=False) -> str: ...
+    def execute(self, stream:Literal[False]=False) -> str|OpenRouterToolResponse: ...
     @overload
-    def execute(self, stream:Literal[True]) -> Generator[str, None, None]: ...
-    def execute(self, stream:bool=False) -> str | Generator[str, None, None]:
+    def execute(self, stream:Literal[True]) -> Generator[str | OpenRouterToolResponse, None, None]: ...
+    def execute(self, stream:bool=False) -> str | OpenRouterToolResponse | Generator[str | OpenRouterToolResponse, None, None]:
         if stream:
             return self._streaming_execute()
         else:
             return self._blocking_execute()
     
-    def _blocking_execute(self) -> str:
+    def _blocking_execute(self) -> str | OpenRouterToolResponse:
         result = self.model.complete(self.messages, stream=False, tools=self.tools)
-        self.add_assistant_message(result)
+        if isinstance(result, str):
+            self.add_assistant_message(result)
+        else:
+            self.add_assistant_message(result['thought'], result['tool_calls'])
         return result
 
-    def _streaming_execute(self) -> Generator[str, None, None]:
+    def _streaming_execute(self) -> Generator[str|OpenRouterToolResponse, None, None]:
         # stream the chunks while also capturing them
         result_chunks = []
+        tool_calls = []
         for chunk in self.model.complete(self.messages, stream=True, tools=self.tools):
-            result_chunks.append(chunk)
+            if isinstance(chunk, dict):
+                tool_calls.append(chunk)
+            else:
+                result_chunks.append(chunk)
             yield chunk
         
         # add the message to the history after streaming is done
-        self.add_assistant_message(''.join(result_chunks))
+        self.add_assistant_message(''.join(result_chunks), tool_calls or None)
 
 
 # -----------------------
