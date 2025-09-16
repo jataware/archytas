@@ -16,12 +16,13 @@ from .openrouter_models import ModelName, attributes_map
 from .base import BaseArchytasModel, ModelConfig
 from ..exceptions import AuthenticationError, ExecutionError
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolCall as LangChainToolCall, ToolMessage, FunctionMessage
-Role = Literal["user", "assistant", 'system']
+Role = Literal["user", "assistant", 'system', 'tool']
 
 class Message(TypedDict):
     role: Role
     content: str
     tool_calls: 'NotRequired[list[OpenRouterToolCall]]'
+    tool_call_id: NotRequired[str]
 
 class OpenRouterToolResponse(TypedDict):
     thought: str
@@ -50,9 +51,10 @@ def pretty_tool_call(tool_call: OpenRouterToolCall) -> str:
 
 class Model:
     """A simple class for talking to OpenRouter models directly via requests to the API"""
-    def __init__(self, model:ModelName, openrouter_api_key:str):
+    def __init__(self, model:ModelName, openrouter_api_key:str, allow_parallel_tool_calls:bool=False):
         self.model = model
         self.openrouter_api_key = openrouter_api_key
+        self.allow_parallel_tool_calls = allow_parallel_tool_calls
 
         # updated after every completion
         self._usage_metadata: dict|None = None
@@ -70,7 +72,7 @@ class Model:
 
 
     def _blocking_complete(self, messages: list[Message], tools:list|None=None, **kwargs) -> str | OpenRouterToolResponse:
-        tool_payload = {"tools": tools, "parallel_tool_calls": False} if tools else {}
+        tool_payload = {"tools": tools, "parallel_tool_calls": self.allow_parallel_tool_calls} if tools else {}
         payload = {"model": self.model, "messages": messages, **tool_payload, **kwargs}
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -146,7 +148,7 @@ class Model:
                     continue
 
                 
-                # ignore other fields like "event:" / "id:" / comments
+                # ignore other fields like "event:" / "id:" / comments / etc.
 
 
 
@@ -228,9 +230,18 @@ class Agent:
         self.messages: list[Message] = []
         self.tools = tools
 
-    def add_message(self, role: Role, content: str, tool_calls: list[OpenRouterToolCall]|None=None):
+    @overload
+    def add_message(self, *, role: Role, content: str): ...
+    @overload
+    def add_message(self, *, role: Role, content: str, tool_call_id: str): ...
+    @overload
+    def add_message(self, *, role: Role, content: str, tool_calls: list[OpenRouterToolCall]): ...
+    def add_message(self, *, role: Role, content: str, tool_calls: list[OpenRouterToolCall]|None=None, tool_call_id: str|None=None):
+        assert tool_calls is None or tool_call_id is None, "tool_calls and tool_call_id cannot both be provided"
         if tool_calls:
             message = Message(role=role, content=content, tool_calls=tool_calls)
+        elif tool_call_id:
+            message = Message(role=role, content=content, tool_call_id=tool_call_id)
         else:
             message = Message(role=role, content=content)
         self.messages.append(message)
@@ -238,8 +249,14 @@ class Agent:
     def add_user_message(self, content: str):
         self.add_message(role='user', content=content)
 
-    def add_assistant_message(self, content: str, tool_calls: list[OpenRouterToolCall]|None=None):
+    def add_assistant_message(self, content: str):
+        self.add_message(role='assistant', content=content)
+    
+    def add_assistant_tool_calls(self, content: str, tool_calls: list[OpenRouterToolCall]):
         self.add_message(role='assistant', content=content, tool_calls=tool_calls)
+
+    def add_tool_message(self, tool_call_id: str, content: str):
+        self.add_message(role='tool', tool_call_id=tool_call_id, content=content)
 
     def add_system_message(self, content: str):
         self.add_message(role='system', content=content)
@@ -259,7 +276,7 @@ class Agent:
         if isinstance(result, str):
             self.add_assistant_message(result)
         else:
-            self.add_assistant_message(result['thought'], result['tool_calls'])
+            self.add_assistant_tool_calls(result['thought'], result['tool_calls'])
         return result
 
     def _streaming_execute(self) -> Generator[str|OpenRouterToolResponse, None, None]:
@@ -274,7 +291,10 @@ class Agent:
             yield chunk
         
         # add the message to the history after streaming is done
-        self.add_assistant_message(''.join(result_chunks), tool_calls or None)
+        if tool_calls:
+            self.add_assistant_tool_calls(''.join(result_chunks), tool_calls)
+        else:
+            self.add_assistant_message(''.join(result_chunks))
 
 
 # -----------------------
