@@ -10,6 +10,7 @@ from functools import lru_cache
 import logging
 
 here = Path(__file__).parent
+logger = logging.getLogger(__name__)
 
 
 from .openrouter_models import ModelName, attributes_map
@@ -317,6 +318,7 @@ class ChatOpenRouter:
             self._client = Model(model=cast(ModelName, model), openrouter_api_key=api_key)
         except Exception:
             # If model isn't recognized in our Literal list, still construct with raw string
+            # this allows using newer models that haven't been updated in the openrouter_models.py file yet
             self._client = Model(model=cast("ModelName", model), openrouter_api_key=api_key)  # type: ignore[arg-type]
 
         # get the model attributes
@@ -325,7 +327,7 @@ class ChatOpenRouter:
         except KeyError:
             from .openrouter_models import Attr
             self._attrs = Attr(context_size=200_000, supports_tools=True)
-            logging.warning(f"Unrecognized OpenRouter model: '{model}' (this implies model is not officially listed in archytas/models/openrouter_models.py). Consider regenerating the file with `create_models_types_file()` to get most up-to-date models list. Attempting to continue with the following Attributes: {self._attrs}")
+            logger.warning(f"Unrecognized OpenRouter model: '{model}' (this implies model is not officially listed in archytas/models/openrouter_models.py). Consider regenerating the file with `create_models_types_file()` to get most up-to-date models list. Attempting to continue with the following Attributes: {self._attrs}")
         
         if not self._attrs.supports_tools:
             raise ValueError(f"OpenRouter model '{model}' does not support tools. Archytas requires models to support tools. Please use a different model.")
@@ -362,27 +364,25 @@ class ChatOpenRouter:
                 return "\n".join(parts)
             return json.dumps(content)
 
-        converted: list = []#[Message] = []
+        converted: list[Message] = []
         for msg in messages:
+            content = serialize_content(msg.content)
             match msg:
                 case HumanMessage():
-                    converted.append({"role": "user", "content": serialize_content(msg.content)})
+                    converted.append({"role": "user", "content": content})
                 case AIMessage(tool_calls=list() as tool_calls):
-                    converted.append({"role": "assistant", 'content': msg.content, 'tool_calls': list(map(to_openrouter_tool_call, tool_calls))})
+                    converted.append({"role": "assistant", 'content': content, 'tool_calls': list(map(to_openrouter_tool_call, tool_calls))})
                 case AIMessage():
-                    pdb.set_trace()
-                    ...
+                    # Note: this generally shouldn't happen as it implies the model returned a non-tool-call message
+                    #       whereas archytas requires all messages to be tool-calls
+                    # Fallback just in case though
+                    converted.append({"role": "assistant", "content": content})
                 case SystemMessage():
-                    converted.append({"role": "system", "content": serialize_content(msg.content)})
+                    converted.append({"role": "system", "content": content})
                 case ToolMessage():
-                    # convert tool call result back to openrouter dict response format
-                    converted.append({"role": "tool", "tool_call_id": msg.tool_call_id, "content": msg.content})
-                case FunctionMessage():
-                    pdb.set_trace()
-                    converted.append({"role": "system", "content": f"Observation from {getattr(msg, 'name', 'function')}: {serialize_content(msg.content)}"})
+                    converted.append({"role": "tool", "tool_call_id": msg.tool_call_id, "content": content})
                 case _:
-                    pdb.set_trace()
-                    converted.append({"role": "user", "content": serialize_content(msg.content)})
+                    raise ValueError(f"Unexpected message type: {type(msg)}\n{msg=}")
         return converted
 
     def get_num_tokens_from_messages(self, *, messages: list[BaseMessage], tools: Optional[Sequence[Any]] = None) -> int:
@@ -400,15 +400,6 @@ class ChatOpenRouter:
         # Convert LangChain messages to OpenRouter format
         converted_messages = self._convert_messages(input)
 
-        # # Breakpoint if generation params are requested; minimal Model doesn't support them yet
-        # unsupported_gen_params = {k: v for k, v in kwargs.items() if k in ("temperature", "top_p", "max_tokens", "stop", "response_format", "seed") and v is not None}
-        # if unsupported_gen_params:
-        #     pdb.set_trace()  # Missing: forward generation params to OpenRouter. Update Model.complete to accept and include these in the request payload.
-
-        # Breakpoint if tools are bound; minimal Model doesn't handle tool schemas/calls
-        # if getattr(self, "_schemas", None):
-        #     pdb.set_trace()  # Missing: pass tool schemas and enable tool/function calling. Extend Model.complete to accept `tools` and `tool_choice`.
-
         response = self._client.complete(converted_messages, stream=False, tools=self._schemas, **kwargs)
 
         assert self._client._usage_metadata is not None, "INTERNAL ERROR: Usage metadata was not set for previous completion call"
@@ -418,25 +409,10 @@ class ChatOpenRouter:
             'total_tokens': self._client._usage_metadata['total_tokens']
         }
 
-        if isinstance(response, str):
-            return AIMessage(content=response, usage_metadata=usage_metadata)
-        elif isinstance(response, dict):
+        if isinstance(response, dict):
             return AIMessage(content=response['thought'], tool_calls=list(map(to_langchain_tool_call, response['tool_calls'])), usage_metadata=usage_metadata)
-            pdb.set_trace()
-            # TODO: find the correct tool message class to return
-            #       probably need to reshape the response to match the schema 
-            return TODO_ToolMessage(content=response['thought'], usage_metadata=usage_metadata, tool_calls=response['tool_calls'])
-        else:
-            pdb.set_trace()
-            raise ValueError(f"Unexpected response type: {type(response)}")
 
-        # match response:
-        #     case str():
-        #         return AIMessage(content=response, usage_metadata=usage_metadata)
-        #     case dict():
-        #         return AIMessage(content=response['thought'], usage_metadata=usage_metadata)
-
-        # return AIMessage(content=content_text, usage_metadata=usage_metadata)
+        return AIMessage(content=response, usage_metadata=usage_metadata)
 
     async def ainvoke(self, input: list[BaseMessage], *args, **kwargs) -> AIMessage:
         loop = asyncio.get_running_loop()
@@ -461,12 +437,6 @@ class OpenRouterModel(BaseArchytasModel):
         model_name = getattr(self.config, "model_name", None) or self.DEFAULT_MODEL
         return ChatOpenRouter(model=str(model_name), api_key=self.api_key)
 
-    
-    # def _preprocess_messages(self, messages: list[BaseMessage]) -> list[BaseMessage]:
-    #     pdb.set_trace()
-    #     ...
-    #     raise NotImplementedError("Preprocessing messages is not implemented for OpenRouter")
-
     async def get_num_tokens_from_messages(
         self,
         messages: "list[BaseMessage]",
@@ -490,5 +460,5 @@ class OpenRouterModel(BaseArchytasModel):
             except KeyError:
                 pass
         # Fallback default for safety so summarization threshold is usable
-        logging.warning(f"OpenRouter context size unknown for model '{name}' (this implies model is not officially listed in archytas/models/openrouter_models.py, i.e. consider regenerating the file with `create_models_types_file()`). Using default context size: {default_value}.")
+        logger.warning(f"OpenRouter context size unknown for model '{name}' (this implies model is not officially listed in archytas/models/openrouter_models.py, i.e. consider regenerating the file with `create_models_types_file()`). Using default context size: {default_value}.")
         return default_value
