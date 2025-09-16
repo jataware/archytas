@@ -47,7 +47,14 @@ class OpenRouterResponseChoice(TypedDict):
 
 class OpenRouterResponseDelta(TypedDict):
     choices: list[OpenRouterResponseChoice]
-    usage: NotRequired[dict]
+    usage: NotRequired['OpenRouterUsageMetadata']
+
+# TODO: there is more usage metadata not captured here, can expand if we want access to it
+#       see: https://openrouter.ai/docs/use-cases/usage-accounting#response-format
+class OpenRouterUsageMetadata(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 def to_langchain_tool_call(tool_call: OpenRouterToolCall) -> LangChainToolCall:
     return LangChainToolCall(name=tool_call['function']['name'], args=json.loads(tool_call['function']['arguments']), id=tool_call['id'], type="tool_call")
@@ -69,7 +76,7 @@ class Model:
         self.allow_parallel_tool_calls = allow_parallel_tool_calls
 
         # updated after every completion
-        self._usage_metadata: dict|None = None
+        self._usage_metadata: OpenRouterUsageMetadata|None = None
 
 
     @overload
@@ -94,7 +101,7 @@ class Model:
         data = response.json()
         try:
             # TODO: handle case where server returns an error as a response
-            self._usage_metadata = data['usage']
+            self._usage_metadata = cast(OpenRouterUsageMetadata, data['usage'])
             if 'tool_calls' in data['choices'][0]['message'] and len(data['choices'][0]['message']['tool_calls']) > 0:
                 return OpenRouterToolResponse(thought=data['choices'][0]['message']['content'], tool_calls=data['choices'][0]['message']['tool_calls'])
             return data['choices'][0]['message']['content']
@@ -155,7 +162,7 @@ class Model:
                     
                     # update the usage metadata (typically on the final chunk)
                     if "usage" in obj:
-                        self._usage_metadata = obj["usage"]
+                        self._usage_metadata = cast(OpenRouterUsageMetadata, obj["usage"])  # type: ignore[index]
                     
                     continue
 
@@ -314,16 +321,13 @@ class Agent:
 # -----------------------
 
 class ChatOpenRouter:
-    """
-    Minimal adapter that emulates a chat model interface over OpenRouter's REST API.
-
-    Supports invoke/ainvoke, bind_tools (no-op), and a token estimator.
-    """
+    """Minimal adapter that emulates a chat model interface over OpenRouter's REST API."""
     def __init__(self, *, model: str, api_key: str, base_url: str = "https://openrouter.ai/api/v1/chat/completions") -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url
         self._tools: Optional[Sequence[Any]] = None
+
         # Delegate to the minimal client
         try:
             self._client = Model(model=cast(ModelName, model), openrouter_api_key=api_key)
@@ -397,15 +401,61 @@ class ChatOpenRouter:
         return converted
 
     def get_num_tokens_from_messages(self, *, messages: list[BaseMessage], tools: Optional[Sequence[Any]] = None) -> int:
-        # TODO: pull the actual token count from the OpenRouter API... this is just a placeholder
-        # Rough heuristic: 4 chars per token
-        total_chars = 0
-        for msg in messages:
-            if isinstance(msg.content, str):
-                total_chars += len(msg.content)
-            else:
-                total_chars += len(json.dumps(msg.content))
-        return max(1, total_chars // 4)
+        """Call OpenRouter to estimate prompt tokens by sending a completion request
+        that is configured to produce no output tokens.
+
+        Returns the `prompt_tokens` reported in the response `usage`.
+        """
+        raise NotImplementedError("Token count estimation for OpenRouter is not implemented")
+        
+        # TODO: this is very slow... basically it doubles the time to start generating a response
+        if True: #self.skip_token_count:
+            logger.warning("Skipping token count estimation for OpenRouter model")
+            return 0
+
+        # Convert messages to OpenRouter format
+        converted_messages = self._convert_messages(messages)
+
+        # Build tool schemas if tools were provided; otherwise, reuse any bound schemas
+        schemas: list[dict] | None = None
+        if tools is not None:
+            try:
+                tmp_schemas: list[dict] = []
+                for tool in tools:
+                    langchain_schema: dict = tool.tool_call_schema.schema()
+                    tmp_schemas.append({
+                        'type': 'function',
+                        'function': {
+                            'name': tool.name,
+                            'description': tool.description,
+                            'parameters': langchain_schema['properties'],
+                            'required': langchain_schema['required'],
+                        }
+                    })
+                schemas = tmp_schemas
+            except Exception:
+                # If tool introspection fails, ignore tools for token counting
+                schemas = None
+        else:
+            schemas = getattr(self, "_schemas", None)
+
+        # Try with zero max tokens to avoid any generation. If the API rejects 0,
+        # fall back to 1 token with an immediate stop to minimize output tokens.
+        try:
+            self._client.complete(converted_messages, stream=False, tools=schemas, max_tokens=0)
+        except Exception as first_error:
+            try:
+                self._client.complete(converted_messages, stream=False, tools=schemas, max_tokens=1, stop=[""])
+            except Exception as fallback_error:
+                raise ExecutionError(
+                    f"Failed to estimate prompt tokens via OpenRouter. First attempt with max_tokens=0 error: {first_error}. "
+                    f"Fallback with max_tokens=1 and immediate stop also failed: {fallback_error}"
+                ) from fallback_error
+
+        usage = self._client._usage_metadata
+        if usage is None:
+            raise ExecutionError("OpenRouter did not return usage metadata for the token count request.")
+        return usage['prompt_tokens']
 
     def invoke(self, input: list[BaseMessage], *args, **kwargs) -> AIMessage:
         # Convert LangChain messages to OpenRouter format
@@ -457,9 +507,6 @@ class OpenRouterModel(BaseArchytasModel):
             return self._model.get_num_tokens_from_messages(messages=messages, tools=tools)
         except Exception:
             return 0
-
-    # Tool/function-calling is not yet implemented for OpenRouter in this wrapper.
-    # bind_tools is accepted by the adapter but ignored.
 
     @lru_cache()
     def contextsize(self, model_name: Optional[str] = None) -> int | None:
