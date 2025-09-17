@@ -338,7 +338,7 @@ class Agent(Generic[HasTools]):
     def _streaming_execute(self:'Agent[WithTools]|Agent[WithoutTools]') -> Generator[str|OpenRouterToolResponse, None, None]:
         # stream the chunks while also capturing them
         result_chunks = []
-        tool_calls = []
+        tool_calls: list[OpenRouterToolResponse] = []
         for chunk in self.model.complete(self.messages, stream=True, tools=self.tools):
             if isinstance(chunk, dict):
                 tool_calls.append(chunk)
@@ -349,7 +349,10 @@ class Agent(Generic[HasTools]):
         # add the message to the history after streaming is done
         if tool_calls:
             self = cast(Agent[WithTools], self) #TODO: is there a better way to narrow this
-            self.add_assistant_tool_calls(''.join(result_chunks), tool_calls)
+            for tool_call in tool_calls:
+                self.add_assistant_tool_calls(tool_call['thought'], tool_call['tool_calls'])
+            if result_chunks:
+                self.add_assistant_message(''.join(result_chunks))
         else:
             self.add_assistant_message(''.join(result_chunks))
 
