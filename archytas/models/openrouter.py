@@ -38,6 +38,13 @@ class OpenRouterToolFunction(TypedDict):
     name: str
     arguments: str # needs to be converted to dict via json.loads
 
+class OpenRouterResponse(TypedDict):
+    choices: 'list[OpenRouterResponseCompletionChoice]'
+    usage: 'OpenRouterUsageMetadata'
+
+class OpenRouterResponseCompletionChoice(TypedDict):
+    message: OpenRouterMessage
+
 class OpenRouterResponseDeltaPayload(TypedDict):
     content: NotRequired[str]
     tool_calls: NotRequired[list[OpenRouterToolCall]]
@@ -47,7 +54,11 @@ class OpenRouterResponseChoice(TypedDict):
 
 class OpenRouterResponseDelta(TypedDict):
     choices: list[OpenRouterResponseChoice]
-    usage: NotRequired['OpenRouterUsageMetadata']
+    usage: NotRequired['OpenRouterUsageMetadata']   # typically only on the final chunk
+
+class OpenRouterResponseError(TypedDict):
+    error: Any
+
 
 # TODO: there is more usage metadata not captured here, can expand if we want access to it
 #       see: https://openrouter.ai/docs/use-cases/usage-accounting#response-format
@@ -106,9 +117,10 @@ class Model:
             headers={"Authorization": f"Bearer {self.openrouter_api_key}"},
             data=json.dumps(payload)
         )
-        data = response.json()
+        data = cast(OpenRouterResponse|OpenRouterResponseError, response.json())
+        if 'error' in data:
+            raise ValueError(f"Error from OpenRouter: {data}")
         try:
-            # TODO: handle case where server returns an error as a response
             self._usage_metadata = cast(OpenRouterUsageMetadata, data['usage'])
             if 'tool_calls' in data['choices'][0]['message'] and len(data['choices'][0]['message']['tool_calls']) > 0:
                 return OpenRouterToolResponse(thought=data['choices'][0]['message']['content'], tool_calls=data['choices'][0]['message']['tool_calls'])
@@ -158,9 +170,11 @@ class Model:
 
                     # parse the chunk and yield any content
                     try:
-                        obj: OpenRouterResponseDelta = cast(OpenRouterResponseDelta, json.loads(data))
+                        obj = cast(OpenRouterResponseDelta|OpenRouterResponseError, json.loads(data))
                     except json.JSONDecodeError:
                         continue # wait for the next complete event
+                    if 'error' in obj:
+                        raise ValueError(f"Error from OpenRouter: {obj}")
                     try:
                         content: str|None = obj["choices"][0]["delta"].get("content")
                         tool_calls: list[OpenRouterToolCall]|None = obj["choices"][0]["delta"].get("tool_calls")
@@ -180,6 +194,10 @@ class Model:
                 
                 # ignore other fields like "event:" / "id:" / comments / etc.
 
+
+# TODO: make wrapper class around Model that interfaces with tools, but as strings rather than via the openrouter API
+#       basically for cases where the model either doesn't support tools, or it does but the interface is flaky
+#       it should be usable as a drop-in replacement for Model (e.g. in Agent/etc.)
 
 
 
