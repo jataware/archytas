@@ -370,12 +370,9 @@ class ChatOpenRouter:
         self._tools: Optional[Sequence[Any]] = None
 
         # Delegate to the minimal client
-        try:
-            self._client = Model(model=cast(ModelName, model), openrouter_api_key=api_key)
-        except Exception:
-            # If model isn't recognized in our Literal list, still construct with raw string
-            # this allows using newer models that haven't been updated in the openrouter_models.py file yet
-            self._client = Model(model=cast("ModelName", model), openrouter_api_key=api_key)  # type: ignore[arg-type]
+        # If model isn't recognized in our Literal list, still construct with raw string
+        # this allows using newer models that haven't been updated in the openrouter_models.py file yet
+        self._client = Model(model=cast("ModelName", model), openrouter_api_key=api_key)  # type: ignore[arg-type]
 
         # get the model attributes
         try:
