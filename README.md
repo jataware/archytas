@@ -1,5 +1,5 @@
 # Archytas: A Tools Interface for AI Agents
-<img src="assets/logo.png" width="150" height="150" align="left" style="padding-right:0.5em;"/>
+<img src="https://raw.githubusercontent.com/jataware/archytas/main/assets/logo.png" width="150" height="150" align="left" style="padding-right:0.5em;"/>
 
 Implementation of the [ReAct (Reason & Action)](https://arxiv.org/abs/2210.03629) framework for Large Language Model (LLM) agents. Mainly targeting OpenAI's GPT-4.
 
@@ -13,7 +13,7 @@ Tools can be anything from internet searches to custom interpreters for your dom
 Short demo of using the `PythonTool` to download a COVID-19 dataset, and perform some basic processing/visualization/analysis/etc.
 <div align="center">
   <a href="https://youtu.be/52e4xN8SIi8">
-    <img src="assets/covid_repl_demo.gif" alt="Watch the video">
+    <img src="https://raw.githubusercontent.com/jataware/archytas/main/assets/covid_repl_demo.gif" alt="Watch the video">
   </a>
   <br/>
   click to watch original video on youtube
