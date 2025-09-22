@@ -85,10 +85,7 @@ class ChatOpenRouter:
                     converted.append({"role": "user", "content": content})
                 case AIMessage(tool_calls=list() as tool_calls):
                     converted.append({"role": "assistant", 'content': content, 'tool_calls': list(map(to_openrouter_tool_call, tool_calls))})
-                case AIMessage():
-                    # Note: this generally shouldn't happen as it implies the model returned a non-tool-call message
-                    #       whereas archytas requires all messages to be tool-calls
-                    # Fallback just in case though
+                case AIMessage(): # Message without tool calls
                     converted.append({"role": "assistant", "content": content})
                 case SystemMessage():
                     converted.append({"role": "system", "content": content})
