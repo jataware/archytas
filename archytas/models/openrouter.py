@@ -191,6 +191,8 @@ class OpenRouterModel(BaseArchytasModel):
 
     def initialize_model(self, **kwargs):  # pyright: ignore[reportIncompatibleMethodOverride]
         model_name = getattr(self.config, "model_name", None) or self.DEFAULT_MODEL
+        if model_name.startswith('openai/'):
+            logger.warning(f"Tool support for OpenAI models on OpenRouter via toki has been buggy. Detected model '{model_name}'. Recommend using the archytas OpenAIModel backend instead of OpenRouter.")
         return ChatOpenRouter(model=str(model_name), api_key=self.api_key)
 
     async def get_num_tokens_from_messages(
