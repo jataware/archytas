@@ -61,8 +61,8 @@ class OpenAIModel(BaseArchytasModel):
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         if self.model is None or not getattr(self.model, 'openai_api_key', None):
             raise AuthenticationError("OpenAI API Key missing")
-        if "o3" in self.model.model_name.lower():
-            # o3 doesn't accept a temperature keyword on invoke
+        # check for models that don't accept a temperature keyword on invoke
+        if "o3" in self.model.model_name.lower() or "gpt-5" in self.model.model_name.lower():
             kwargs.pop("temperature")
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
@@ -89,4 +89,6 @@ class OpenAIModel(BaseArchytasModel):
                 return 1_000_000
             elif model_name.startswith(('o3', 'o4')):
                 return 200_000
+            elif 'gpt-5' in model_name.lower():
+                return 400_000
             raise
