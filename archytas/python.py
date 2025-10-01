@@ -38,9 +38,8 @@ class Python:
             self.locals.update(update)
 
     def run_script(self, script: str):
-        print('run_script')
         exception_info = None
-        
+
         # capture any stdout/stderr from the script
         captured_stdout = StringIO()
         captured_stderr = StringIO()
