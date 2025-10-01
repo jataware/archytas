@@ -52,6 +52,7 @@ class Python:
         # run the script
         try:
             exec(script, self.locals)
+<<<<<<< HEAD
         except BaseException as e:
             if isinstance(e, SystemExit):
                 code = e.code if e.code is not None else 0
@@ -66,6 +67,14 @@ class Python:
                     "message": str(e),
                     "traceback": traceback.format_exc(),
                 }
+=======
+        except Exception as e:
+            exception_info = {
+                'type'      : type(e).__name__,
+                'message'   : str(e),
+                'traceback' : traceback.format_exc()
+            }
+>>>>>>> main
 
         # restore stdout/stderr
         sys.stdout = sys.__stdout__
