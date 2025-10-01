@@ -20,14 +20,33 @@ tests/
 
 ### Prerequisites
 
-Set your OpenAI API key (required for most tests):
+The test suite supports multiple LLM providers. Set the API keys for the providers you want to test:
+
 ```bash
+# OpenAI (GPT models)
 export OPENAI_API_KEY="sk-..."
+
+# Anthropic (Claude models)
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Google Gemini
+export GEMINI_API_KEY="..."
 ```
 
-### Run All Tests
+By default, tests will run against all providers with available API keys. You can limit testing to specific providers using the `--model-provider` flag.
+
+### Run All Tests (All Providers)
 ```bash
 pytest
+# or for faster parallel execution
+pytest -n auto
+```
+
+### Run Tests for Specific Provider
+```bash
+pytest --model-provider=openai
+pytest --model-provider=anthropic
+pytest --model-provider=gemini
 ```
 
 ### Run Specific Test File

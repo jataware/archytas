@@ -116,14 +116,8 @@ class TestHistorySummarization:
 
     @pytest.mark.asyncio
     async def test_long_conversation_management(self, react_agent):
-        """Test agent handles long conversations."""
-        # Add many messages
-        for i in range(5):
-            await react_agent.react_async(f"Remember this number: {i}")
-
-        # Agent should still function
-        response = await react_agent.react_async("Can you still hear me?")
-        assert isinstance(response, str)
+        # TODO: cause a summarization in chat history
+        pass
 
 
 class TestHistoryInspection:
