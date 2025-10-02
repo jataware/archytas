@@ -16,8 +16,8 @@ class TestContextMessages:
 
     def test_agent_uses_context(self, react_agent):
         """Test agent can use context information."""
-        react_agent.add_context("The user's favorite color is: blue")
-        result = react_agent.react("What is my favorite color?")
+        react_agent.add_context("The desired color to remember is: blue")
+        result = react_agent.react("What color were you supposed to remember?")
         assert "blue" in result.lower()
 
     def test_clear_context(self, react_agent):
