@@ -43,7 +43,8 @@ class TestChatHistory:
 class TestReActLoopHistory:
     """Test chat history during ReAct loops."""
 
-    def test_tool_calls_in_history(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_tool_calls_in_history(self, react_agent_with_tools):
         """Test that tool calls are recorded in history."""
         from archytas.tool_utils import tool
 
@@ -61,13 +62,13 @@ class TestReActLoopHistory:
             return f"Processed: {value}"
 
         agent = react_agent_with_tools([test_tool])
-        agent.react("Use test_tool with value 42")
+        await agent.react_async("Use test_tool with value 42")
 
-        # Chat history should contain tool-related messages
-        messages = agent.all_messages_sync()
+        messages = await agent.all_messages()
         assert len(messages) > 0
 
-    def test_multiple_react_loops_separated(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_multiple_react_loops_separated(self, react_agent_with_tools):
         """Test multiple ReAct loops create separate conversation segments."""
         from archytas.tool_utils import tool
 
@@ -87,22 +88,23 @@ class TestReActLoopHistory:
         agent = react_agent_with_tools([echo])
 
         # First loop
-        result1 = agent.react("Echo 'first'")
+        result1 = await agent.react_async("Echo 'first'")
         assert "first" in result1.lower()
 
         # Second loop
-        result2 = agent.react("Echo 'second'")
+        result2 = await agent.react_async("Echo 'second'")
         assert "second" in result2.lower()
 
         # Both should be in history
-        messages = agent.all_messages_sync()
+        messages = await agent.all_messages()
         assert len(messages) > 2
 
 
 class TestHistorySummarization:
     """Test automatic history summarization."""
 
-    def test_summarization_threshold_config(self, openai_model):
+    @pytest.mark.asyncio
+    async def test_summarization_threshold_config(self, openai_model):
         """Test configuring summarization threshold."""
         from archytas.models.openai import OpenAIModel
 
@@ -132,11 +134,12 @@ class TestHistoryInspection:
         messages = await react_agent.all_messages()
         assert len(messages) >= 2
 
-    def test_all_messages_sync(self, react_agent):
+    @pytest.mark.asyncio
+    async def test_all_messages_sync(self, react_agent):
         """Test synchronous message retrieval."""
-        react_agent.react("What is 3+3?")
+        await react_agent.react_async("What is 3+3?")
 
-        messages = react_agent.all_messages_sync()
+        messages = await react_agent.all_messages()
         assert len(messages) >= 1
 
         # Check message types

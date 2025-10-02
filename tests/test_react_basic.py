@@ -10,23 +10,26 @@ from archytas.tools import datetime_tool
 class TestBasicReActLoop:
     """Test basic ReAct loop functionality."""
 
-    def test_react_simple_query_no_tools(self, react_agent):
+    @pytest.mark.asyncio
+    async def test_react_simple_query_no_tools(self, react_agent):
         """Test agent can respond to simple query without needing tools."""
-        result = react_agent.react("What is 2 + 2?")
+        result = await react_agent.react_async("What is 2 + 2?")
         assert isinstance(result, str)
         assert "4" in result
 
-    def test_react_with_datetime_tool(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_react_with_datetime_tool(self, react_agent_with_tools):
         """Test agent can use datetime tool."""
         agent = react_agent_with_tools([datetime_tool])
-        result = agent.react("What is the current UTC time?")
+        result = await agent.react_async("What is the current UTC time?")
         assert isinstance(result, str)
         # Should contain time-related information
         assert any(time_indicator in result.lower() for time_indicator in ["utc", "time", "2025"])
 
-    def test_react_returns_final_answer(self, react_agent):
+    @pytest.mark.asyncio
+    async def test_react_returns_final_answer(self, react_agent):
         """Test that react returns the final_answer response."""
-        result = react_agent.react("Say 'hello world'")
+        result = await react_agent.react_async("Say 'hello world'")
         assert isinstance(result, str)
         assert "hello" in result.lower()
 
@@ -34,7 +37,8 @@ class TestBasicReActLoop:
 class TestCustomTools:
     """Test ReActAgent with custom tools."""
 
-    def test_simple_calculator_tool(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_simple_calculator_tool(self, react_agent_with_tools):
         """Test agent with a simple calculator tool."""
         @tool()
         def add(a: int, b: int) -> str:
@@ -51,10 +55,11 @@ class TestCustomTools:
             return str(a + b)
 
         agent = react_agent_with_tools([add])
-        result = agent.react("What is 15 + 27?")
+        result = await agent.react_async("What is 15 + 27?")
         assert "42" in result
 
-    def test_multiple_tool_calls(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_multiple_tool_calls(self, react_agent_with_tools):
         """Test agent can make multiple tool calls in sequence."""
         call_count = {"count": 0}
 
@@ -73,13 +78,14 @@ class TestCustomTools:
             return str(call_count["count"])
 
         agent = react_agent_with_tools([counter])
-        result = agent.react("Call counter with 5, then with 3, then tell me the final value")
+        result = await agent.react_async("Call counter with 5, then with 3, then tell me the final value")
 
         # Should have called counter twice and returned final value
         assert call_count["count"] == 8
         assert "8" in result
 
-    def test_tool_with_string_manipulation(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_tool_with_string_manipulation(self, react_agent_with_tools):
         """Test tool that manipulates strings."""
         @tool()
         def reverse_string(text: str) -> str:
@@ -95,14 +101,15 @@ class TestCustomTools:
             return text[::-1]
 
         agent = react_agent_with_tools([reverse_string])
-        result = agent.react("Reverse the string 'hello'")
+        result = await agent.react_async("Reverse the string 'hello'")
         assert "olleh" in result
 
 
 class TestToolErrors:
     """Test error handling in tools."""
 
-    def test_tool_raises_exception(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_tool_raises_exception(self, react_agent_with_tools):
         """Test agent handles tool exceptions gracefully."""
         @tool()
         def failing_tool(value: int) -> str:
@@ -122,14 +129,15 @@ class TestToolErrors:
         # Agent should handle the error - either recover or fail
         # With modern LLMs and low max_errors, this will typically raise FailedTaskError
         try:
-            result = agent.react("Use failing_tool with value 5")
+            result = await agent.react_async("Use failing_tool with value 5")
             # If no exception, agent recovered somehow - that's valid behavior
             assert isinstance(result, str)
         except FailedTaskError:
             # This is also expected behavior
             pass
 
-    def test_max_steps_exceeded(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_max_steps_exceeded(self, react_agent_with_tools):
         """Test agent fails when max_react_steps exceeded."""
         call_count = {"count": 0}
 
@@ -148,7 +156,7 @@ class TestToolErrors:
 
         # Agent should hit step limit before completing the task
         with pytest.raises(FailedTaskError) as exc_info:
-            agent.react("Call increment_counter exactly 10 times, then return the final count")
+            await agent.react_async("Call increment_counter exactly 10 times, then return the final count")
 
         assert "Too many steps" in str(exc_info.value)
 
@@ -156,7 +164,8 @@ class TestToolErrors:
 class TestDeterministicOutputs:
     """Test that temperature=0 produces consistent outputs."""
 
-    def test_deterministic_calculation(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_deterministic_calculation(self, react_agent_with_tools):
         """Test same query produces same result with temp=0."""
         @tool()
         def multiply(a: int, b: int) -> str:
@@ -175,11 +184,11 @@ class TestDeterministicOutputs:
         agent = react_agent_with_tools([multiply])
 
         # Run same query twice
-        result1 = agent.react("What is 7 times 8?")
+        result1 = await agent.react_async("What is 7 times 8?")
 
         # Need new agent for fresh history
         agent2 = react_agent_with_tools([multiply])
-        result2 = agent2.react("What is 7 times 8?")
+        result2 = await agent2.react_async("What is 7 times 8?")
 
         # Both should contain correct answer
         assert "56" in result1

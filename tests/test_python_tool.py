@@ -65,42 +65,46 @@ class TestPythonToolBasic:
 class TestPythonToolWithAgent:
     """Test PythonTool integrated with ReActAgent."""
 
-    def test_agent_with_python_tool_calculation(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_agent_with_python_tool_calculation(self, react_agent_with_tools):
         """Test agent can use PythonTool for calculations."""
         py_tool = PythonTool()
         agent = react_agent_with_tools([py_tool])
 
-        result = agent.react("Use Python to calculate the sum of numbers from 1 to 10")
+        result = await agent.react_async("Use Python to calculate the sum of numbers from 1 to 10")
         # Sum of 1 to 10 is 55
         assert "55" in result
 
-    def test_agent_with_python_tool_data_processing(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_agent_with_python_tool_data_processing(self, react_agent_with_tools):
         """Test agent can use PythonTool for data processing."""
         py_tool = PythonTool()
         agent = react_agent_with_tools([py_tool])
 
-        result = agent.react(
+        result = await agent.react_async(
             "Use Python to create a list of the first 5 even numbers, then calculate their sum"
         )
         # First 5 even numbers: 2, 4, 6, 8, 10 -> sum = 30
         assert "30" in result
 
-    def test_agent_with_python_tool_string_manipulation(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_agent_with_python_tool_string_manipulation(self, react_agent_with_tools):
         """Test agent can use PythonTool for string operations."""
         py_tool = PythonTool()
         agent = react_agent_with_tools([py_tool])
 
-        result = agent.react(
+        result = await agent.react_async(
             "Use Python to reverse the string 'Archytas' and print it"
         )
         assert "satyhcrA" in result
 
-    def test_agent_python_tool_multiple_steps(self, react_agent_with_tools):
+    @pytest.mark.asyncio
+    async def test_agent_python_tool_multiple_steps(self, react_agent_with_tools):
         """Test agent can use PythonTool across multiple steps."""
         py_tool = PythonTool()
         agent = react_agent_with_tools([py_tool])
 
-        result = agent.react(
+        result = await agent.react_async(
             "Use Python to: 1) Create a variable x = 7, "
             "2) Create y = x * 6, "
             "3) Print the final value of y"
