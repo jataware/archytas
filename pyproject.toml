@@ -1,6 +1,6 @@
 [project]
 name = "archytas"
-version = "1.5.2-rc.1"
+version = "1.6.1"
 description = "A library for pairing LLM agents with tools so they perform open ended tasks"
 authors = [
     {name = "David Andrew Samson", email = "david.andrew.engineer@gmail.com"},
@@ -29,7 +29,8 @@ dependencies = [
     "botocore>=1.37",
     "langchain-aws>=0.2",
     "azure-ai-inference>=1.0.0b9",
-    "jinja2>=3.1.6"
+    "jinja2>=3.1.6",
+    "toki>=0.2.6"
 ]
 
 [project.optional-dependencies]
