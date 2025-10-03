@@ -5,6 +5,8 @@ import pytest
 from archytas.react import ReActAgent, FailedTaskError
 from archytas.tool_utils import tool
 from archytas.tools import datetime_tool
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage, ToolCall
+
 
 
 class TestBasicReActLoop:
@@ -254,8 +256,32 @@ class TestAsyncReAct:
         agent = react_agent_with_tools([calculate])
         result = await agent.react_async("Calculate 5 + 3, then multiply that result by 2. Do this specifically with the calculate tool.")
 
-        captured = capsys.readouterr()
+        # capturing stdout and err goes through thought_handler which includes "Calling tool {name}"... as a fallback.
+        # to properly test this, we look for response text in AIMessage
 
-        assert "thought:" in captured.out.lower()
+        # not helpful:
+        #captured = capsys.readouterr()
+        #assert "thought:" in captured.out.lower()
+
+        all_messages = await agent.all_messages()
+        ai_message = None
+        for i in range(len(all_messages)):
+            if isinstance(all_messages[i], AIMessage):
+                ai_message = all_messages[i]
+                break
+
+        assert ai_message is not None
+        assert ai_message.content is not None
+        # anthropic returns content as list, not str
+        if isinstance(ai_message.content, list):
+            assert len(ai_message.content) > 0
+            response = ai_message.content[0]
+            assert response["text"] is not None
+            assert isinstance(response["text"], str)
+            assert len(response["text"]) > 0
+        else:
+            assert isinstance(ai_message.content, str)
+            assert len(ai_message.content) > 0
+
         assert calculations["count"] == 2
         assert "16" in result
