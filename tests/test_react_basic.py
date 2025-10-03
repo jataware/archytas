@@ -224,3 +224,38 @@ class TestAsyncReAct:
         agent = react_agent_with_tools([get_greeting])
         result = await agent.react_async("Get a greeting for Alice")
         assert "Alice" in result
+
+    @pytest.mark.asyncio
+    async def test_react_loop_with_thoughts(self, react_agent_with_tools, capsys):
+        """Test that ReAct loop displays thoughts during execution."""
+
+        calculations = {"count": 0}
+        @tool()
+        def calculate(a: int, b: int, operation: str) -> str:
+            """
+            Perform a calculation.
+
+            Args:
+                a (int): First number
+                b (int): Second number
+                operation (str): Operation to perform (add, multiply)
+
+            Returns:
+                str: Result of calculation
+            """
+            calculations["count"] += 1
+            if operation == "add":
+                return str(a + b)
+            elif operation == "multiply":
+                return str(a * b)
+            return "Invalid operation"
+
+
+        agent = react_agent_with_tools([calculate])
+        result = await agent.react_async("Calculate 5 + 3, then multiply that result by 2. Do this specifically with the calculate tool.")
+
+        captured = capsys.readouterr()
+
+        assert "thought:" in captured.out.lower()
+        assert calculations["count"] == 2
+        assert "16" in result
