@@ -35,7 +35,10 @@ When passing strings to tools, you do not need to escape the values. They are al
     def initialize_model(self, **kwargs):
         return ChatGoogleGenerativeAI(
             model=self.config.model_name or self.DEFAULT_MODEL,
-            api_key=self.api_key
+            api_key=self.api_key,
+            #include_thoughts=True
+            # Note: This includes more breaking changes than are easily fixable.
+            # TODO: Wrap "type=thinking" blocks as a way of making gemini support stronger
         )
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
