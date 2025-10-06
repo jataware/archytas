@@ -14,28 +14,52 @@ def pytest_addoption(parser):
         default="all",
         help="Model provider to test: openai, anthropic, gemini, or all"
     )
+    parser.addoption(
+        "--openai-model",
+        action="store",
+        default="gpt-5",
+        help="Comma-delimited list of OpenAI models to test (default: gpt-5)"
+    )
+    parser.addoption(
+        "--anthropic-model",
+        action="store",
+        default="claude-sonnet-4-5-20250929",
+        help="Comma-delimited list of Anthropic models to test (default: claude-sonnet-4-5-20250929)"
+    )
+    parser.addoption(
+        "--gemini-model",
+        action="store",
+        default="gemini-2.5-pro",
+        help="Comma-delimited list of Gemini models to test (default: gemini-2.5-pro)"
+    )
 
 
 def pytest_generate_tests(metafunc):
-    """Parametrize tests based on available model providers."""
+    """Parametrize tests based on available model providers and models."""
     if "model_fixture" in metafunc.fixturenames:
         provider_option = metafunc.config.getoption("model_provider")
 
-        available_providers = []
+        model_configs = []
 
         if provider_option in ["all", "openai"] and os.environ.get("OPENAI_API_KEY"):
-            available_providers.append("openai_model")
+            openai_models = metafunc.config.getoption("--openai-model").split(",")
+            for model_name in openai_models:
+                model_configs.append(f"openai:{model_name.strip()}")
 
         if provider_option in ["all", "anthropic"] and os.environ.get("ANTHROPIC_API_KEY"):
-            available_providers.append("anthropic_model")
+            anthropic_models = metafunc.config.getoption("--anthropic-model").split(",")
+            for model_name in anthropic_models:
+                model_configs.append(f"anthropic:{model_name.strip()}")
 
         if provider_option in ["all", "gemini"] and os.environ.get("GEMINI_API_KEY"):
-            available_providers.append("gemini_model")
+            gemini_models = metafunc.config.getoption("--gemini-model").split(",")
+            for model_name in gemini_models:
+                model_configs.append(f"gemini:{model_name.strip()}")
 
-        if not available_providers:
+        if not model_configs:
             pytest.skip(f"No API keys found for provider: {provider_option}")
 
-        metafunc.parametrize("model_fixture", available_providers, indirect=True)
+        metafunc.parametrize("model_fixture", model_configs, indirect=True)
 
 
 @pytest.fixture
@@ -66,27 +90,49 @@ def gemini_api_key():
 
 
 @pytest.fixture
-def openai_model(openai_api_key):
+def openai_model(openai_api_key, request):
     """Create an OpenAI model instance for testing."""
-    return OpenAIModel({"api_key": openai_api_key, "model_name": "gpt-5"})
+    model_name = request.config.getoption("--openai-model")
+    return OpenAIModel({"api_key": openai_api_key, "model_name": model_name})
 
 
 @pytest.fixture
-def anthropic_model(anthropic_api_key):
+def anthropic_model(anthropic_api_key, request):
     """Create an Anthropic model instance for testing."""
-    return AnthropicModel({"api_key": anthropic_api_key, "model_name": "claude-sonnet-4-5-20250929"})
+    model_name = request.config.getoption("--anthropic-model")
+    return AnthropicModel({"api_key": anthropic_api_key, "model_name": model_name})
 
 
 @pytest.fixture
-def gemini_model(gemini_api_key):
+def gemini_model(gemini_api_key, request):
     """Create a Gemini model instance for testing."""
-    return GeminiModel({"api_key": gemini_api_key, "model_name": "gemini-2.5-flash"})
+    model_name = request.config.getoption("--gemini-model")
+    return GeminiModel({"api_key": gemini_api_key, "model_name": model_name})
 
 
 @pytest.fixture
 def model_fixture(request):
-    """Indirect fixture that provides the requested model."""
-    return request.getfixturevalue(request.param)
+    """Indirect fixture that provides the requested model based on provider:model_name format."""
+    config = request.param  # Format: "provider:model_name"
+    provider, model_name = config.split(":", 1)
+
+    if provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            pytest.skip("OPENAI_API_KEY not set")
+        return OpenAIModel({"api_key": api_key, "model_name": model_name})
+    elif provider == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            pytest.skip("ANTHROPIC_API_KEY not set")
+        return AnthropicModel({"api_key": api_key, "model_name": model_name})
+    elif provider == "gemini":
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            pytest.skip("GEMINI_API_KEY not set")
+        return GeminiModel({"api_key": api_key, "model_name": model_name})
+    else:
+        pytest.fail(f"Unknown provider: {provider}")
 
 
 @pytest.fixture
