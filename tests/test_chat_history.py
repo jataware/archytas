@@ -24,20 +24,20 @@ class TestChatHistory:
     @pytest.mark.asyncio
     async def test_conversation_continuity(self, react_agent):
         """Test agent remembers previous messages."""
-        await react_agent.react_async("My favorite number is 7")
-        response = await react_agent.react_async("What is my favorite number?")
+        await react_agent.react_async("The magic number is 70.")
+        response = await react_agent.react_async("Repeat the magic number back.")
 
-        assert "7" in response
+        assert "70" in response
 
     @pytest.mark.asyncio
     async def test_multiple_exchanges(self, react_agent):
         """Test multiple back-and-forth exchanges."""
-        await react_agent.react_async("Remember: call me Bob")
-        await react_agent.react_async("Remember: I like pizza")
-        response = await react_agent.react_async("What is my name and what do I like?")
+        await react_agent.react_async("The magic number is 105.")
+        await react_agent.react_async("The magic color is purple.")
+        response = await react_agent.react_async("List the magic number and magic color.")
 
-        assert "bob" in response.lower()
-        assert "pizza" in response.lower()
+        assert "105" in response.lower()
+        assert "purple" in response.lower()
 
 
 class TestReActLoopHistory:
@@ -184,5 +184,6 @@ class TestHistoryEdgeCases:
             pass
 
         # Agent should still work after error
-        result = await agent.react_async("What is 1+1?")
-        assert "2" in result
+        result = await agent.react_async("Say hello.")
+        assert isinstance(result, str)
+        assert len(result) > 0

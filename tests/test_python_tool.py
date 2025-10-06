@@ -82,7 +82,7 @@ class TestPythonToolWithAgent:
         agent = react_agent_with_tools([py_tool])
 
         result = await agent.react_async(
-            "Use Python to create a list of the first 5 even numbers, then calculate their sum"
+            "Use Python to create a list of the first 5 even numbers (not including zero), then calculate their sum"
         )
         # First 5 even numbers: 2, 4, 6, 8, 10 -> sum = 30
         assert "30" in result
