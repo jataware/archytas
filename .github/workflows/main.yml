@@ -26,4 +26,9 @@ jobs:
           pip install uv
       -
         name: run-tests
-        run: uv run pytest tests/test_*.py -v -n auto --tb=auto
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_*.py -v -n auto --tb=auto
