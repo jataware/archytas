@@ -58,7 +58,7 @@ class ChatOpenRouter:
                     'parameters': {
                         'type': 'object',
                         'properties': langchain_schema['properties'],
-                        'required': langchain_schema['required']
+                        'required': langchain_schema.get('required', [])
                     },
                 }
             }
