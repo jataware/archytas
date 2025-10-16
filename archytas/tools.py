@@ -115,6 +115,10 @@ class PythonTool:
         The environment is persistent between runs, so any variables created will be available in subsequent runs.
         The only visible effects of this tool are from output to stdout/stderr. If you want to view a result, you MUST print it.
 
+        > **NOTE**: code run here will be executed interactively and NOT as a standalone module.
+        > Therefore, you must **never use** `if __name__ == "__main__":` or reference `__main__` in the code.
+        > The value of `__name__` in this environment is `"builtins"`, so any code guarded by that block will never execute.
+
         Args:
             code (str): The code to run
 
