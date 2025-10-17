@@ -16,7 +16,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AI
 
 
 def to_langchain_tool_call(tool_call: OpenRouterToolCall) -> LangChainToolCall:
-    return LangChainToolCall(name=tool_call['function']['name'], args=json.loads(tool_call['function']['arguments']), id=tool_call['id'], type="tool_call")
+    return LangChainToolCall(name=tool_call['function']['name'], args=json.loads(tool_call['function']['arguments'] or '{}'), id=tool_call['id'], type="tool_call")
 
 def to_openrouter_tool_call(tool_call: LangChainToolCall) -> OpenRouterToolCall:
     return OpenRouterToolCall(id=tool_call['id'] or '', type="function", function=OpenRouterToolFunction(name=tool_call["name"], arguments=json.dumps(tool_call["args"])))
@@ -40,7 +40,7 @@ class ChatOpenRouter:
             self._attrs = attributes_map[cast(ModelName, model)]
         except KeyError:
             self._attrs = Attr(context_size=200_000, supports_tools=True)
-            logger.warning(f"Unrecognized OpenRouter model: '{model}' (this implies model is not officially listed in archytas/models/openrouter_models.py). Consider regenerating the file with `create_models_types_file()` to get most up-to-date models list. Attempting to continue with the following Attributes: {self._attrs}")
+            logger.warning(f"Unrecognized OpenRouter model: '{model}' (this implies model is not officially listed in toki.openrouter_models). To get most up-to-date models list, consider cutting a new toki release (after regenerating models list with `toki-fetch-models` command). Attempting to continue with the following Attributes: {self._attrs}")
         
         if not self._attrs.supports_tools:
             raise ValueError(f"OpenRouter model '{model}' does not support tools. Archytas requires models to support tools. Please use a different model.")
