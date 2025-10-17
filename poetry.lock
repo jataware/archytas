@@ -3607,4 +3607,4 @@ dev = ["easyrepl", "pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "f4d49089f345e6ef44ff0cfe2a90ef440c45e338c88bf52b41a86b6b5f72e990"
+content-hash = "3b9e0eba79688f577524d38f55a378f790c0c7343514273d3fb6f5c86b77b5cd"
