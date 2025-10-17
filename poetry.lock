@@ -3181,14 +3181,14 @@ blobfile = ["blobfile (>=2)"]
 
 [[package]]
 name = "toki"
-version = "0.2.7"
+version = "0.2.8"
 description = "Minimal universal LLM interface API"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "toki-0.2.7-py3-none-any.whl", hash = "sha256:f2664c3cd544916d77a75695abdbc662bcee69ee7dafb1c5dc4dcd2b5fe410b3"},
-    {file = "toki-0.2.7.tar.gz", hash = "sha256:5db1613239c6edf6837a0318e6a21fbec353158a57175c74fcdb9102d7c5a57a"},
+    {file = "toki-0.2.8-py3-none-any.whl", hash = "sha256:0475ab652bf17f6190e02515f8e662dab881981f43b0a037a2bc6e30de788127"},
+    {file = "toki-0.2.8.tar.gz", hash = "sha256:4c315ff7222a190092d3d32b3d79d58be217531a1274fb843cdb99d9f889354f"},
 ]
 
 [package.dependencies]
