@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from .constants import TAB
@@ -8,20 +7,16 @@ from .structured_data_utils import get_structured_input_description, construct_s
 from .summarizers import default_tool_summarizer
 from .utils import ensure_async
 
-from types import NoneType
 from typing import Callable, Any, ParamSpec, TypeVar, overload, Optional, TYPE_CHECKING
 from textwrap import indent
 import inspect
 from docstring_parser import parse as parse_docstring
 
-from textwrap import indent
-from types import FunctionType
-from typing import Callable, Any
 
 from .chat_history import ChatHistory
 
 if TYPE_CHECKING:
-    from .chat_history import ToolMessage, ToolCall
+    from .chat_history import ToolMessage
 
 
 logger = logging.getLogger(__name__)
@@ -160,11 +155,30 @@ def tool(
 
             result = await ensure_async(func(*pargs, **kwargs))
 
-            # convert the result to a string if it is not already a string
-            if not isinstance(result, str):
-                result = str(result)
+            # Support LangChain multimodal format while maintaining backward compatibility
+            match result:
+                case str():
+                    # Backward compatible - string tools still work
+                    return result
 
-            return result
+                case list() if all(isinstance(item, dict) for item in result):
+                    # LangChain multimodal format - validate structure
+                    for item in result:
+                        if "type" not in item:
+                            raise ValueError(f"Multimodal content dict must have 'type' field: {item}")
+                        if item["type"] not in ("text", "image_url"):
+                            raise ValueError(f"Unsupported content type: {item['type']}")
+                    return result
+
+                case dict() if "type" in result:
+                    # Single content block - wrap in list
+                    if result["type"] not in ("text", "image_url"):
+                        raise ValueError(f"Unsupported content type: {result['type']}")
+                    return [result]
+
+                case _:
+                    # Convert other types to string (backward compatible)
+                    return str(result) if result is not None else ""
 
         # Add func as the attribute of the run method
         func.run = run  # type: ignore
@@ -384,7 +398,7 @@ def make_arg_preprocessor(args_list: list[tuple[str, NormalizedType, str | None,
         if len(args_list) == 0 and len(args):
             assert args is None, f"Expected no arguments, got {args}"
             return [], {}
-        assert args is not None, f"Expected arguments, got None"
+        assert args is not None, "Expected arguments, got None"
 
         # general case, arguments wrapped in json. need to determine which need to be deserialized into structured types
         # TODO: this doesn't respect if a function signature has position-only vs keyword-only arguments. need to update get_tool_signature to include that information

@@ -38,6 +38,10 @@ dev = [
     "easyrepl>=0.1.2",
     "pytest>=8.3.3"
 ]
+mcp = [
+    "fastmcp>=0.1.0",
+    "mcp>=1.0.0"
+]
 
 [project.scripts]
 chat-repl = "archytas.repl:start_repl"
@@ -60,4 +64,8 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio",
     "pytest-xdist",
+]
+mcp = [
+    "fastmcp>=0.1.0",
+    "mcp>=1.0.0"
 ]

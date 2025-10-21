@@ -7,7 +7,7 @@ from pydantic.fields import FieldInfo
 from typing import TYPE_CHECKING, Annotated, Any, Optional, ClassVar, Sequence
 from functools import cache
 
-from langchain.tools import StructuredTool
+from langchain_core.tools import StructuredTool
 
 if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, BaseMessage

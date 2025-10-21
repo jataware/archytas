@@ -6,19 +6,76 @@ import logging
 import traceback
 import typing
 import uuid
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, ToolCall
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from .agent import Agent, BaseMessage, SystemMessage, AgentResponse
-from .chat_history import ChatHistory, SummaryRecord, MessageRecord
+from .chat_history import SummaryRecord, MessageRecord
 from .exceptions import ContextWindowExceededError
 from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
-from .tool_utils import make_tool_dict, sanitize_toolname, tool, AgentRef
+from .tool_utils import make_tool_dict, tool, AgentRef
 from .models.base import BaseArchytasModel
-from .utils import extract_json, ensure_async
+from .utils import ensure_async
 
 
 logger = logging.Logger("archytas")
+
+
+def format_tool_result_for_display(result: str | list[dict] | dict) -> str:
+    """
+    Format tool result for display in terminal/logs.
+
+    Converts multimodal LangChain format to readable string.
+
+    Args:
+        result: Tool execution result (string or LangChain multimodal format)
+
+    Returns:
+        Formatted string for display
+    """
+    match result:
+        case str():
+            return result
+
+        case dict() if "type" in result:
+            # Single content block
+            return format_tool_result_for_display([result])
+
+        case list():
+            parts = []
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+
+                match item.get("type"):
+                    case "text":
+                        parts.append(item.get("text", ""))
+
+                    case "image_url":
+                        image_url = item.get("image_url", {})
+                        if isinstance(image_url, dict):
+                            url = image_url.get("url", "")
+                        else:
+                            url = str(image_url)
+
+                        # Show preview for base64, full URL for remote
+                        if url.startswith("data:"):
+                            # Extract mime type and show preview
+                            if ";" in url:
+                                mime_type = url.split(";")[0].replace("data:", "")
+                                parts.append(f"[Image: {mime_type}, base64 data]")
+                            else:
+                                parts.append("[Image: base64 data]")
+                        else:
+                            parts.append(f"[Image: {url}]")
+
+                    case _:
+                        parts.append(f"[{item.get('type', 'unknown')}]")
+
+            return "\n".join(parts) if parts else ""
+
+        case _:
+            return str(result)
 
 
 class Undefined:
@@ -523,7 +580,7 @@ class ReActAgent(Agent):
         )
 
         if not summary:
-            return f"Error: Unable to locate summary {summarized_record_uuid}"
+            return f"Error: Unable to locate summary {summary_record_uuid}"
 
         # This method of collecting records should ensure correct ordering
         summarized_records: list[MessageRecord[BaseMessage]] = [
@@ -565,11 +622,11 @@ Available summaries are:
             if isinstance(record.message, AIMessage) and record.message.tool_calls:
                 for tool_call in record.message.tool_calls:
                     response_parts.extend([
-                        f"""\
+                        """\
 --- Tool Call     ---
 """,
                         json.dumps(tool_call),
-                        f"""\
+                        """\
 --- End Tool Call ---
 """,
                     ])
