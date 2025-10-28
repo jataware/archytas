@@ -59,9 +59,10 @@ Extra details:
 
 
 def catch_failure(fn):
-    def handle_error(messages: list[BaseMessage], error: Exception, agent: "ReActAgent|None" = None):
+    def handle_error(message_records: list[MessageRecord], error: Exception, agent: "ReActAgent|None" = None):
         last_ai_message = None
         seen_tool_message_ids = set()
+        messages = [record.message for record in message_records]
         for message in messages[::-1]:
             match message:
                 case AIMessage():
@@ -78,7 +79,6 @@ def catch_failure(fn):
                     content=str(error),
                     tool_call_id=missing_tool_id,
                 )
-                messages.append(error_message)
                 if agent:
                     agent.chat_history.add_message(error_message)
 
