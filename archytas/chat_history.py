@@ -257,7 +257,7 @@ class ChatHistory:
             ]
         if loop_records and self.loop_summarizer:
             logger.debug("Initiating loop summarization")
-            await self.loop_summarizer(loop_records, self, agent, force_update=force_update)
+            await self.loop_summarizer(loop_records, self, agent, model=agent.model, force_update=force_update)
             logger.debug("Loop summarization completed")
 
     async def summarize_history(
@@ -304,6 +304,7 @@ class ChatHistory:
             self.history_summarizer(
                 chat_history=self,
                 agent=agent,
+                model=agent.model,
                 recordset=recordset,
             )
         )

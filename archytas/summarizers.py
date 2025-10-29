@@ -85,10 +85,13 @@ async def default_loop_summarizer(
     loop_records: "list[MessageRecord]",
     chat_history: "ChatHistory",
     agent: "Agent",
+    model: "BaseArchytasModel" = None,
     token_threshold: int = 4000,
     force_update: bool = False,
 ):
     from langchain_core.messages import ToolMessage
+    if model is None:
+        model = agent.model    
     coroutines = []
     for record in loop_records:
         if isinstance(record.message, ToolMessage) and (artifact := getattr(record.message, "artifact", None)):
@@ -98,7 +101,7 @@ async def default_loop_summarizer(
             summarized: bool = artifact.get("summarized", False)
             summarizer: MessageSummarizerFunction = getattr(tool_fn, "summarizer", None)
             if summarizer and (force_update or not summarized):
-                coroutines.append(summarizer(message, chat_history, agent))
+                coroutines.append(summarizer(message, chat_history, agent, model=model))
     await asyncio.gather(*coroutines)
 
 
@@ -106,6 +109,7 @@ async def default_history_summarizer(
     chat_history: "ChatHistory",
     agent: "Agent",
     recordset: "list[MessageRecord[BaseMessage]|SummaryRecord]",
+    model: "BaseArchytasModel" = None,
     force_update: bool = False,
 ):
     from .chat_history import MessageRecord, SummaryRecord, AIMessage, SystemMessage, HumanMessage, BaseMessage
@@ -113,6 +117,9 @@ async def default_history_summarizer(
 
     if not recordset:
         return
+
+    if model is None:
+        model = agent.model
 
     records_to_summarize: list[MessageRecord[BaseMessage]] = []
     summaries: list[SummaryRecord] = []
@@ -147,7 +154,7 @@ async def default_history_summarizer(
     })
 
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
-    response = await agent.model._model.ainvoke(
+    response = await model._model.ainvoke(
         input=messages,
     )
     summary_text = response.content
@@ -170,7 +177,15 @@ Below is a summary of {len(uuids)} messages with UUIDs of: {uuids}
     chat_history.summaries.append(summary_record)
 
 
-async def default_tool_summarizer(message: "ToolMessage", chat_history: "ChatHistory", agent: "Agent"):
+async def default_tool_summarizer(
+    message: "ToolMessage",
+    chat_history: "ChatHistory",
+    agent: "Agent",
+    model: "BaseArchytasModel" = None
+):
+    if model is None:
+        model = agent.model
+    
     message_length = len(message.content)
     if message_length < MESSAGE_SUMMARIZATION_THRESHOLD:
         # Message is already short
