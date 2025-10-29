@@ -85,7 +85,6 @@ async def default_loop_summarizer(
     loop_records: "list[MessageRecord]",
     chat_history: "ChatHistory",
     agent: "Agent",
-    model: "BaseArchytasModel" = None,
     token_threshold: int = 4000,
     force_update: bool = False,
 ):
@@ -99,7 +98,7 @@ async def default_loop_summarizer(
             summarized: bool = artifact.get("summarized", False)
             summarizer: MessageSummarizerFunction = getattr(tool_fn, "summarizer", None)
             if summarizer and (force_update or not summarized):
-                coroutines.append(summarizer(message, chat_history, agent, model=model))
+                coroutines.append(summarizer(message, chat_history, agent))
     await asyncio.gather(*coroutines)
 
 
