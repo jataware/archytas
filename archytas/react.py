@@ -428,8 +428,33 @@ class ReActAgent(Agent):
                             }
                         )
 
+                        # Handle multimodal tool outputs (e.g., images from MCP tools)
+                        # OpenAI doesn't support images in tool messages, so we need to extract
+                        # images and send them in a separate user message
+                        tool_content = tool_output
+                        image_content = None
+
+                        if isinstance(tool_output, list):
+                            # Check if there are any images in the output
+                            text_blocks = []
+                            image_blocks = []
+
+                            for block in tool_output:
+                                if isinstance(block, dict):
+                                    if block.get("type") == "image_url":
+                                        image_blocks.append(block)
+                                    else:
+                                        text_blocks.append(block)
+
+                            # If there are images, separate them
+                            if image_blocks:
+                                # Tool message gets only text content
+                                tool_content = text_blocks if text_blocks else "Image generated"
+                                # Images will be sent in a follow-up user message
+                                image_content = image_blocks
+
                         tool_message = ToolMessage(
-                            content=tool_output,
+                            content=tool_content,
                             tool_call_id=tool_id,
                             artifact={
                                 "tool_name": tool_name,
@@ -439,6 +464,17 @@ class ReActAgent(Agent):
 
                         # Always add tool response before handling state changes to ensure message history is correct.
                         self.chat_history.add_message(tool_message)
+
+                        # If the tool returned images, inject them as a user message
+                        # This works around OpenAI's limitation that images can only be in user messages
+                        if image_content:
+                            image_message = HumanMessage(
+                                content=[
+                                    {"type": "text", "text": f"[Tool '{tool_name}' returned the following image(s):]"},
+                                    *image_content
+                                ]
+                            )
+                            self.chat_history.add_message(image_message)
 
                         # Have the agent observe the result, and get the next action
                         if self.verbose:

@@ -39,8 +39,8 @@ dev = [
     "pytest>=8.3.3"
 ]
 mcp = [
-    "fastmcp>=0.1.0",
-    "mcp>=1.0.0"
+    "langchain-mcp-adapters>=0.1.0",
+    "fastmcp>=0.1.0"
 ]
 
 [project.scripts]
@@ -66,6 +66,6 @@ dev = [
     "pytest-xdist",
 ]
 mcp = [
-    "fastmcp>=0.1.0",
-    "mcp>=1.0.0"
+    "langchain-mcp-adapters>=0.1.0",
+    "fastmcp>=0.1.0"
 ]

@@ -1,35 +1,54 @@
 """
-MCP tool bridge for Archytas agents.
+MCP tool integration for Archytas agents.
 
-Enables MCP (Model Context Protocol) servers to be used as Archytas @tool functions.
-Returns results in LangChain's native multimodal message format.
+Thin wrapper around langchain-mcp-adapters that provides Archytas-friendly API.
+Uses the official LangChain MCP adapters library for all MCP protocol handling.
 
 Basic Usage:
-    from archytas.mcp_tools import mcp_tool
+    from archytas.mcp_tools import MCPClient
     from archytas.react import ReActAgent
 
-    tools = [
-        *mcp_tool(
-            server_name="weather",
-            command="uv run weather_server.py",
-            tools=["get_weather"]  # optional filter
-        )
-    ]
+    # Create client with multiple servers
+    client = MCPClient({
+        "weather": {
+            "transport": "stdio",
+            "command": ["python", "weather_server.py"]
+        },
+        "docs": {
+            "transport": "streamable_http",
+            "url": "https://mcp.context7.com/mcp",
+            "headers": {"CONTEXT7_API_KEY": "your-key"}
+        }
+    })
+
+    # Get all tools from all servers
+    tools = await client.get_tools()
 
     agent = ReActAgent(model="gpt-4o", tools=tools)
-    response = await agent.react("What's the weather in SF?")
+    response = await agent.react("What's the weather?")
+
+Simple Usage (single server):
+    from archytas.mcp_tools import mcp_tool_async
+
+    tools = await mcp_tool_async(
+        server_name="weather",
+        command=["python", "weather_server.py"]
+    )
 """
 
 import asyncio
-import inspect
 import logging
-from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Callable, Literal
 
 try:
-    import mcp
-    from fastmcp import Client
-    from fastmcp.client.transports import StdioTransport
+    from langchain_mcp_adapters.client import (
+        MultiServerMCPClient,
+        StdioConnection,
+        SSEConnection,
+        StreamableHttpConnection,
+        WebsocketConnection,
+    )
+    from langchain_core.tools import BaseTool
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -38,455 +57,267 @@ except ImportError:
         "Install with: pip install 'archytas[mcp]' or uv pip install 'archytas[mcp]'"
     )
 
-from archytas.tool_utils import sanitize_toolname, tool
-
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class ToolParameter:
-    """Parameter information for tool function."""
-    name: str
-    type: type
-    description: str
-    required: bool
-
-
-@dataclass
-class MCPServerHandle:
-    """Handle for an MCP server connection."""
-    name: str
-    client: Client[Any]
-    tools: dict[str, Any]
+# Re-export connection types for convenience
+if MCP_AVAILABLE:
+    __all__ = [
+        "MCPClient",
+        "mcp_tool",
+        "mcp_tool_async",
+        "StdioConnection",
+        "SSEConnection",
+        "StreamableHttpConnection",
+        "WebsocketConnection",
+    ]
 
 
-class MCPToolBridge:
+class MCPClient:
     """
-    Bridge MCP servers to Archytas @tool functions.
+    Client for connecting to multiple MCP servers.
 
-    Internal class. Use mcp_tool() helper function instead.
+    Thin wrapper around langchain-mcp-adapters' MultiServerMCPClient that provides
+    an Archytas-friendly API. All MCP protocol handling is delegated to the official
+    LangChain MCP adapters library.
+
+    Example:
+        client = MCPClient({
+            "weather": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["weather_server.py"]
+            },
+            "docs": {
+                "transport": "streamable_http",
+                "url": "https://api.example.com/mcp",
+                "headers": {"API_KEY": "secret"}
+            }
+        })
+        tools = await client.get_tools()
     """
 
-    def __init__(self):
+    def __init__(self, connections: dict | None = None):
+        """
+        Initialize MCPClient with server connections.
+
+        Args:
+            connections: Dict mapping server names to connection configs.
+                Connection configs are TypedDicts from langchain-mcp-adapters:
+                - StdioConnection
+                - SSEConnection
+                - StreamableHttpConnection
+                - WebsocketConnection
+        """
         if not MCP_AVAILABLE:
             raise ImportError(_import_error_msg)
-        self._servers: dict[str, MCPServerHandle] = {}
 
-    async def register_server(
-        self,
-        server_name: str,
-        command: list[str],
-        tool_filter: list[str] | None = None,
-        **transport_kwargs
-    ) -> list[Callable]:
+        # Delegate to langchain-mcp-adapters
+        self._client = MultiServerMCPClient(connections)
+
+    async def get_tools(self, server_name: str | None = None) -> list[BaseTool]:
         """
-        Register MCP server and return Archytas-compatible tool functions.
+        Get tools from one or all servers.
+
+        Tools are LangChain BaseTool objects that work directly with Archytas agents.
 
         Args:
-            server_name: Unique server identifier
-            command: Command to start server (e.g., ["uv", "run", "server.py"])
-            tool_filter: Optional list of tool names to register (None = all)
-            **transport_kwargs: Additional StdioTransport args (env, cwd, etc.)
+            server_name: Optional server name. If None, returns all tools.
 
         Returns:
-            List of Archytas @tool decorated functions
+            List of LangChain BaseTool objects (compatible with Archytas)
         """
-        logger.info("Registering MCP server '%s' with command: %s", server_name, command)
+        logger.debug("Getting tools from server_name=%s", server_name)
+        tools = await self._client.get_tools(server_name=server_name)
+        logger.info("Retrieved %d tools from MCP servers", len(tools))
+        return tools
 
-        # Create transport and client
-        transport = StdioTransport(command=command[0], args=command[1:], **transport_kwargs)
-        client = Client(transport)
 
-        try:
-            # Connect and discover tools
-            await client.__aenter__()
-            mcp_tools = await client.list_tools()
-            logger.info("Discovered %d tools from server '%s'", len(mcp_tools), server_name)
+# Convenience helper functions
+async def mcp_tool_async(
+    server_name: str,
+    command: str | list[str] | None = None,
+    args: list[str] | None = None,
+    url: str | None = None,
+    headers: dict[str, str] | None = None,
+    transport: Literal["stdio", "sse", "streamable_http", "websocket"] | None = None,
+    tools: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> list[BaseTool]:
+    """
+    Load tools from a single MCP server (async).
 
-            # Build tool dict
-            tool_dict = {mcp_tool.name: mcp_tool for mcp_tool in mcp_tools}
+    Simple helper for single-server usage. For multiple servers, use MCPClient directly.
 
-            # Store server handle
-            self._servers[server_name] = MCPServerHandle(
-                name=server_name,
-                client=client,
-                tools=tool_dict
-            )
+    Args:
+        server_name: Unique identifier for this server
+        command: Command executable (for stdio transport)
+        args: Command arguments (for stdio transport)
+        url: URL for HTTP-based transports (sse, streamable_http, websocket)
+        headers: HTTP headers (for sse, streamable_http)
+        transport: Transport type. Auto-detected if not specified:
+            - If command/args provided: stdio
+            - If url starts with ws:// or wss://: websocket
+            - If url provided: streamable_http (default for HTTP)
+        tools: Tool filtering not supported in langchain-mcp-adapters (use get_tools then filter)
+        env: Optional environment variables (stdio only)
+        cwd: Optional working directory (stdio only)
 
-            # Filter tools if requested
-            if tool_filter:
-                filtered_tools = {name: tool_dict[name] for name in tool_filter if name in tool_dict}
-                missing = set(tool_filter) - set(filtered_tools.keys())
-                if missing:
-                    logger.warning("Tools not found in server '%s': %s", server_name, missing)
-            else:
-                filtered_tools = tool_dict
+    Returns:
+        List of LangChain BaseTool objects
 
-            # Create Archytas tool functions
-            archytas_tools = [
-                self._create_tool_function(mcp_tool, server_name)
-                for mcp_tool in filtered_tools.values()
-            ]
-
-            logger.info("Created %d Archytas tools from server '%s'", len(archytas_tools), server_name)
-            return archytas_tools
-
-        except Exception as e:
-            logger.exception("Failed to register MCP server '%s'", server_name)
-            # Clean up on failure
-            try:
-                await client.__aexit__(None, None, None)
-            except Exception:
-                pass
-            raise RuntimeError(f"Failed to register MCP server '{server_name}': {e}") from e
-
-    def _create_tool_function(
-        self,
-        mcp_tool: Any,
-        server_name: str
-    ) -> Callable:
-        """
-        Create Archytas @tool function from MCP tool.
-
-        The generated function:
-        1. Has proper type annotations from JSON schema
-        2. Includes comprehensive docstring
-        3. Returns list[dict] in LangChain multimodal format
-        4. Is decorated with @tool
-        """
-        tool_name = sanitize_toolname(mcp_tool.name)
-        params = self._extract_parameters(mcp_tool.inputSchema)
-        docstring = self._build_docstring(mcp_tool, params)
-
-        # Create async wrapper function
-        async def mcp_tool_wrapper(**kwargs) -> list[dict]:
-            return await self._execute_tool(server_name, mcp_tool.name, **kwargs)
-
-        # Build function signature
-        sig_params = [
-            inspect.Parameter(
-                name=param.name,
-                kind=inspect.Parameter.KEYWORD_ONLY,
-                annotation=param.type,
-                default=inspect.Parameter.empty if param.required else None
-            )
-            for param in params
-        ]
-
-        # Apply metadata
-        mcp_tool_wrapper.__name__ = tool_name
-        mcp_tool_wrapper.__doc__ = docstring
-        mcp_tool_wrapper.__signature__ = inspect.Signature(
-            parameters=sig_params,
-            return_annotation=list[dict]
+    Examples:
+        # Stdio (local server)
+        tools = await mcp_tool_async(
+            server_name="weather",
+            command="python",
+            args=["weather_server.py"]
         )
-        mcp_tool_wrapper.__annotations__ = {
-            p.name: p.type for p in params
-        } | {"return": list[dict]}
 
-        # Apply @tool decorator
-        return tool(mcp_tool_wrapper)
+        # Streamable HTTP (default for HTTP URLs)
+        tools = await mcp_tool_async(
+            server_name="api",
+            url="http://localhost:8000/mcp",
+            headers={"API_KEY": "secret"}
+        )
 
-    async def _execute_tool(
-        self,
-        server_name: str,
-        tool_name: str,
-        **kwargs
-    ) -> list[dict]:
-        """
-        Execute MCP tool and return LangChain multimodal format.
+        # WebSocket
+        tools = await mcp_tool_async(
+            server_name="realtime",
+            url="ws://localhost:9000"
+        )
+    """
+    if not MCP_AVAILABLE:
+        raise ImportError(_import_error_msg)
 
-        Returns:
-            List of content dicts in LangChain format:
-            [
-                {"type": "text", "text": "..."},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
-            ]
-        """
-        if server_name not in self._servers:
-            raise ValueError(f"MCP server '{server_name}' not registered")
+    # Auto-detect transport if not specified
+    if transport is None:
+        if command or args:
+            transport = "stdio"
+        elif url:
+            if url.startswith(("ws://", "wss://")):
+                transport = "websocket"
+            else:
+                transport = "streamable_http"  # Default for HTTP
+        else:
+            raise ValueError("Must specify either 'command'/'args' or 'url'")
 
-        handle = self._servers[server_name]
-        logger.debug("Executing MCP tool '%s' on server '%s' with args: %s", tool_name, server_name, kwargs)
+    # Build connection config using langchain-mcp-adapters types
+    connection: dict
 
-        try:
-            result = await handle.client.call_tool(tool_name, kwargs)
-            return self._format_mcp_result(result)
-        except Exception as e:
-            logger.exception("Error executing MCP tool '%s' on server '%s'", tool_name, server_name)
-            # Return error as text content
-            return [{"type": "text", "text": f"Error executing tool: {e}"}]
+    if transport == "stdio":
+        # Handle command argument flexibility
+        if isinstance(command, list):
+            # If command is a list, use first element as command, rest as args
+            cmd = command[0]
+            cmd_args = command[1:]
+        elif command and args:
+            cmd = command
+            cmd_args = args
+        elif command and not args:
+            # Single command string
+            if isinstance(command, str) and " " in command:
+                parts = command.split()
+                cmd = parts[0]
+                cmd_args = parts[1:]
+            else:
+                cmd = command
+                cmd_args = []
+        else:
+            raise ValueError("'command' required for stdio transport")
 
-    def _extract_parameters(
-        self,
-        json_schema: dict[str, Any]
-    ) -> list[ToolParameter]:
-        """
-        Extract parameters from JSON schema.
+        connection = {
+            "transport": "stdio",
+            "command": cmd,
+            "args": cmd_args or []
+        }
+        if env:
+            connection["env"] = env
+        if cwd:
+            connection["cwd"] = cwd
 
-        Args:
-            json_schema: MCP tool input schema
+    elif transport == "sse":
+        if not url:
+            raise ValueError("'url' required for SSE transport")
+        connection = {
+            "transport": "sse",
+            "url": url
+        }
+        if headers:
+            connection["headers"] = headers
 
-        Returns:
-            List of parameter definitions
-        """
-        parameters = []
-        properties = json_schema.get("properties", {})
-        required = set(json_schema.get("required", []))
+    elif transport == "streamable_http":
+        if not url:
+            raise ValueError("'url' required for streamable_http transport")
+        connection = {
+            "transport": "streamable_http",
+            "url": url
+        }
+        if headers:
+            connection["headers"] = headers
 
-        for param_name, param_schema in properties.items():
-            param_type = self._json_type_to_python(param_schema)
-            param_desc = param_schema.get("description", "")
+    elif transport == "websocket":
+        if not url:
+            raise ValueError("'url' required for websocket transport")
+        connection = {
+            "transport": "websocket",
+            "url": url
+        }
 
-            parameters.append(ToolParameter(
-                name=param_name,
-                type=param_type,
-                description=param_desc,
-                required=param_name in required
-            ))
+    else:
+        raise ValueError(
+            f"Invalid transport: {transport}. "
+            f"Must be one of: 'stdio', 'sse', 'streamable_http', 'websocket'"
+        )
 
-        return parameters
+    # Create client and get tools
+    client = MCPClient({server_name: connection})
+    all_tools = await client.get_tools(server_name=server_name)
 
-    def _json_type_to_python(self, param_schema: dict[str, Any]) -> type:
-        """
-        Map JSON schema type to Python type.
+    # Apply tool filtering if requested
+    if tools:
+        filtered = [t for t in all_tools if t.name in tools]
+        logger.info(
+            "Filtered %d/%d tools for server '%s'",
+            len(filtered), len(all_tools), server_name
+        )
+        return filtered
 
-        Mapping:
-        - string -> str
-        - integer -> int
-        - number -> float
-        - boolean -> bool
-        - array -> list
-        - object -> dict
-        - null -> None
-        """
-        json_type = param_schema.get("type", "string")
-
-        match json_type:
-            case "string":
-                return str
-            case "integer":
-                return int
-            case "number":
-                return float
-            case "boolean":
-                return bool
-            case "array":
-                return list
-            case "object":
-                return dict
-            case "null":
-                return type(None)
-            case _:
-                logger.warning("Unknown JSON type '%s', defaulting to str", json_type)
-                return str
-
-    def _build_docstring(
-        self,
-        mcp_tool: Any,
-        params: list[ToolParameter]
-    ) -> str:
-        """
-        Build Archytas-compatible docstring.
-
-        Format matches Archytas conventions:
-        - Short description
-        - Args section with type annotations
-        - Returns section
-        """
-        lines = [mcp_tool.description or "MCP tool"]
-
-        if params:
-            lines.append("")
-            lines.append("Args:")
-            for param in params:
-                optional = "" if param.required else " (optional)"
-                type_name = param.type.__name__
-                lines.append(f"    {param.name} ({type_name}): {param.description}{optional}")
-
-        lines.append("")
-        lines.append("Returns:")
-        lines.append("    list[dict]: Tool result in LangChain multimodal format")
-
-        return "\n".join(lines)
-
-    def _format_mcp_result(self, result: Any) -> list[dict]:
-        """
-        Convert MCP CallToolResult to LangChain multimodal format.
-
-        Transforms MCP content blocks to LangChain's standard format.
-
-        Returns:
-            List of content dicts:
-            [
-                {"type": "text", "text": "..."},
-                {"type": "image_url", "image_url": {"url": "data:..."}}
-            ]
-        """
-        content_blocks = []
-
-        for block in result.content:
-            match block:
-                case mcp.types.TextContent(text=text):
-                    content_blocks.append({
-                        "type": "text",
-                        "text": text
-                    })
-
-                case mcp.types.ImageContent(data=data, mimeType=mime_type):
-                    # Convert to base64 data URL format
-                    image_url = f"data:{mime_type};base64,{data}"
-                    content_blocks.append({
-                        "type": "image_url",
-                        "image_url": {"url": image_url}
-                    })
-
-                case _:
-                    # Unknown content type - convert to text
-                    content_blocks.append({
-                        "type": "text",
-                        "text": f"[{block.type}]: {str(block)}"
-                    })
-
-        return content_blocks
-
-    async def close(self):
-        """Close all MCP connections."""
-        logger.info("Closing %d MCP server connections", len(self._servers))
-        for handle in self._servers.values():
-            try:
-                await handle.client.__aexit__(None, None, None)
-            except Exception:
-                logger.exception("Error closing MCP server '%s'", handle.name)
-
-
-# Singleton bridge
-_global_bridge: MCPToolBridge | None = None
+    return all_tools
 
 
 def mcp_tool(
     server_name: str,
-    command: str | list[str],
+    command: str | list[str] | None = None,
+    args: list[str] | None = None,
+    url: str | None = None,
+    headers: dict[str, str] | None = None,
+    transport: Literal["stdio", "sse", "streamable_http", "websocket"] | None = None,
     tools: list[str] | None = None,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
-) -> list[Callable]:
+) -> list[BaseTool]:
     """
-    Convert MCP server tools to Archytas @tool functions.
+    Load tools from a single MCP server (sync wrapper).
 
-    Usage:
-        from archytas.mcp_tools import mcp_tool
-        from archytas.react import ReActAgent
+    This is a synchronous wrapper around mcp_tool_async(). For async contexts,
+    use mcp_tool_async() directly.
 
-        tools = [
-            my_native_tool,
-            *mcp_tool(
-                server_name="weather",
-                command="uv run weather_server.py"
-            )
-        ]
-
-        agent = ReActAgent(model="gpt-4o", tools=tools)
-
-    Args:
-        server_name: Unique identifier for this MCP server
-        command: Command to start server (string or list)
-        tools: Optional tool name filter (None = all tools)
-        env: Optional environment variables for server
-        cwd: Optional working directory for server
-
-    Returns:
-        List of @tool decorated functions
-
-    Raises:
-        ImportError: If MCP dependencies not installed
-        ValueError: If command format invalid or server registration fails
-        RuntimeError: If MCP server connection fails
+    See mcp_tool_async() for full documentation.
     """
     if not MCP_AVAILABLE:
         raise ImportError(_import_error_msg)
 
-    global _global_bridge
-
-    if _global_bridge is None:
-        _global_bridge = MCPToolBridge()
-
-    # Convert string command to list
-    if isinstance(command, str):
-        command = command.split()
-
-    # Build transport kwargs
-    transport_kwargs = {}
-    if env:
-        transport_kwargs["env"] = env
-    if cwd:
-        transport_kwargs["cwd"] = cwd
-
-    # Register server synchronously (wraps async call)
     return asyncio.run(
-        _global_bridge.register_server(
+        mcp_tool_async(
             server_name=server_name,
             command=command,
-            tool_filter=tools,
-            **transport_kwargs
+            args=args,
+            url=url,
+            headers=headers,
+            transport=transport,
+            tools=tools,
+            env=env,
+            cwd=cwd
         )
-    )
-
-
-async def mcp_tool_async(
-    server_name: str,
-    command: str | list[str],
-    tools: list[str] | None = None,
-    env: dict[str, str] | None = None,
-    cwd: str | None = None,
-) -> list[Callable]:
-    """
-    Async version of mcp_tool() for use in async contexts.
-
-    Usage:
-        tools = [
-            my_native_tool,
-            *await mcp_tool_async(
-                server_name="weather",
-                command="uv run weather_server.py"
-            )
-        ]
-
-    Args:
-        server_name: Unique identifier for this MCP server
-        command: Command to start server (string or list)
-        tools: Optional tool name filter (None = all tools)
-        env: Optional environment variables for server
-        cwd: Optional working directory for server
-
-    Returns:
-        List of @tool decorated functions
-
-    Raises:
-        ImportError: If MCP dependencies not installed
-        ValueError: If command format invalid or server registration fails
-        RuntimeError: If MCP server connection fails
-    """
-    if not MCP_AVAILABLE:
-        raise ImportError(_import_error_msg)
-
-    global _global_bridge
-
-    if _global_bridge is None:
-        _global_bridge = MCPToolBridge()
-
-    if isinstance(command, str):
-        command = command.split()
-
-    transport_kwargs = {}
-    if env:
-        transport_kwargs["env"] = env
-    if cwd:
-        transport_kwargs["cwd"] = cwd
-
-    return await _global_bridge.register_server(
-        server_name=server_name,
-        command=command,
-        tool_filter=tools,
-        **transport_kwargs
     )
