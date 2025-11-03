@@ -183,7 +183,7 @@ class TestMCPIntegration:
             # Should have 3 tools: echo, add, generate_image
             assert len(tools) >= 3
 
-            tool_names = [t.name for t in tools]
+            tool_names = [t.__name__ for t in tools]
             assert "echo" in tool_names
             assert "add" in tool_names
             assert "generate_image" in tool_names
@@ -211,10 +211,10 @@ class TestMCPIntegration:
                 command=[sys.executable, mock_server_path]
             )
 
-            echo_tool = next(t for t in tools if t.name == "echo")
+            echo_tool = next(t for t in tools if t.__name__ == "echo")
 
-            # LangChain tools use ainvoke() for async execution
-            result = await echo_tool.ainvoke({"message": "test"})
+            # Wrapped tools now use Archytas's run() method
+            result = await echo_tool.run({"message": "test"}, {})
 
             # langchain-mcp-adapters returns the tool result directly
             # The format depends on how the MCP server returns it
@@ -247,7 +247,7 @@ class TestMCPIntegration:
                 tools=["echo", "add"]
             )
 
-            tool_names = [t.name for t in tools]
+            tool_names = [t.__name__ for t in tools]
             assert len(tools) == 2
             assert "echo" in tool_names
             assert "add" in tool_names

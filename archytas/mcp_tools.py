@@ -57,6 +57,8 @@ except ImportError:
         "Install with: pip install 'archytas[mcp]' or uv pip install 'archytas[mcp]'"
     )
 
+from .tool_utils import tool
+
 logger = logging.getLogger(__name__)
 
 # Re-export connection types for convenience
@@ -70,6 +72,99 @@ if MCP_AVAILABLE:
         "StreamableHttpConnection",
         "WebsocketConnection",
     ]
+
+
+def _wrap_langchain_tool(langchain_tool: "BaseTool") -> Callable:
+    """
+    Wrap a LangChain BaseTool to make it compatible with Archytas agents.
+
+    LangChain StructuredTool objects don't support sync invocation, but Archytas
+    expects tools to have a run() method. This wrapper creates an async function
+    that calls the tool's ainvoke() method and decorates it with @tool.
+
+    Args:
+        langchain_tool: A LangChain BaseTool object (from langchain-mcp-adapters)
+
+    Returns:
+        An Archytas-compatible tool function with run() method
+    """
+    # Sanitize tool name to be a valid Python identifier
+    # Replace hyphens and other invalid chars with underscores
+    sanitized_name = langchain_tool.name.replace("-", "_").replace(" ", "_")
+    # Ensure it starts with a letter or underscore
+    if sanitized_name and not (sanitized_name[0].isalpha() or sanitized_name[0] == "_"):
+        sanitized_name = "_" + sanitized_name
+
+    # Get the tool's input schema (JSON Schema dict)
+    args_schema = langchain_tool.args_schema
+
+    # Create parameter specifications from the schema
+    if args_schema and "properties" in args_schema:
+        # Extract field names and types from JSON Schema
+        params_code = []
+        properties = args_schema.get("properties", {})
+
+        for field_name, field_spec in properties.items():
+            # Map JSON Schema types to Python type strings
+            json_type = field_spec.get("type", "string")
+            if json_type == "string":
+                params_code.append(f"{field_name}: str")
+            elif json_type == "integer":
+                params_code.append(f"{field_name}: int")
+            elif json_type == "number":
+                params_code.append(f"{field_name}: float")
+            elif json_type == "boolean":
+                params_code.append(f"{field_name}: bool")
+            else:
+                # Default to str for unknown types
+                params_code.append(f"{field_name}: str")
+
+        params_str = ", ".join(params_code)
+    else:
+        # No schema - just use generic kwargs
+        params_str = "**kwargs"
+
+    # Build the wrapper function dynamically with proper signatures
+    # Build kwargs dict from actual parameter names
+    if args_schema and "properties" in args_schema:
+        param_names = list(args_schema.get("properties", {}).keys())
+        kwargs_builder = "{" + ", ".join([f"'{name}': {name}" for name in param_names]) + "}"
+    else:
+        kwargs_builder = "kwargs"
+
+    func_code = f"""
+async def {sanitized_name}({params_str}):
+    # Build kwargs from actual parameters
+    tool_kwargs = {kwargs_builder}
+
+    # Call the LangChain tool
+    result = await langchain_tool.ainvoke(tool_kwargs)
+    # Return result as-is (can be str, list, dict for multimodal)
+    return result
+"""
+
+    # Execute the code to create the function
+    namespace = {"langchain_tool": langchain_tool}
+    exec(func_code, namespace)
+    wrapper = namespace[sanitized_name]
+
+    # Build a proper docstring with Args section for Archytas
+    docstring_parts = [langchain_tool.description or "MCP tool"]
+
+    if args_schema and "properties" in args_schema:
+        docstring_parts.append("\n\nArgs:")
+        properties = args_schema.get("properties", {})
+        for field_name, field_spec in properties.items():
+            field_desc = field_spec.get("description", "No description")
+            field_type = field_spec.get("type", "string")
+            docstring_parts.append(f"    {field_name} ({field_type}): {field_desc}")
+
+    wrapper.__doc__ = "\n".join(docstring_parts)
+
+    # Apply Archytas @tool decorator
+    archytas_tool = tool(wrapper)
+
+    return archytas_tool
 
 
 class MCPClient:
@@ -114,22 +209,25 @@ class MCPClient:
         # Delegate to langchain-mcp-adapters
         self._client = MultiServerMCPClient(connections)
 
-    async def get_tools(self, server_name: str | None = None) -> list[BaseTool]:
+    async def get_tools(self, server_name: str | None = None) -> list[Callable]:
         """
         Get tools from one or all servers.
 
-        Tools are LangChain BaseTool objects that work directly with Archytas agents.
+        Tools are wrapped to be compatible with Archytas agents' execution model.
 
         Args:
             server_name: Optional server name. If None, returns all tools.
 
         Returns:
-            List of LangChain BaseTool objects (compatible with Archytas)
+            List of Archytas-compatible tool functions
         """
         logger.debug("Getting tools from server_name=%s", server_name)
-        tools = await self._client.get_tools(server_name=server_name)
-        logger.info("Retrieved %d tools from MCP servers", len(tools))
-        return tools
+        langchain_tools = await self._client.get_tools(server_name=server_name)
+        logger.info("Retrieved %d tools from MCP servers", len(langchain_tools))
+
+        # Wrap LangChain tools to make them Archytas-compatible
+        archytas_tools = [_wrap_langchain_tool(t) for t in langchain_tools]
+        return archytas_tools
 
 
 # Convenience helper functions
@@ -143,7 +241,7 @@ async def mcp_tool_async(
     tools: list[str] | None = None,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
-) -> list[BaseTool]:
+) -> list[Callable]:
     """
     Load tools from a single MCP server (async).
 
@@ -164,7 +262,7 @@ async def mcp_tool_async(
         cwd: Optional working directory (stdio only)
 
     Returns:
-        List of LangChain BaseTool objects
+        List of Archytas-compatible tool functions (wrapped LangChain tools)
 
     Examples:
         # Stdio (local server)

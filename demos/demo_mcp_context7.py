@@ -62,7 +62,7 @@ async def main():
         # Show available tools
         print("Available tools:")
         for tool in context7_tools:
-            print(f"  - {tool.name}")
+            print(f"  - {tool.__name__}")
         print()
 
     except Exception as e:

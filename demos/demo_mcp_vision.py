@@ -25,8 +25,8 @@ async def main():
     print("  MCP Vision Demo - Agent Can See Images!")
     print("=" * 70 + "\n")
 
-    # Setup MCP server
-    mock_server = Path(__file__).parent / "tests" / "fixtures" / "mock_mcp_server.py"
+    # Setup MCP server (go up one level from demos/ to repo root, then into tests/)
+    mock_server = Path(__file__).parent.parent / "tests" / "fixtures" / "mock_mcp_server.py"
 
     print("Setting up agent with vision-capable model and MCP tools...")
     mcp_tools = await mcp_tool_async(

@@ -44,7 +44,7 @@ async def main():
         # Show available tools
         print("Available tools:")
         for tool in duckduckgo_tools:
-            print(f"  - {tool.name}")
+            print(f"  - {tool.__name__}")
         print()
 
     except Exception as e:
@@ -56,7 +56,7 @@ async def main():
     # Create agent with DuckDuckGo tools
     print("Creating agent with vision-capable model...")
     agent = ReActAgent(
-        model=OpenAIModel({"model_name": "gpt-4o-mini"}),
+        model=OpenAIModel({"model_name": "gpt-4o"}),
         tools=duckduckgo_tools,
         allow_ask_user=False,
         verbose=True,
@@ -64,7 +64,7 @@ async def main():
     print("✓ Agent ready!\n")
 
     # Test query
-    query = "What are the latest developments in AI agents?"
+    query = "What are the latest developments in AI agents? Use the duckduckgo tool to search for the latest news."
 
     print(f"Query: {query}\n")
     print("Agent searching...")
