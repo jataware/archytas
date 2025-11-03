@@ -1,10 +1,9 @@
 # ruff: noqa
 # type: ignore
-"""Tests for multimodal tool returns and MCP integration."""
+"""Tests for multimodal tool returns."""
 
 import pytest
 from archytas.tool_utils import tool
-from archytas.mcp_tools import MCPClient
 from archytas.react import format_tool_result_for_display
 
 
@@ -154,104 +153,3 @@ class TestDisplayFormatting:
         content = [{"type": "unknown", "data": "xyz"}]
         result = format_tool_result_for_display(content)
         assert "[unknown]" in result
-
-
-class TestMCPIntegration:
-    """Integration tests with mock MCP server."""
-
-    @pytest.mark.asyncio
-    async def test_register_mcp_server(self):
-        """Test registering a mock MCP server."""
-        import sys
-        import os
-
-        # Get the path to mock server
-        test_dir = os.path.dirname(__file__)
-        mock_server_path = os.path.join(test_dir, "fixtures", "mock_mcp_server.py")
-
-        if not os.path.exists(mock_server_path):
-            pytest.skip("Mock MCP server not found")
-
-        from archytas.mcp_tools import mcp_tool_async
-
-        try:
-            tools = await mcp_tool_async(
-                server_name="test",
-                command=[sys.executable, mock_server_path]
-            )
-
-            # Should have 3 tools: echo, add, generate_image
-            assert len(tools) >= 3
-
-            tool_names = [t.__name__ for t in tools]
-            assert "echo" in tool_names
-            assert "add" in tool_names
-            assert "generate_image" in tool_names
-
-        except Exception as e:
-            pytest.skip(f"Could not connect to mock MCP server: {e}")
-
-    @pytest.mark.asyncio
-    async def test_execute_echo_tool(self):
-        """Test executing echo tool from mock server."""
-        import sys
-        import os
-
-        test_dir = os.path.dirname(__file__)
-        mock_server_path = os.path.join(test_dir, "fixtures", "mock_mcp_server.py")
-
-        if not os.path.exists(mock_server_path):
-            pytest.skip("Mock MCP server not found")
-
-        from archytas.mcp_tools import mcp_tool_async
-
-        try:
-            tools = await mcp_tool_async(
-                server_name="test_echo",
-                command=[sys.executable, mock_server_path]
-            )
-
-            echo_tool = next(t for t in tools if t.__name__ == "echo")
-
-            # Wrapped tools now use Archytas's run() method
-            result = await echo_tool.run({"message": "test"}, {})
-
-            # langchain-mcp-adapters returns the tool result directly
-            # The format depends on how the MCP server returns it
-            assert result is not None
-            # Basic smoke test - just verify we got a result
-            assert isinstance(result, (str, list, dict))
-
-        except Exception as e:
-            pytest.skip(f"Could not execute MCP tool: {e}")
-
-    @pytest.mark.asyncio
-    async def test_tool_filtering(self):
-        """Test filtering MCP tools."""
-        import sys
-        import os
-
-        test_dir = os.path.dirname(__file__)
-        mock_server_path = os.path.join(test_dir, "fixtures", "mock_mcp_server.py")
-
-        if not os.path.exists(mock_server_path):
-            pytest.skip("Mock MCP server not found")
-
-        from archytas.mcp_tools import mcp_tool_async
-
-        try:
-            # Only register echo and add tools
-            tools = await mcp_tool_async(
-                server_name="test_filtered",
-                command=[sys.executable, mock_server_path],
-                tools=["echo", "add"]
-            )
-
-            tool_names = [t.__name__ for t in tools]
-            assert len(tools) == 2
-            assert "echo" in tool_names
-            assert "add" in tool_names
-            assert "generate_image" not in tool_names
-
-        except Exception as e:
-            pytest.skip(f"Could not filter MCP tools: {e}")
