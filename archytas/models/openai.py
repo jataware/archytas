@@ -5,7 +5,7 @@ from typing import Any, Optional, Annotated
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_openai.llms.base import OpenAI
 from langchain_core.messages import FunctionMessage, AIMessage
-from langchain.tools import StructuredTool
+from langchain_core.tools import StructuredTool
 
 from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError, BadRequestError
 from .base import BaseArchytasModel, ModelConfig, set_env_auth

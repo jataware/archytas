@@ -10,33 +10,42 @@ readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.10"
 dependencies = [
-    "openai>=1.64",
+    "openai>=2.0",
     "rich>=13.3.4",
     "docstring-parser>=0.16",
     "pytz>=2023.3",
     "toml>=0.10.2",
     "frozendict>=2.3.8",
     "pydantic>=1.9.0",
-    "langchain>=0.3",
-    "langchain-core>=0.3",
-    "langchain-community>=0.3",
-    "langchain-openai>=0.3",
-    "langchain-anthropic>=0.3",
-    "langchain-groq>=0.2",
-    "anthropic>=0.49",
-    "langchain-ollama>=0.2",
+    "langchain>=1.0",
+    "langchain-core>=1.0",
+    "langchain-community>=0.4",
+    "langchain-openai>=1.0",
+    "langchain-anthropic>=1.0",
+    "langchain-groq>=1.0",
+    "anthropic>=0.70",
+    "langchain-ollama>=1.0",
     "langchain-google-genai>=2.1",
     "botocore>=1.37",
-    "langchain-aws>=0.2",
+    "langchain-aws>=1.0",
     "azure-ai-inference>=1.0.0b9",
     "jinja2>=3.1.6",
-    "toki>=0.2.8"
+    "toki>=0.2.8",
+    "langchain-mcp-adapters>=0.1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "easyrepl>=0.1.2",
-    "pytest>=8.3.3"
+    "pytest>=8.4.2",
+    "pytest-asyncio",
+    "pytest-xdist",
+]
+testing = [
+    "pytest>=8.4.2",
+    "pytest-asyncio",
+    "pytest-xdist",
+    "fastmcp>=0.1.0",
 ]
 
 [project.scripts]
@@ -60,4 +69,10 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio",
     "pytest-xdist",
+]
+testing = [
+    "pytest>=8.4.2",
+    "pytest-asyncio",
+    "pytest-xdist",
+    "fastmcp>=0.1.0",
 ]

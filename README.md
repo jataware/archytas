@@ -9,7 +9,8 @@ Tools can be anything from internet searches to custom interpreters for your dom
 
 <div style="clear:left;"></div>
 
-# Demo
+# Demos
+
 Short demo of using the `PythonTool` to download a COVID-19 dataset, and perform some basic processing/visualization/analysis/etc.
 <div align="center">
   <a href="https://youtu.be/52e4xN8SIi8">
@@ -18,6 +19,27 @@ Short demo of using the `PythonTool` to download a COVID-19 dataset, and perform
   <br/>
   click to watch original video on youtube
 </div>
+
+## MCP Demos
+
+```bash
+# Install with MCP support (includes langchain-mcp-adapters + fastmcp)
+uv pip install -e ".[mcp]"
+
+# Vision demo with local MCP server
+python demos/demo_mcp_vision.py
+
+# External MCP server (DuckDuckGo search via npx)
+python demos/demo_mcp_duckduckgo.py
+
+# HTTP MCP server (Context7 - requires API key)
+export CONTEXT7_API_KEY="your-api-key"
+python demos/demo_mcp_context7.py
+```
+To use mcp tools with archytas, you will need to install the optional deps
+`uv pip install -e ".[mcp]"`
+
+Read the [mcp quick start doc](docs/MCP_QUICK_START.md)  for more info
 
 # Quickstart
 ```bash
@@ -60,3 +82,4 @@ for query in REPL():
 
 # Documentation
 See the [wiki docs](https://github.com/jataware/archytas/wiki) for details.
+
