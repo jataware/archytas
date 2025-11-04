@@ -40,38 +40,29 @@ import asyncio
 import logging
 from typing import Callable, Literal
 
-try:
-    from langchain_mcp_adapters.client import (
-        MultiServerMCPClient,
-        StdioConnection,
-        SSEConnection,
-        StreamableHttpConnection,
-        WebsocketConnection,
-    )
-    from langchain_core.tools import BaseTool
-    MCP_AVAILABLE = True
-except ImportError:
-    MCP_AVAILABLE = False
-    _import_error_msg = (
-        "MCP dependencies not installed. "
-        "Install with: pip install 'archytas[mcp]' or uv pip install 'archytas[mcp]'"
-    )
+from langchain_core.tools import BaseTool
+from langchain_mcp_adapters.client import (
+    MultiServerMCPClient,
+    StdioConnection,
+    SSEConnection,
+    StreamableHttpConnection,
+    WebsocketConnection,
+)
 
 from .tool_utils import tool
 
 logger = logging.getLogger(__name__)
 
 # Re-export connection types for convenience
-if MCP_AVAILABLE:
-    __all__ = [
-        "MCPClient",
-        "mcp_tool",
-        "mcp_tool_async",
-        "StdioConnection",
-        "SSEConnection",
-        "StreamableHttpConnection",
-        "WebsocketConnection",
-    ]
+__all__ = [
+    "MCPClient",
+    "mcp_tool",
+    "mcp_tool_async",
+    "StdioConnection",
+    "SSEConnection",
+    "StreamableHttpConnection",
+    "WebsocketConnection",
+]
 
 
 def _wrap_langchain_tool(langchain_tool: "BaseTool") -> Callable:
@@ -203,8 +194,6 @@ class MCPClient:
                 - StreamableHttpConnection
                 - WebsocketConnection
         """
-        if not MCP_AVAILABLE:
-            raise ImportError(_import_error_msg)
 
         # Delegate to langchain-mcp-adapters
         self._client = MultiServerMCPClient(connections)
@@ -285,8 +274,6 @@ async def mcp_tool_async(
             url="ws://localhost:9000"
         )
     """
-    if not MCP_AVAILABLE:
-        raise ImportError(_import_error_msg)
 
     # Auto-detect transport if not specified
     if transport is None:
@@ -403,8 +390,6 @@ def mcp_tool(
 
     See mcp_tool_async() for full documentation.
     """
-    if not MCP_AVAILABLE:
-        raise ImportError(_import_error_msg)
 
     return asyncio.run(
         mcp_tool_async(
