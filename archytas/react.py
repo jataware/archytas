@@ -523,7 +523,7 @@ class ReActAgent(Agent):
         )
 
         if not summary:
-            return f"Error: Unable to locate summary {summarized_record_uuid}"
+            return f"Error: Unable to locate summary {summary_record_uuid}"
 
         # This method of collecting records should ensure correct ordering
         summarized_records: list[MessageRecord[BaseMessage]] = [

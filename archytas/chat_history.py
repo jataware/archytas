@@ -304,6 +304,7 @@ class ChatHistory:
             self.history_summarizer(
                 chat_history=self,
                 agent=agent,
+                model=agent.model,
                 recordset=recordset,
             )
         )
