@@ -57,7 +57,7 @@ class AutoContextMessage(ContextMessage):
 
     @property
     def content_hash(self):
-        return hashlib.sha1(self.text().encode()).hexdigest()
+        return hashlib.sha1(self.text.encode()).hexdigest()
 
     @property
     def token_count(self):

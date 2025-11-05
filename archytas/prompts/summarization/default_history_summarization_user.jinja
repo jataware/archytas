@@ -64,7 +64,7 @@ The messages to summarize start are below:
 ### START OF MESSAGES ###
 {% for record in records_to_summarize %}
 ```{{record.message.__class__.__name__}} {{record.uuid}} content
-{{record.message.text().strip()}}
+{{record.message.text.strip()}}
 ```
 
 {% if isinstance(record.message, AIMessage) and record.message.tool_calls %}

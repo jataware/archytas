@@ -651,7 +651,7 @@ Available summaries are:
             response_parts.append(f"""\
 ==== Message `{record.uuid}`     ====
 --- Message text     ---
-{record.message.text()}
+{record.message.text}
 --- End Message text ---
 """
             )
