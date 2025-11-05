@@ -125,6 +125,7 @@ class OutboundChatHistory:
 
 class ChatHistory:
     base_tokens: int
+    user_preamble: Optional[MessageRecord[HumanMessage]]
     current_loop_id: int|None
     raw_records: list[MessageRecord]
     summaries: list[SummaryRecord]
@@ -150,6 +151,7 @@ class ChatHistory:
         history_summarizer: Optional[callable] = default_history_summarizer,
     ):
         self.base_tokens = 0
+        self.user_preamble = None
         self.current_loop_id = None
         self.raw_records = []
         self.summaries = []
@@ -409,6 +411,9 @@ class ChatHistory:
             records.append(summary_record)
             summarized_messages.update(summary_record.summarized_messages)
 
+        if self.user_preamble:
+            records.append(self.user_preamble)
+
         for message_record in self.raw_records:
             if message_record.uuid not in summarized_messages:
                 records.append(message_record)
@@ -429,12 +434,27 @@ class ChatHistory:
         if self.auto_context_message:
             messages.append(
                 MessageRecord(message=self.auto_context_message))
+
+        if self.user_preamble:
+            messages.append(self.user_preamble)
+
         messages.extend(self.raw_records)
         return messages
 
     async def all_messages(self, auto_update_context: bool = True) -> list[MessageType]:
         records = await self.all_records(auto_update_context=auto_update_context)
         return [cast(MessageType, record.message) for record in records]
+
+    def set_user_preamble_text(self, text: str):
+        """
+        Sets/updates the user_preamble
+
+        Set text to an empty string to remove the preamble message.
+        """
+        if text:
+            self.user_preamble = MessageRecord(message=HumanMessage(content=text), metadata={"preamble": True})
+        else:
+            self.user_preamble = None
 
     def add_message(
         self,
