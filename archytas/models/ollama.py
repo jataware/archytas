@@ -34,7 +34,7 @@ Be sure to always use the `final_answer` tool to report back to the user.
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
     
     @lru_cache()
-    def contextsize(self, model_name: str | None) -> int | None:
+    def contextsize(self, model_name: str | None = None) -> int | None:
         if model_name is None:
             model_name = self.model_name
         show_response = self.model._client.show(self.model_name)
