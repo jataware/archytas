@@ -116,7 +116,7 @@ class BedrockModel(BaseArchytasModel):
                 aws_session_token=self.aws_session_token or None,
                 region_name=region,
                 model=model,
-                max_tokens=max_tokens or 4096
+                max_tokens=max_tokens
             )
 
     def _preprocess_messages(self, messages):
