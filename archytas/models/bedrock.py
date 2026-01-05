@@ -90,7 +90,7 @@ class BedrockModel(BaseArchytasModel):
         if self.config.model_extra:
             if self.config.model_extra.get('region', '') != '':
                 region = self.config.model_extra.get('region')
-            max_tokens = self.config.model_extra.get('max_tokens', 4096)
+            max_tokens = self.config.model_extra.get('max_tokens', None)
 
         model = self.config.model_name or self.DEFAULT_MODEL
 
