@@ -277,16 +277,16 @@ class TestAsyncReAct:
             assert len(ai_message.content) > 0
             response = ai_message.content[0]
             print(ai_message)
-            # gemini include_thoughts=True thoughts
-            # if response["type"] == "thinking":
-            #     assert response["thinking"] is not None
-            #     assert isinstance(response["thinking"], str)
-            #     assert len(response["thinking"]) > 0
-            # # anthropic fills it in the text field
-            # else:
-            assert response["text"] is not None
-            assert isinstance(response["text"], str)
-            assert len(response["text"]) > 0
+            # gemini include_thoughts=True returns thinking blocks
+            if response.get("type") == "thinking":
+                assert response["thinking"] is not None
+                assert isinstance(response["thinking"], str)
+                assert len(response["thinking"]) > 0
+            # anthropic and others fill it in the text field
+            else:
+                assert response["text"] is not None
+                assert isinstance(response["text"], str)
+                assert len(response["text"]) > 0
         # openai returns just a plain string
         else:
             assert isinstance(ai_message.content, str)
