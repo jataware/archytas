@@ -53,7 +53,11 @@ When passing strings to tools, you do not need to escape the values. They are al
         if "flash" in model_name:
             return 1_048_576
         elif "pro" in model_name:
-            return 2_097_152
+            # gemini 2.0/2.5 have 2M context, others do not
+            if "2." in model_name:
+                return 2_097_152
+            else:
+                return 1_048_576
 
     def _preprocess_messages(self, messages):
         from ..agent import SystemMessage, AutoContextMessage
