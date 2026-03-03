@@ -153,35 +153,40 @@ When passing strings to tools, you do not need to escape the values. They are al
         from ..agent import AgentResponse
         content = response_message.content
         tool_calls = response_message.tool_calls
-        tool_thoughts = [
-            tool_call["args"].pop("thought", f"Calling tool '{tool_call['name']}'")
-            for tool_call in tool_calls
-        ]
 
         text = ""
         if isinstance(content, str):
             text = content
         elif isinstance(content, list):
-            # Extract text from text blocks first
-            text_parts = [
-                item["text"] for item in content
-                if isinstance(item, dict) and item.get("type") == "text" and item.get("text")
-            ]
-            if text_parts:
-                text = "\n".join(text_parts)
-            else:
-                # Fall back to thinking blocks (from include_thoughts=True)
-                thinking_parts = [
-                    item.get("thinking", "") for item in content
-                    if isinstance(item, dict) and item.get("type") == "thinking" and item.get("thinking")
-                ]
-                if thinking_parts:
-                    text = "\n".join(thinking_parts)
+            # Extract all content blocks with source labels
+            labeled_parts = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                block_type = item.get("type")
+                if block_type == "text" and len(item.get("text") or "") > 0:
+                    labeled_parts.append(str(item['text']))
+                # thinking blocks are much too verbose for a beaker user experience
+                elif block_type == "thinking" and item.get("thinking"):
+                    # labeled_parts.append(f"[thinking] {item['thinking']}")
+                    pass
+                elif block_type == "reasoning" and item.get("reasoning"):
+                    # labeled_parts.append(f"[reasoning] {item['reasoning']}")
+                    pass
+            if labeled_parts:
+                text = "\n".join(labeled_parts)
 
-        if not text:
-            if tool_calls:
-                text = "\n".join(tool_thoughts)
-            else:
-                raise ValueError("Response from LLM does not include any content or tool calls.")
+        # tool call blocks:
+        #
+        # tool_thoughts = [
+        #     tool_call["args"].pop("thought", f"Calling tool: `{tool_call['name']}`.")
+        #     for tool_call in tool_calls
+        #     if tool_call['name'] not in ['ask_user', 'run_code']
+        # ]
+        # if not text:
+        #     if tool_calls:
+        #         text = "\n".join(tool_thoughts)
+        #     else:
+        #         raise ValueError("Response from LLM does not include any content or tool calls.")
 
         return AgentResponse(text=text, tool_calls=tool_calls)
