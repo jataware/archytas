@@ -51,7 +51,7 @@ When passing strings to tools, you do not need to escape the values. They are al
         """
         if model_name is None:
             model_name = self.config.model_name or self.DEFAULT_MODEL
-        # Match gemini-2.X where X >= 5, or gemini-3+
+        # Match 3.1
         match = re.search(r'(\d+)\.(\d+)', model_name)
         if not match:
             return False
@@ -66,10 +66,9 @@ When passing strings to tools, you do not need to escape the values. They are al
         )
         if self._model_supports_thinking(model_name):
             model_kwargs["include_thoughts"] = True
-        if self._model_supports_medium_thinking_level(model_name):
-            # model_kwargs["thinking_level"] = "medium"
-            # model_kwargs["thinking_budget_token_limit"] = 1000
-            pass
+        # if self._model_supports_medium_thinking_level(model_name):
+        #     model_kwargs["thinking_level"] = "medium"
+        #     model_kwargs["thinking_budget_token_limit"] = 1000
         return ChatGoogleGenerativeAI(**model_kwargs)
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
@@ -166,13 +165,9 @@ When passing strings to tools, you do not need to escape the values. They are al
                 block_type = item.get("type")
                 if block_type == "text" and len(item.get("text") or "") > 0:
                     labeled_parts.append(str(item['text']))
-                # thinking blocks are much too verbose for a beaker user experience
-                elif block_type == "thinking" and item.get("thinking"):
-                    # labeled_parts.append(f"[thinking] {item['thinking']}")
-                    pass
-                elif block_type == "reasoning" and item.get("reasoning"):
-                    # labeled_parts.append(f"[reasoning] {item['reasoning']}")
-                    pass
+                # TODO: block_type: "thinking" and item["thinking"] contain thoughts
+                # that are much too verbose for a beaker user experience, but could be behind
+                # a length threshold.
             if labeled_parts:
                 text = "\n".join(labeled_parts)
 
