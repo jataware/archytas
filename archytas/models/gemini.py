@@ -44,6 +44,20 @@ When passing strings to tools, you do not need to escape the values. They are al
         major, minor = int(match.group(1)), int(match.group(2))
         return major >= 3 or (major == 2 and minor >= 5)
 
+    def _model_supports_medium_thinking_level(self, model_name: str | None = None) -> bool:
+        """
+        Check if the model supports a MEDIUM thought level instead of HIGH or LOW
+        (gemini-3.1-pro-preview).
+        """
+        if model_name is None:
+            model_name = self.config.model_name or self.DEFAULT_MODEL
+        # Match gemini-2.X where X >= 5, or gemini-3+
+        match = re.search(r'(\d+)\.(\d+)', model_name)
+        if not match:
+            return False
+        major, minor = int(match.group(1)), int(match.group(2))
+        return major >= 3 and minor == 1
+
     def initialize_model(self, **kwargs):
         model_name = self.config.model_name or self.DEFAULT_MODEL
         model_kwargs = dict(
@@ -52,6 +66,10 @@ When passing strings to tools, you do not need to escape the values. They are al
         )
         if self._model_supports_thinking(model_name):
             model_kwargs["include_thoughts"] = True
+        if self._model_supports_medium_thinking_level(model_name):
+            # model_kwargs["thinking_level"] = "medium"
+            # model_kwargs["thinking_budget_token_limit"] = 1000
+            pass
         return ChatGoogleGenerativeAI(**model_kwargs)
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
