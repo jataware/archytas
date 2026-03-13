@@ -12,7 +12,7 @@ from pathlib import Path
 
 from archytas.mcp_tools import mcp_tool_async, MCP_AVAILABLE
 from archytas.react import ReActAgent
-from archytas.models.openai import OpenAIModel
+from archytas.models import GPT4o
 
 
 async def main():
@@ -34,7 +34,7 @@ async def main():
     )
 
     agent = ReActAgent(
-        model=OpenAIModel({"model_name": "gpt-4o-mini"}),
+        model=GPT4o(),
         tools=mcp_tools,
         allow_ask_user=False,
         verbose=False,

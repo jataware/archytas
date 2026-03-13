@@ -106,13 +106,10 @@ class TestHistorySummarization:
     @pytest.mark.asyncio
     async def test_summarization_threshold_config(self, openai_model):
         """Test configuring summarization threshold."""
-        from archytas.models.openai import OpenAIModel
+        from archytas.models import Model, GPTFamily
 
         # Create model with custom summarization settings
-        model = OpenAIModel({
-            "model_name": "gpt-5",
-            "summarization_threshold": 1000
-        })
+        model = Model(family=GPTFamily, model_name="gpt-5", summarization_threshold=1000)
 
         assert model.summarization_threshold == 1000
 

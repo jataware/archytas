@@ -16,10 +16,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from pydantic import Field
 
 from .exceptions import AuthenticationError, ExecutionError, ModelError, ContextWindowExceededError
-from .models.base import BaseArchytasModel
+from .models.model import Model
 from .utils import ensure_async
-
-from .exceptions import AuthenticationError
 from .summarizers import (
     MessageSummarizerFunction, LoopSummarizerFunction, HistorySummarizerFunction, # BaseHistorySummarizer, # DefaultHistoryManager
     default_history_summarizer, default_loop_summarizer
@@ -49,7 +47,7 @@ class AutoContextMessage(ContextMessage):
     default_content: str = Field(exclude=True)
     content_updater: Callable[[], str] = Field(exclude=True)
 
-    def __init__(self, default_content: str, content_updater: Callable[[], str], model: Optional[BaseArchytasModel] = None, **kwargs):
+    def __init__(self, default_content: str, content_updater: Callable[[], str], model: Optional[Model] = None, **kwargs):
         kwargs.update({"default_content": default_content, "content_updater": content_updater})
         super().__init__(content=default_content, **kwargs)
         self._token_count = None
@@ -130,7 +128,7 @@ class ChatHistory:
     raw_records: list[MessageRecord]
     summaries: list[SummaryRecord]
     system_message: Optional[MessageRecord[SystemMessage]]
-    model: Optional[BaseArchytasModel]
+    model: Optional[Model]
     loop_summarizer: Optional[callable]
     history_summarizer: Optional[callable]
     summarization_threshold: int
@@ -146,7 +144,7 @@ class ChatHistory:
     def __init__(
         self,
         messages: Optional[Collection[BaseMessage]] = None,
-        model: Optional[BaseArchytasModel] = None,
+        model: Optional[Model] = None,
         loop_summarizer: Optional[callable] = default_loop_summarizer,
         history_summarizer: Optional[callable] = default_history_summarizer,
     ):
@@ -228,7 +226,7 @@ class ChatHistory:
         )
         return (cast(MessageRecord, calling_record), tool_call)
 
-    async def needs_summarization(self, model: Optional[BaseArchytasModel]=None):
+    async def needs_summarization(self, model: Optional[Model]=None):
         if model is not None:
             threshold = model.summarization_threshold
         elif self.model is not None:
@@ -316,7 +314,7 @@ class ChatHistory:
 
     async def token_estimate(
         self,
-        model: BaseArchytasModel,
+        model: Model,
         messages: Optional[list[RecordType]|list[MessageType]]=None,
         force_update: bool = False,
         tools: Optional[dict]=None,

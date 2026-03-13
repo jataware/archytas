@@ -1,9 +1,15 @@
 import os
 import pytest
 from archytas.react import ReActAgent
-from archytas.models.openai import OpenAIModel
-from archytas.models.anthropic import AnthropicModel
-from archytas.models.gemini import GeminiModel
+from archytas.models import (
+    Model,
+    GPTFamily,
+    ClaudeFamily,
+    GeminiFamily,
+    OpenAIProvider,
+    AnthropicProvider,
+    GeminiProvider,
+)
 
 
 def pytest_addoption(parser):
@@ -93,21 +99,21 @@ def gemini_api_key():
 def openai_model(openai_api_key, request):
     """Create an OpenAI model instance for testing."""
     model_name = request.config.getoption("--openai-model")
-    return OpenAIModel({"api_key": openai_api_key, "model_name": model_name})
+    return Model(provider=OpenAIProvider, family=GPTFamily, model_name=model_name, api_key=openai_api_key)
 
 
 @pytest.fixture
 def anthropic_model(anthropic_api_key, request):
     """Create an Anthropic model instance for testing."""
     model_name = request.config.getoption("--anthropic-model")
-    return AnthropicModel({"api_key": anthropic_api_key, "model_name": model_name})
+    return Model(provider=AnthropicProvider, family=ClaudeFamily, model_name=model_name, api_key=anthropic_api_key)
 
 
 @pytest.fixture
 def gemini_model(gemini_api_key, request):
     """Create a Gemini model instance for testing."""
     model_name = request.config.getoption("--gemini-model")
-    return GeminiModel({"api_key": gemini_api_key, "model_name": model_name})
+    return Model(provider=GeminiProvider, family=GeminiFamily, model_name=model_name, api_key=gemini_api_key)
 
 
 @pytest.fixture
@@ -120,17 +126,17 @@ def model_fixture(request):
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             pytest.skip("OPENAI_API_KEY not set")
-        return OpenAIModel({"api_key": api_key, "model_name": model_name})
+        return Model(provider=OpenAIProvider, family=GPTFamily, model_name=model_name, api_key=api_key)
     elif provider == "anthropic":
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             pytest.skip("ANTHROPIC_API_KEY not set")
-        return AnthropicModel({"api_key": api_key, "model_name": model_name})
+        return Model(provider=AnthropicProvider, family=ClaudeFamily, model_name=model_name, api_key=api_key)
     elif provider == "gemini":
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             pytest.skip("GEMINI_API_KEY not set")
-        return GeminiModel({"api_key": api_key, "model_name": model_name})
+        return Model(provider=GeminiProvider, family=GeminiFamily, model_name=model_name, api_key=api_key)
     else:
         pytest.fail(f"Unknown provider: {provider}")
 

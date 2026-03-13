@@ -19,7 +19,7 @@ import os
 
 from archytas.mcp_tools import mcp_tool_async, MCP_AVAILABLE
 from archytas.react import ReActAgent
-from archytas.models.openai import OpenAIModel
+from archytas.models import GPT4o
 
 
 async def main():
@@ -76,7 +76,7 @@ async def main():
     # Create agent with Context7 tools
     print("Creating agent with vision-capable model...")
     agent = ReActAgent(
-        model=OpenAIModel({"model_name": "gpt-4o-mini"}),
+        model=GPT4o(),
         tools=context7_tools,
         allow_ask_user=False,
         verbose=True,

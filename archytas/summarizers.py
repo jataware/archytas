@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias, Callable, Awaitable
 
 from jinja2 import Environment, Template, FileSystemLoader
 
-from .models.base import BaseArchytasModel
+from .models.model import Model as BaseArchytasModel
 
 prompt_path = Path(__file__).parent / "prompts"
 jinja_env = Environment(loader=FileSystemLoader(prompt_path))

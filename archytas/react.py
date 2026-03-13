@@ -14,7 +14,7 @@ from .exceptions import ContextWindowExceededError
 from .prompt import build_prompt, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, tool, AgentRef
-from .models.base import BaseArchytasModel
+from .models.model import Model
 from .utils import ensure_async
 
 
@@ -175,7 +175,7 @@ class ReActAgent(Agent):
     def __init__(
         self,
         *,
-        model: BaseArchytasModel | None = None,
+        model: Model | str | None = None,
         api_key: str | None = None,
         tools: list = None,
         allow_ask_user: bool = True,
@@ -190,7 +190,7 @@ class ReActAgent(Agent):
         Create a ReAct agent
 
         Args:
-            model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
+            model (Model | str | None): The model to use. Defaults to GPT4o().
             api_key (str, optional): The LLM provider API key to use. Defaults to None. If None, the provider will use the default environment variable (e.g. OPENAI_API_KEY).
             tools (list): A list of tools to use. Defaults to None. If None, only the system tools (final_answer, fail_task) will be used.
             allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.

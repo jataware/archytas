@@ -20,9 +20,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 
 from .chat_history import ChatHistory, ContextMessage, AutoContextMessage, AgentResponse
 from .exceptions import AuthenticationError, ExecutionError, ModelError
-from .models.base import BaseArchytasModel
-
-from .exceptions import AuthenticationError
+from .models.model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +76,7 @@ class Agent:
     def __init__(
         self,
         *,
-        model: BaseArchytasModel,
+        model: Model | str | None = None,
         prompt: str = "You are a helpful assistant.",
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
@@ -91,7 +89,8 @@ class Agent:
         Agent class for managing communication with Language Models mediated by Langchain
 
         Args:
-            model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
+            model (Model | str | None): The model to use. Can be a Model instance, a model name string,
+                or None to default to GPT4o. Defaults to None.
             prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
             api_key (str, optional): The LLM provider API key to use. Defaults to None. If None, the provider will use the default environment variable (e.g. OPENAI_API_KEY).
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
@@ -106,11 +105,13 @@ class Agent:
             rich_print and not os.environ.get("DISABLE_RICH_PRINT", False)
         )
         self.verbose = verbose
-        if not isinstance(model, BaseArchytasModel):
-            # Importing OpenAI is slow, so limit import to only when it is needed.
-            from .models.openai import OpenAIModel
-            model_name = model if isinstance(model, str) else None
-            self.model = OpenAIModel({"api_key": api_key, "model_name": model_name})
+        if not isinstance(model, Model):
+            from .models.shortcuts import GPT4o
+            from .models.families.gpt import GPTFamily
+            if isinstance(model, str):
+                self.model = Model(family=GPTFamily, model_name=model, api_key=api_key)
+            else:
+                self.model = GPT4o(api_key=api_key)
         else:
             self.model = model
         if not prompt:
@@ -146,11 +147,11 @@ class Agent:
 
     def set_openai_key(self, key):
         import openai
-        from .models.openai import OpenAIModel
+        from .models.providers.openai import OpenAIProvider
 
         openai.api_key = key
-        if isinstance(self.model, OpenAIModel):
-            self.model.auth(api_key=key)
+        if isinstance(self.model.provider, OpenAIProvider):
+            self.model.provider.api_key = key
 
 
     async def all_messages(self) -> list[BaseMessage]:
