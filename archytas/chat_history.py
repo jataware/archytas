@@ -78,6 +78,7 @@ MessageType = TypeVar("MessageType", bound=BaseMessage)
 class AgentResponse:
     text: str
     tool_calls: list[ToolCall]
+    metadata: dict = dataclass_field(default_factory=dict)
 
 
 @dataclass

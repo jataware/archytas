@@ -22,3 +22,7 @@ pyrightconfig.json
 
 # old reference code
 old_react/
+
+**/.claude
+**/plans
+**/.plans

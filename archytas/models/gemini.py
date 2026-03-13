@@ -18,8 +18,10 @@ class GeminiModel(BaseArchytasModel):
     api_key: str
 
 
-    MODEL_PROMPT_INSTRUCTIONS = """\
-When passing strings to tools, you do not need to escape the values. They are already formatted as expected.
+    MODEL_PROMPT_INSTRUCTIONS = """
+Before you call EACH and ANY tool, you MUST add a text block to the output a plain-text 1-3 sentence explanation of reasoning why a particular tool or code generation was selected for use. This will be shown to the user so the user can keep track of what you are up to, so be succinct, polite, and helpful.
+This must be done for EVERY tool call.
+If you invoke multiple tools in a row, you still MUST include the reasoning explanation even if it the reasoning has already been covered in a prior message.
 """
 
     def auth(self, **kwargs) -> None:
@@ -74,7 +76,7 @@ When passing strings to tools, you do not need to escape the values. They are al
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         # Gemini doesn't accept a temperature keyword on invoke
         kwargs.pop("temperature")
-        return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+        return  await super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     @lru_cache()
     def contextsize(self, model_name = None):
@@ -98,47 +100,10 @@ When passing strings to tools, you do not need to escape the values. They are al
         for message in messages:
             if isinstance(message, (SystemMessage, AutoContextMessage)):
                 system_messages.append(message.content)
-            elif thinking_supported and isinstance(message, AIMessage) and message.tool_calls:
-                # langchain-google-genai's _parse_chat_history drops text content
-                # from AIMessages that have tool_calls, but preserves thinking/reasoning
-                # blocks. Convert text content to thinking blocks so it survives the
-                # round-trip through langchain's Gemini message conversion.
-                output.append(self._wrap_text_as_thinking(message))
             else:
                 output.append(message)
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
         return output
-
-    @staticmethod
-    def _wrap_text_as_thinking(message: "AIMessage") -> "AIMessage":
-        """Convert text content in an AIMessage to thinking blocks.
-
-        langchain-google-genai preserves thinking/reasoning blocks but drops
-        regular text from AIMessages with tool_calls. This converts text to
-        thinking blocks so the model's reasoning survives the round-trip.
-        """
-        content = message.content
-        if isinstance(content, str):
-            if not content:
-                return message
-            new_content = [{"type": "thinking", "thinking": content}]
-            return message.model_copy(update={"content": new_content})
-        elif isinstance(content, list):
-            new_content = []
-            changed = False
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text", "")
-                    if text:
-                        new_content.append({"type": "thinking", "thinking": text})
-                        changed = True
-                    # Drop empty text blocks
-                else:
-                    # Preserve thinking, reasoning, and any other block types as-is
-                    new_content.append(block)
-            if changed:
-                return message.model_copy(update={"content": new_content})
-        return message
 
     def handle_invoke_error(self, error: BaseException):
         if isinstance(error, ChatGoogleGenerativeAIError):
@@ -154,6 +119,7 @@ When passing strings to tools, you do not need to escape the values. They are al
         tool_calls = response_message.tool_calls
 
         text = ""
+        metadata = {}
         if isinstance(content, str):
             text = content
         elif isinstance(content, list):
@@ -165,23 +131,11 @@ When passing strings to tools, you do not need to escape the values. They are al
                 block_type = item.get("type")
                 if block_type == "text" and len(item.get("text") or "") > 0:
                     labeled_parts.append(str(item['text']))
-                # TODO: block_type: "thinking" and item["thinking"] contain thoughts
-                # that are much too verbose for a beaker user experience, but could be behind
-                # a length threshold.
+                elif block_type == "reasoning":
+                    metadata["reasoning"] = item.get("reasoning")
+                elif block_type == "thinking":
+                    metadata["thinking"] = item.get("thinking")
             if labeled_parts:
                 text = "\n".join(labeled_parts)
-
-        # tool call blocks:
-        #
-        # tool_thoughts = [
-        #     tool_call["args"].pop("thought", f"Calling tool: `{tool_call['name']}`.")
-        #     for tool_call in tool_calls
-        #     if tool_call['name'] not in ['ask_user', 'run_code']
-        # ]
-        # if not text:
-        #     if tool_calls:
-        #         text = "\n".join(tool_thoughts)
-        #     else:
-        #         raise ValueError("Response from LLM does not include any content or tool calls.")
 
         return AgentResponse(text=text, tool_calls=tool_calls)
