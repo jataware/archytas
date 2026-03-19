@@ -1,7 +1,7 @@
 # Archytas: A Tools Interface for AI Agents
 <img src="https://raw.githubusercontent.com/jataware/archytas/main/assets/logo.png" width="150" height="150" align="left" style="padding-right:0.5em;"/>
 
-Implementation of the [ReAct (Reason & Action)](https://arxiv.org/abs/2210.03629) framework for Large Language Model (LLM) agents. Mainly targeting OpenAI's GPT-4.
+Implementation of the [ReAct (Reason & Action)](https://arxiv.org/abs/2210.03629) framework for Large Language Model (LLM) agents. Extensible to a variety of LLMs and LLM providers.
 
 Easily create tools from simple python functions or classes with the `@tool` decorator. A tools list can then be passed to the `ReActAgent` which will automagically generate a prompt for the LLM containing usage instructions for each tool, as well as manage the ReAct decision loop while the LLM performs its task.
 
