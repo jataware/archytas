@@ -1,7 +1,6 @@
-import json
-import re
+import os
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAI, ChatGoogleGenerativeAIError
 
@@ -12,6 +11,22 @@ from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExcee
 if TYPE_CHECKING:
     from ..agent import SystemMessage, AutoContextMessage, AIMessage, ToolMessage, FunctionMessage
 
+
+# Reasoning effort levels supported by each model family, keyed by model prefix pattern.
+# Order within each list reflects what the model accepts.
+REASONING_EFFORT_LEVELS: dict[str, list[str]] = {
+    "gemini-2.5":       ["budget"],
+    "gemini-3-flash": ["minimal", "low", "medium", "high"],
+    "gemini-3.1-pro": ["low", "medium", "high"],
+    "gemini-3.1-flash-lite": ["minimal", "low", "medium", "high"],
+}
+# Preferred effort levels in priority order — the first level that the model
+# supports will be selected.
+PREFERRED_EFFORT_ORDER: list[str] = ["medium", "high", "low", "minimal", "budget"]
+
+REASONING_EFFORT_REQUEST: Optional[str] = os.environ.get("LLM_REASONING_EFFORT", None)
+REASONING_BUDGET_REQUEST: Optional[str] = os.environ.get("LLM_REASONING_BUDGET", None)
+DEFAULT_REASONING_BUDGET: int = -1
 
 class GeminiModel(BaseArchytasModel):
     DEFAULT_MODEL = "gemini-2.5-flash"
@@ -35,30 +50,54 @@ If you invoke multiple tools in a row, you still MUST include the reasoning expl
         else:
             raise AuthenticationError("Gemini API key not provided.")
 
-    def _model_supports_thinking(self, model_name: str | None = None) -> bool:
-        """Check if the model supports thinking blocks (gemini-2.5+ and gemini-3+)."""
-        if model_name is None:
-            model_name = self.config.model_name or self.DEFAULT_MODEL
-        # Match gemini-2.X where X >= 5, or gemini-3+
-        match = re.search(r'(\d+)\.(\d+)', model_name)
-        if not match:
-            return False
-        major, minor = int(match.group(1)), int(match.group(2))
-        return major >= 3 or (major == 2 and minor >= 5)
+    def _get_supported_reasoning_efforts(self, model_name: str) -> list[str] | None:
+        """Return the list of supported reasoning effort levels for the given model, or None if unsupported."""
+        model_lower = model_name.lower()
+        # Check prefixes longest-first so e.g. "gemini-3.1-flash-lite" matches before "gemini-3.1".
+        for prefix in sorted(REASONING_EFFORT_LEVELS, key=len, reverse=True):
+            if model_lower.startswith(prefix):
+                return REASONING_EFFORT_LEVELS[prefix]
+        return None
 
-    def _model_supports_medium_thinking_level(self, model_name: str | None = None) -> bool:
+    def _get_thinking_config(self, model_name: str) -> dict[str, object] | None:
         """
-        Check if the model supports a MEDIUM thought level instead of HIGH or LOW
-        (gemini-3.1-pro-preview).
+        Build the thinking kwargs dict for ChatGoogleGenerativeAI, or None if the model
+        doesn't support thinking.
+
+        For "budget" effort, returns include_thoughts + thinking_budget_token_limit.
+        For named levels (minimal/low/medium/high), returns include_thoughts + thinking_level.
         """
-        if model_name is None:
-            model_name = self.config.model_name or self.DEFAULT_MODEL
-        # Match 3.1
-        match = re.search(r'(\d+)\.(\d+)', model_name)
-        if not match:
-            return False
-        major, minor = int(match.group(1)), int(match.group(2))
-        return major >= 3 and minor == 1
+        supported = self._get_supported_reasoning_efforts(model_name)
+        if supported is None:
+            return None
+
+        # Determine the effort level: env var override, then preferred order fallback.
+        effort: str | None = None
+        if REASONING_EFFORT_REQUEST and REASONING_EFFORT_REQUEST in supported:
+            effort = REASONING_EFFORT_REQUEST
+        else:
+            for candidate in PREFERRED_EFFORT_ORDER:
+                if candidate in supported:
+                    effort = candidate
+                    break
+
+        if effort is None:
+            # Model is in the table but no usable effort level found; just enable thoughts.
+            return {"include_thoughts": True}
+
+        config: dict[str, object] = {"include_thoughts": True}
+        if effort == "budget":
+            budget = DEFAULT_REASONING_BUDGET
+            if REASONING_BUDGET_REQUEST is not None:
+                try:
+                    budget = int(REASONING_BUDGET_REQUEST)
+                except ValueError:
+                    pass
+            config["thinking_budget_token_limit"] = budget
+        else:
+            config["thinking_level"] = effort
+
+        return config
 
     def initialize_model(self, **kwargs):
         model_name = self.config.model_name or self.DEFAULT_MODEL
@@ -66,11 +105,9 @@ If you invoke multiple tools in a row, you still MUST include the reasoning expl
             model=model_name,
             api_key=self.api_key,
         )
-        if self._model_supports_thinking(model_name):
-            model_kwargs["include_thoughts"] = True
-        # if self._model_supports_medium_thinking_level(model_name):
-        #     model_kwargs["thinking_level"] = "medium"
-        #     model_kwargs["thinking_budget_token_limit"] = 1000
+        thinking = self._get_thinking_config(model_name)
+        if thinking is not None:
+            model_kwargs.update(thinking)
         return ChatGoogleGenerativeAI(**model_kwargs)
 
     async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
@@ -96,7 +133,6 @@ If you invoke multiple tools in a row, you still MUST include the reasoning expl
         from ..agent import SystemMessage, AutoContextMessage
         output = []
         system_messages = []
-        thinking_supported = self._model_supports_thinking()
         for message in messages:
             if isinstance(message, (SystemMessage, AutoContextMessage)):
                 system_messages.append(message.content)
