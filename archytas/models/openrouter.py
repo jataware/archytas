@@ -169,7 +169,7 @@ class ChatOpenRouter:
         }
 
         if isinstance(response, dict):
-            return AIMessage(content=response['thought'], tool_calls=list(map(to_langchain_tool_call, response['tool_calls'])), usage_metadata=usage_metadata)
+            return AIMessage(content=response.get('thought') or "", tool_calls=list(map(to_langchain_tool_call, response['tool_calls'])), usage_metadata=usage_metadata)
 
         return AIMessage(content=response, usage_metadata=usage_metadata)
 
