@@ -14,7 +14,7 @@ jinja_env = Environment(loader=FileSystemLoader(prompt_path))
 
 if TYPE_CHECKING:
     from .agent import Agent
-    from .chat_history import ChatHistory, MessageRecord, SummaryRecord, RecordType, AutoContextMessage
+    from .chat_history import ChatHistory, MessageRecord, SummaryRecord, RecordType
     from langchain_core.messages import ToolMessage, AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 logger = logging.getLogger("beaker")
@@ -29,14 +29,16 @@ MESSAGE_SUMMARIZATION_SNIPPET_SIZE: int = 1000
 
 
 async def get_summarizable_records(chat_history: "ChatHistory") -> "list[RecordType]":
-    from .chat_history import RecordType, SummaryRecord, SystemMessage, AutoContextMessage, AIMessage
+    from .chat_history import RecordType, SummaryRecord, SystemMessage, AIMessage
     all_records = await chat_history.records(auto_update_context=False)
+    # SystemMessage covers ContextMessage and the legacy AutoContextMessage
+    # via inheritance, so a single isinstance check suffices.
     summarizable_records: list[RecordType] = [
         record for record in all_records
         if record.message is not None
         and (
             isinstance(record, SummaryRecord)
-            or not isinstance(record.message, (SystemMessage, AutoContextMessage))
+            or not isinstance(record.message, SystemMessage)
         )
     ]
     return summarizable_records

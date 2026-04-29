@@ -100,6 +100,8 @@ class BaseArchytasModel(ABC):
     _model: "BaseChatModel"
     config: ModelConfig
     lc_tools: "list[StructuredTool] | None"
+    last_sent_messages: "Optional[list[BaseMessage]]"
+    tail_injection_count: int
 
     def __init__(self, config: ModelConfig | dict, **kwargs) -> None:
         if isinstance(config, dict):
@@ -109,6 +111,18 @@ class BaseArchytasModel(ABC):
         self.auth(**kwargs)
         self._model = self.initialize_model(**kwargs)
         self.lc_tools = None
+        # Post-preprocessing snapshot of the most recent message list sent to
+        # the underlying model. Intended for provider-specific error handlers
+        # and diagnostics; ChatHistory.last_sent_messages holds the
+        # pre-preprocessing view for general observability (plan §4.5).
+        self.last_sent_messages = None
+        # Number of trailing messages in the current outgoing list that are
+        # ephemeral tail injections (state pairs + instruction block) rather
+        # than persisted conversation. Set by Agent.execute() immediately
+        # before invoke; read by provider preprocessors to locate the
+        # cacheable-prefix boundary (plan §4.4). Reset to 0 after each
+        # invocation so stale values don't leak into subsequent calls.
+        self.tail_injection_count = 0
 
     def auth(self, **kwargs) -> None:
         pass
@@ -196,9 +210,15 @@ class BaseArchytasModel(ABC):
             #if "thought" not in arg_dict:
             #    arg_dict["thought"] = Annotated[str, FieldInfo(description="Reasoning around why this tool is being called.")]
             tool_model = create_model(name, **arg_dict)
+            description = tool.__doc__ or ""
+            # Statetools are auto-managed by the framework — mark them in the
+            # description so the LLM can distinguish them from user-callable
+            # tools (plan §4.2.2).
+            if getattr(tool, "_is_statetool", False):
+                description = "** INTERNAL **\n" + description
             lc_tool = StructuredTool(
                 name=name,
-                description=tool.__doc__,
+                description=description,
                 args_schema=tool_model,
                 func=tool,
             )
@@ -269,6 +289,7 @@ class BaseArchytasModel(ABC):
 
         try:
             messages = self._preprocess_messages(input)
+            self.last_sent_messages = list(messages)
             result = await self.model.ainvoke(
                 messages,
                 config,
@@ -279,6 +300,10 @@ class BaseArchytasModel(ABC):
         except Exception as error:
             print(error)
             return self.handle_invoke_error(error)
+        finally:
+            # Reset so a subsequent invocation that doesn't come through
+            # Agent.execute() won't see a stale boundary value.
+            self.tail_injection_count = 0
 
     def _preprocess_messages(self, messages: "list[BaseMessage]"):
         return messages

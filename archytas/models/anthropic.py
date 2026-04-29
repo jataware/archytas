@@ -1,18 +1,62 @@
 import json
+import os
 import re
 import logging
 from functools import lru_cache
 
 from anthropic import AuthenticationError as AnthropicAuthenticError, RateLimitError, BadRequestError
 from langchain_anthropic.chat_models import ChatAnthropic
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_anthropic.llms import AnthropicLLM
 from pydantic import BaseModel as PydanticModel, Field
 
-from archytas.agent import AIMessage, BaseMessage
-
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
 from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
+
+
+def _prompt_cache_disabled() -> bool:
+    """Env-var escape hatch for the Phase 4 cache_control markers.
+
+    Set ARCHYTAS_DISABLE_PROMPT_CACHE=1 to bypass cache_control injection
+    (used by the measurement harness to compare before/after behavior).
+    """
+    val = os.environ.get("ARCHYTAS_DISABLE_PROMPT_CACHE", "").strip().lower()
+    return val in ("1", "true", "yes", "on")
+
+
+def _attach_cache_control(message: BaseMessage) -> BaseMessage:
+    """Return a copy of `message` with cache_control:ephemeral on its last text block.
+
+    For string-content messages, converts to the content-block form expected
+    by langchain-anthropic (one text block with cache_control). For
+    list-content messages, augments the last text block in place on a copy.
+    Non-text-bearing messages are returned unchanged.
+    """
+    marker = {"type": "ephemeral"}
+    try:
+        copied = message.model_copy(deep=True)
+    except Exception:
+        # Fall back: leave the message unchanged rather than crashing the request.
+        return message
+
+    content = copied.content
+    if isinstance(content, str):
+        if not content:
+            return message
+        copied.content = [
+            {"type": "text", "text": content, "cache_control": marker}
+        ]
+        return copied
+
+    if isinstance(content, list):
+        # Find the last text block and augment it; if none, leave unchanged.
+        for block in reversed(content):
+            if isinstance(block, dict) and block.get("type") == "text":
+                block["cache_control"] = marker
+                return copied
+        return message
+
+    return message
 
 class DummyTool(PydanticModel):
     """
@@ -51,19 +95,38 @@ class AnthropicModel(BaseArchytasModel):
         )
 
     def _preprocess_messages(self, messages):
-        from ..agent import AutoContextMessage, ContextMessage
+        from ..agent import ContextMessage
         output = []
 
         system_messages = []
-        # Combine all system/context/autocontext messages into a single initial system message
+        # Combine all system/context messages into a single initial system message.
+        # (ContextMessage subsumes the legacy AutoContextMessage via inheritance,
+        # so no separate case is needed for it.)
         for message in messages:
             match message:
-                case SystemMessage() | ContextMessage() | AutoContextMessage():
+                case SystemMessage() | ContextMessage():
                     system_messages.append(message.content)
                 case _:
                     output.append(message)
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
+
+        # Prompt-caching marker (plan §4.4): attach cache_control:ephemeral to
+        # the last PERSISTED message in the outgoing list. Tail injections
+        # (state pairs + instruction) are beyond the cacheable prefix and
+        # must not be marked. The boundary is communicated by
+        # self.tail_injection_count, set by Agent.execute() just before
+        # invoke. System-type messages in the persisted portion have been
+        # collapsed into the leading SystemMessage; tail messages are never
+        # system-type, so their count is unchanged by the collapse.
+        if not _prompt_cache_disabled():
+            tail_count = getattr(self, "tail_injection_count", 0) or 0
+            last_persisted_idx = len(output) - tail_count - 1
+            # Skip marking the lone collapsed SystemMessage (idx 0) — caching
+            # the system prompt alone is usually not worth the cache breakpoint.
+            if last_persisted_idx > 0:
+                output[last_persisted_idx] = _attach_cache_control(output[last_persisted_idx])
+
         return output
 
     def handle_invoke_error(self, error: BaseException):

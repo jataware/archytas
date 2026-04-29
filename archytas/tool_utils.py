@@ -7,6 +7,7 @@ from .structured_data_utils import get_structured_input_description, construct_s
 from .summarizers import default_tool_summarizer
 from .utils import ensure_async
 
+import typing
 from typing import Callable, Any, ParamSpec, TypeVar, overload, Optional, TYPE_CHECKING
 from textwrap import indent
 import inspect
@@ -193,11 +194,70 @@ def tool(
         return decorator
 
 
+def statetool(
+    *,
+    condition: Callable[..., bool],
+    name: str | None = None,
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """
+    Decorator for registering a state tool (plan §4.2).
+
+    A state tool is registered alongside regular tools and is visible in the
+    tool schema sent to the LLM, but the framework *also* automatically
+    injects a fabricated tool-call/tool-response pair for it at the tail of
+    the outgoing message list on every `Agent.execute()` call — gated by the
+    `condition` predicate. The fabricated pair is never persisted to chat
+    history, so state snapshots are effectively per-turn.
+
+    Usage:
+    ```
+        def has_dataframes(agent: AgentRef) -> bool:
+            return bool(getattr(agent, "dataframes", None))
+
+        @statetool(condition=has_dataframes)
+        def render_dataframes(agent: AgentRef) -> str:
+            '''
+            ** INTERNAL ** Render names of dataframes currently loaded.
+
+            Returns:
+                str: Comma-separated dataframe names.
+            '''
+            return ", ".join(agent.dataframes)
+    ```
+
+    The `condition` callable uses the same dependency-injection mechanism as
+    tool bodies (`AgentRef`, `LoopControllerRef`, `ReactContextRef`, etc.);
+    externally it appears argumentless. If `condition` returns a truthy
+    value at execute time, the tool body is called (also with DI) and its
+    string output becomes the content of the fabricated ToolMessage.
+    """
+    if condition is None:
+        raise ValueError("@statetool requires a condition= predicate")
+
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        # Apply the regular @tool decorator so the statetool gets standard
+        # tool plumbing (schema conversion, DI, summarizer slots, etc.).
+        if name is not None:
+            decorated = tool(name=name)(func)
+        else:
+            decorated = tool(func)
+        decorated._is_statetool = True           # type: ignore[attr-defined]
+        decorated._statetool_condition = condition  # type: ignore[attr-defined]
+        return decorated
+
+    return decorator
+
+
 def is_tool(obj: Callable | type) -> bool:
     """checks if an object is a tool function, tool method, tool class, or an instance of a class tool"""
     return (
         getattr(obj, '_is_tool', False)
     )
+
+
+def is_statetool(obj: Callable | type) -> bool:
+    """Checks if an object is a state tool (see @statetool decorator)."""
+    return bool(getattr(obj, '_is_statetool', False))
 
 
 def get_tool_prompt_description(obj: Callable | type | Any):
@@ -300,6 +360,22 @@ def get_tool_signature(
     docstring = parse_docstring(func.__doc__)
     signature = inspect.signature(func)
 
+    # Resolve stringified annotations. Required when the defining module has
+    # `from __future__ import annotations` (PEP 563) — without this, annotations
+    # come back as strings and fail the identity lookup in INJECTION_MAPPING.
+    # Fall back to raw signature annotations if the whole-function resolve
+    # fails (e.g. a TYPE_CHECKING-guarded import that isn't available at
+    # runtime).
+    try:
+        resolved_hints = typing.get_type_hints(func, include_extras=True)
+    except Exception:
+        resolved_hints = {}
+
+    def _resolved_annotation(name: str, raw: Any) -> Any:
+        if name in resolved_hints:
+            return resolved_hints[name]
+        return raw
+
     # Extract argument information from the docstring
     docstring_args: dict[str, tuple[NormalizedType, str | None, str | None]] = {
         arg.arg_name: (
@@ -312,7 +388,7 @@ def get_tool_signature(
 
     # Extract argument information from the signature (ignore self from class methods)
     all_args = {
-        k: v.annotation
+        k: _resolved_annotation(k, v.annotation)
         for i, (k, v) in enumerate(signature.parameters.items())
         if not (i == 0 and k == "self")
     }
@@ -345,7 +421,8 @@ def get_tool_signature(
     ]
 
     # get the return type and description/name if they exist
-    ret_type = normalize_type(signature.return_annotation if signature.return_annotation != inspect._empty else None)
+    ret_annotation = _resolved_annotation("return", signature.return_annotation)
+    ret_type = normalize_type(ret_annotation if ret_annotation is not inspect._empty else None)
     if docstring.returns is None:
         docstring_ret_type = normalize_type(None)
         docstring_return_name = None

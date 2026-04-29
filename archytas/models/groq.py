@@ -63,12 +63,12 @@ Ensure all generated JSON is valid and would pass a JSON validator.
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     def _preprocess_messages(self, messages: list[BaseMessage]):
-        from ..agent import AutoContextMessage, ContextMessage
+        from ..agent import ContextMessage
         output = []
         system_messages = []
         for message in messages:
             match message:
-                case SystemMessage() | ContextMessage() | AutoContextMessage():
+                case SystemMessage() | ContextMessage():
                     system_messages.append(message.content)
                 case AIMessage():
                     # Duplicate mesage so we don't change raw storage

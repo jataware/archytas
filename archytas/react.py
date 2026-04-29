@@ -228,6 +228,15 @@ class ReActAgent(Agent):
         self.prompt = build_prompt(custom_prelude=custom_prelude)
         super().__init__(model=model, prompt=self.prompt, api_key=api_key, messages=messages, **kwargs)
         self.model.set_tools(self.tools)
+        # Separate statetools out of the registered tool dict so the
+        # tail-injection machinery on Agent can iterate them directly.
+        # Statetools remain in self.tools (and therefore in the model's
+        # bound tool schema) — this is just an additional index.
+        self.statetools = {
+            tool_name: tool_fn
+            for tool_name, tool_fn in self.tools.items()
+            if getattr(tool_fn, "_is_statetool", False)
+        }
         self.update_prompt()
 
         # react settings

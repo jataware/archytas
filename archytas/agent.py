@@ -1,6 +1,8 @@
 import asyncio
+import inspect
 import logging
 import os
+import uuid
 from tenacity import (
     before_sleep_log,
     retry as tenacity_retry,
@@ -18,13 +20,19 @@ from rich.live import Live
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage, ToolCall
 
-from .chat_history import ChatHistory, ContextMessage, AutoContextMessage, AgentResponse
+from .chat_history import ChatHistory, ContextMessage, AutoContextMessage, AgentResponse, InstructionSource
 from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
+from .utils import ensure_async
 
 from .exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
+
+# Placeholder text used for the synthesized AIMessage that carries the fabricated
+# statetool tool_calls (plan §4.2.1). Per-provider override may be appropriate if
+# a specific provider proves incompatible with this default.
+STATE_INJECTION_PLACEHOLDER_TEXT = "Fetching system state"
 
 
 def retry(fn):
@@ -127,6 +135,11 @@ class Agent:
         self.temperature = temperature
         self.post_execute_task = None
 
+        # Statetool registry (plan §4.2). Populated by subclasses (e.g.
+        # ReActAgent extracts statetools from its tools list after
+        # make_tool_dict runs). Map of tool_name -> tool callable.
+        self.statetools: dict[str, Callable] = {}
+
     def print(self, *args, **kwargs):
         if self.rich_print:
             rprint(*args, **kwargs)
@@ -216,20 +229,27 @@ class Agent:
         auto_update: bool = True,
     ):
         """
-        A special type of context message that is always towards the top (but after the prompt and any system messages).
-        This allows an agent to automatically update its context based on live conditions without having to call a tool every time.
+        Register dynamic behavioral guidance that is automatically injected as an
+        XML-tagged HumanMessage at the tail of the outgoing message list on every
+        `Agent.execute()` call. The content is never persisted to chat history,
+        so per-turn updates do not disturb the cacheable prefix of the
+        conversation.
 
         Args:
-            default_content (str): The default message/content of the context if the content updater has not or cannot be run.
-            content_updater (callable): A function/lambda that takes no arguments and returns a string. The returned string
-                                        becomes the new context value.
-            auto_update (boolean): If true, the context will be updated on every call. Otherwise, the context can be updated by
-                                   calling `chat_history.auto_context_message.update_content()` when desired.
+            default_content (str): The content used when the updater has not yet
+                run, cannot be run, or returns a falsy value.
+            content_updater (callable): A function/lambda (sync or async) taking
+                no arguments and returning a string. The returned string becomes
+                the new instruction content on the next call.
+            auto_update (bool): If True (default), the updater is invoked on
+                every `execute()` call. If False, the instruction content remains
+                at `default_content` unless
+                `chat_history.instruction.update_content()` is called manually.
         """
-        self.chat_history.auto_update_context = auto_update
-        self.chat_history.auto_context_message = AutoContextMessage(
+        self.chat_history.instruction = InstructionSource(
             default_content=default_content,
             content_updater=content_updater,
+            auto_update=auto_update,
             model=self.model,
         )
 
@@ -267,6 +287,187 @@ class Agent:
         if await self.chat_history.needs_summarization(model=self.model):
             await self.chat_history.summarize_history(agent=self)
 
+    async def build_tail_injections(self) -> list[BaseMessage]:
+        """
+        Assemble the transient, per-call messages appended to the outgoing list
+        immediately before the model is invoked.
+
+        These messages are never persisted into chat history; they exist only
+        for the current `execute()` call. Ordering: state-tool pairs first
+        (§4.2), then the instruction block (§4.3). The model sees environment
+        state before any behavioral guidance.
+
+        Override `build_state_injection` to customize the layout of state
+        pairs. Override this method to customize the overall tail assembly.
+        """
+        tail: list[BaseMessage] = []
+
+        # --- State tool injection (Phase 2 / plan §4.2) ---
+        # TODO: Deduplication between LLM-initiated statetool calls (visible
+        # in recent history) and framework-injected fabricated pairs was
+        # considered and intentionally deferred for v1. If duplicates become
+        # noisy, revisit here: either skip injection when a ToolMessage for
+        # this statetool appears within the last N records, or similar.
+        fired: list[tuple[str, str]] = []
+        for tool_name, tool_fn in self.statetools.items():
+            if getattr(tool_fn, "_disabled", False):
+                continue
+            condition = getattr(tool_fn, "_statetool_condition", None)
+            if condition is None:
+                continue
+            try:
+                should_fire = await self._evaluate_statetool_condition(
+                    condition, tool_name, tool_fn,
+                )
+            except Exception as err:
+                logger.warning(
+                    "Statetool %r condition raised %r; skipping injection.",
+                    tool_name, err,
+                )
+                continue
+            if not should_fire:
+                continue
+            try:
+                output = await self._run_statetool(tool_fn, tool_name)
+            except Exception as err:
+                logger.warning(
+                    "Statetool %r body raised %r; skipping injection.",
+                    tool_name, err,
+                )
+                continue
+            fired.append((tool_name, output))
+
+        if fired:
+            state_messages = await self.build_state_injection(fired)
+            tail.extend(state_messages)
+            if self.verbose:
+                self.debug(
+                    event_type="state_injection",
+                    content={"fired": [name for name, _ in fired]},
+                )
+
+        # --- Instruction block (Phase 1 / plan §4.3) ---
+        instruction = self.chat_history.instruction
+        if instruction is not None:
+            if instruction.auto_update:
+                await instruction.update_content()
+            instruction_msg = instruction.to_message()
+            if instruction_msg is not None:
+                tail.append(instruction_msg)
+
+        return tail
+
+    async def build_state_injection(
+        self,
+        fired: list[tuple[str, str]],
+    ) -> list[BaseMessage]:
+        """
+        Default state-injection builder (plan §4.2.3).
+
+        Given an ordered list of (tool_name, tool_output) pairs for statetools
+        whose conditions fired this turn, return the messages to insert at
+        the tail. The default bundles everything into one fabricated
+        `AIMessage` with N `tool_calls` (placeholder text
+        `STATE_INJECTION_PLACEHOLDER_TEXT`) followed by N `ToolMessage`s.
+
+        Override to customize the layout — e.g. split into one AI/Tool pair
+        per statetool, or reshape for a model that rejects bundled calls.
+        """
+        if not fired:
+            return []
+
+        tool_calls: list[dict] = []
+        tool_messages: list[BaseMessage] = []
+        for tool_name, output in fired:
+            call_id = f"call_{uuid.uuid4().hex[:16]}"
+            tool_calls.append({
+                "id": call_id,
+                "name": tool_name,
+                "args": {},
+                "type": "tool_call",
+            })
+            tool_messages.append(ToolMessage(content=output, tool_call_id=call_id))
+
+        ai_message = AIMessage(
+            content=STATE_INJECTION_PLACEHOLDER_TEXT,
+            tool_calls=tool_calls,
+        )
+        return [ai_message, *tool_messages]
+
+    async def _evaluate_statetool_condition(
+        self,
+        condition: Callable,
+        tool_name: str,
+        tool_fn: Callable,
+    ) -> bool:
+        """Run a statetool condition predicate with DI, return a boolean."""
+        import typing
+        from .tool_utils import INJECTION_MAPPING
+
+        injection_context = {
+            "agent": self,
+            "tool_name": tool_name,
+            "raw_tool": tool_fn,
+            "loop_controller": None,
+            "react_context": None,
+        }
+        # Resolve stringified annotations (PEP 563 / `from __future__ import
+        # annotations`) so annotation identity comparisons against
+        # INJECTION_MAPPING work. Fall back to raw annotations if the
+        # whole-function resolve fails (e.g. TYPE_CHECKING-guarded imports).
+        try:
+            resolved_hints = typing.get_type_hints(condition, include_extras=True)
+        except Exception:
+            resolved_hints = {}
+        args = []
+        kwargs = {}
+        try:
+            sig = inspect.signature(condition)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None:
+            for param_name, param in sig.parameters.items():
+                if param_name == "self":
+                    target = condition if hasattr(condition, "__self__") else tool_fn
+                    self_var = getattr(target, "__self__", None)
+                    if self_var:
+                        args.insert(0, self_var)
+                        continue
+                    else:
+                        raise ExecutionError("statetool condition error: self referenced on tool that is not also a method")
+                inj_type = resolved_hints.get(param_name, param.annotation)
+                if inj_type in INJECTION_MAPPING:
+                    kwargs[param_name] = injection_context.get(
+                        INJECTION_MAPPING[inj_type]
+                    )
+
+        result = await ensure_async(condition(*args, **kwargs))
+        return bool(result)
+
+    async def _run_statetool(
+        self,
+        tool_fn: Callable,
+        tool_name: str,
+    ) -> str:
+        """Run a statetool body via its `.run()` method with DI; return a string."""
+        tool_context = {
+            "agent": self,
+            "tool_name": tool_name,
+            "raw_tool": tool_fn,
+            "loop_controller": None,
+            "react_context": None,
+        }
+        self_ref = getattr(tool_fn, "__self__", None)
+        result = await tool_fn.run(
+            args={},
+            tool_context=tool_context,
+            self_ref=self_ref,
+        )
+        if isinstance(result, str):
+            return result
+        # Multimodal / non-string returns fall back to repr for now.
+        return str(result)
+
     async def execute(
         self,
         additional_messages: list[BaseMessage] = None,
@@ -278,6 +479,13 @@ class Agent:
         with self.spinner():
             records = await self.chat_history.records(auto_update_context=True)
             messages = [record.message for record in records] + additional_messages
+            tail_messages = await self.build_tail_injections()
+            messages.extend(tail_messages)
+            self.chat_history.last_sent_messages = list(messages)
+            # Communicate the cacheable-prefix boundary to provider
+            # preprocessors (plan §4.4). Anthropic / Bedrock read this to
+            # attach cache_control to the last persisted message.
+            self.model.tail_injection_count = len(tail_messages)
             # TODO: Keep this here?
             token_estimate = await self.chat_history.token_estimate(model=self.model, tools=tools)
             print("Token estimate for query: ", token_estimate)

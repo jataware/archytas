@@ -31,7 +31,6 @@ class BedrockModel(BaseArchytasModel):
     region: str
 
     def __init__(self, config: ModelConfig, **kwargs) -> None:
-        self.last_messages: list[BaseMessage] | None = None
         self.tool_name_map = {}
         self.rev_tool_name_map = {}
         self.credentials_profile_name = None
@@ -120,20 +119,32 @@ class BedrockModel(BaseArchytasModel):
             )
 
     def _preprocess_messages(self, messages):
-        from ..agent import AutoContextMessage, ContextMessage
+        from ..agent import ContextMessage
+        # Share the Anthropic helpers — Bedrock proxies the same Claude API
+        # so the cache_control wire format is identical.
+        from .anthropic import _attach_cache_control, _prompt_cache_disabled
+
         output = []
 
         system_messages = []
-        # Combine all system/context/autocontext messages into a single initial system message
+        # Combine all system/context messages into a single initial system message.
+        # (ContextMessage subsumes the legacy AutoContextMessage via inheritance.)
         for message in messages:
             match message:
-                case SystemMessage() | ContextMessage() | AutoContextMessage():
+                case SystemMessage() | ContextMessage():
                     system_messages.append(message.content)
                 case _:
                     output.append(message)
         # Condense all context/system messages into a single first message as required by Anthropic
         output.insert(0, SystemMessage(content="\n".join(system_messages)))
-        self.last_messages = [msg.model_copy(deep=True) for msg in output]
+
+        # Same cache_control marker strategy as anthropic.py (plan §4.4).
+        if not _prompt_cache_disabled():
+            tail_count = getattr(self, "tail_injection_count", 0) or 0
+            last_persisted_idx = len(output) - tail_count - 1
+            if last_persisted_idx > 0:
+                output[last_persisted_idx] = _attach_cache_control(output[last_persisted_idx])
+
         return output
 
     def handle_invoke_error(self, error: BaseException):
@@ -144,12 +155,16 @@ class BedrockModel(BaseArchytasModel):
         # elif isinstance(error, RateLimitError):
         #     raise
         else:
-            if self.last_messages:
-                message_output = [msg.model_dump() for msg in self.last_messages]
-                logging.warning(
-                    "An exception has occurred. Below are the messages that were sent to in the most recent request:\n" +
-                    json.dumps(message_output, indent=2)
-                )
+            if self.last_sent_messages:
+                try:
+                    message_output = [msg.model_dump() for msg in self.last_sent_messages]
+                    logging.warning(
+                        "An exception has occurred. Below are the messages that were sent to in the most recent request:\n" +
+                        json.dumps(message_output, indent=2)
+                    )
+                except Exception:
+                    # Diagnostic logging must never mask the original error.
+                    pass
             raise
 
     def _check_service_quotas_permission(self):

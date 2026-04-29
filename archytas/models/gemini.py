@@ -9,7 +9,7 @@ from ..message_schemas import ToolUseRequest
 from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
 if TYPE_CHECKING:
-    from ..agent import SystemMessage, AutoContextMessage, AIMessage, ToolMessage, FunctionMessage
+    from ..agent import SystemMessage, AIMessage, ToolMessage, FunctionMessage
 
 
 # Reasoning effort levels supported by each model family, keyed by model prefix pattern.
@@ -130,11 +130,13 @@ If you invoke multiple tools in a row, you still MUST include the reasoning expl
 
     def _preprocess_messages(self, messages):
         from langchain_core.messages import AIMessage
-        from ..agent import SystemMessage, AutoContextMessage
+        from ..agent import SystemMessage
         output = []
         system_messages = []
+        # (SystemMessage subsumes ContextMessage and the legacy AutoContextMessage
+        # via inheritance, so a single isinstance check covers all three.)
         for message in messages:
-            if isinstance(message, (SystemMessage, AutoContextMessage)):
+            if isinstance(message, SystemMessage):
                 system_messages.append(message.content)
             else:
                 output.append(message)

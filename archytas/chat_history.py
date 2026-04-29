@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import uuid
+import warnings
 from dataclasses import MISSING
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field as dataclass_field
@@ -44,12 +45,27 @@ class ContextMessage(SystemMessage):
     """Simple wrapper around a system message to facilitate message disambiguation."""
 
 class AutoContextMessage(ContextMessage):
-    """An automatically updating context message that remains towards the top of the message list."""
+    """
+    DEPRECATED. Superseded by `InstructionSource` + tail-injected instruction
+    messages (see plans/auto-context-relocation.md).
+
+    Constructing this class directly still works, but nothing inside archytas
+    creates or consumes instances any more — `Agent.set_auto_context()` now
+    registers an `InstructionSource` on `ChatHistory.instruction`. Scheduled
+    for removal in a future release.
+    """
 
     default_content: str = Field(exclude=True)
     content_updater: Callable[[], str] = Field(exclude=True)
 
     def __init__(self, default_content: str, content_updater: Callable[[], str], model: Optional[BaseArchytasModel] = None, **kwargs):
+        warnings.warn(
+            "AutoContextMessage is deprecated. Use Agent.set_auto_context(), "
+            "which now registers an InstructionSource delivered as a tail "
+            "XML-tagged HumanMessage on every execute() call.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         kwargs.update({"default_content": default_content, "content_updater": content_updater})
         super().__init__(content=default_content, **kwargs)
         self._token_count = None
@@ -68,8 +84,127 @@ class AutoContextMessage(ContextMessage):
         result = await ensure_async(self.content_updater())
         self.content = result
         if self.content_hash != orig_hash and self._model:
-            print("Need to update count")
             self._token_count = await self._model.get_num_tokens_from_messages([self])
+
+
+INSTRUCTION_TEMPLATE = "<system_context_update>\n{content}\n</system_context_update>"
+
+
+class InstructionSource:
+    """
+    Registration for the tail-injected instruction message (plan §4.3).
+
+    The rendered content is delivered as an XML-wrapped HumanMessage at the tail
+    of the outgoing message list on every Agent.execute() call. It is never
+    persisted into chat history, so per-turn content changes do not disturb the
+    cacheable prefix of the conversation.
+    """
+
+    default_content: str
+    content_updater: Optional[Callable[[], str]]
+    auto_update: bool
+
+    def __init__(
+        self,
+        default_content: str,
+        content_updater: Optional[Callable[[], str]] = None,
+        auto_update: bool = True,
+        model: Optional[BaseArchytasModel] = None,
+    ) -> None:
+        self.default_content = default_content
+        self.content_updater = content_updater
+        self.auto_update = auto_update
+        self._model = model
+        self._current_content: str = default_content
+        self._token_count: Optional[int] = None
+
+    @property
+    def current_content(self) -> str:
+        return self._current_content
+
+    @property
+    def token_count(self) -> Optional[int]:
+        return self._token_count
+
+    async def update_content(self) -> None:
+        """Re-run the updater (if any) and refresh the cached token count on change."""
+        if self.content_updater is None:
+            return
+        orig = self._current_content
+        result = await ensure_async(self.content_updater())
+        self._current_content = result
+        if self._current_content is None:
+            self._token_count = 0
+        elif self._current_content != orig and self._model is not None:
+            try:
+                self._token_count = await self._model.get_num_tokens_from_messages(
+                    [HumanMessage(content=self.render())]
+                )
+            except Exception:
+                # Token estimation failures (provider-specific) should not break
+                # content updates; leave the prior estimate in place.
+                pass
+
+    def render(self) -> str:
+        """Return the XML-wrapped content ready for delivery as a HumanMessage body."""
+        return INSTRUCTION_TEMPLATE.format(content=self._current_content)
+
+    def to_message(self) -> HumanMessage|None:
+        if self._current_content is None:
+            return None
+        return HumanMessage(content=self.render())
+
+
+class _AutoContextMessageShim:
+    """
+    DEPRECATED backwards-compat shim returned by
+    `ChatHistory.auto_context_message` when an `InstructionSource` has been
+    registered via `Agent.set_auto_context()`. Forwards the handful of
+    attributes that downstream code historically reached for (`_model`,
+    `content`, `update_content()`, `token_count`) onto the underlying
+    `InstructionSource`.
+
+    Note: this shim is NOT a subclass of `AutoContextMessage`, so
+    `isinstance(shim, AutoContextMessage)` returns False. Any downstream code
+    that depended on the isinstance relationship needs to migrate to the
+    `InstructionSource` / `chat_history.instruction` API.
+    """
+
+    def __init__(self, instruction: "InstructionSource") -> None:
+        # Store on the object dict directly so our descriptors below don't
+        # intercept this one.
+        object.__setattr__(self, "_instruction", instruction)
+
+    @property
+    def _model(self):
+        return self._instruction._model
+
+    @_model.setter
+    def _model(self, value) -> None:
+        self._instruction._model = value
+
+    @property
+    def content(self) -> str:
+        return self._instruction._current_content
+
+    @content.setter
+    def content(self, value: str) -> None:
+        self._instruction._current_content = value
+
+    @property
+    def default_content(self) -> str:
+        return self._instruction.default_content
+
+    @property
+    def content_updater(self):
+        return self._instruction.content_updater
+
+    @property
+    def token_count(self) -> Optional[int]:
+        return self._instruction._token_count
+
+    async def update_content(self) -> None:
+        await self._instruction.update_content()
 
 
 MessageType = TypeVar("MessageType", bound=BaseMessage)
@@ -126,6 +261,7 @@ class OutboundChatHistory:
 
 class ChatHistory:
     base_tokens: int
+    system_preamble: Optional[MessageRecord[SystemMessage]]
     user_preamble: Optional[MessageRecord[HumanMessage]]
     current_loop_id: int|None
     raw_records: list[MessageRecord]
@@ -141,8 +277,12 @@ class ChatHistory:
     history_summarization_task: Optional[asyncio.Task]
 
     _current_context_id: int
-    auto_context_message: Optional[AutoContextMessage]
-    auto_update_context: bool
+    # `auto_context_message` and `auto_update_context` are exposed as
+    # deprecation-shim properties below; they route to `instruction` for
+    # backwards compatibility with code that predates the tail-injection
+    # relocation.
+    instruction: Optional[InstructionSource]
+    last_sent_messages: Optional[list[BaseMessage]]
 
     def __init__(
         self,
@@ -152,6 +292,7 @@ class ChatHistory:
         history_summarizer: Optional[callable] = default_history_summarizer,
     ):
         self.base_tokens = 0
+        self.system_preamble = None
         self.user_preamble = None
         self.current_loop_id = None
         self.raw_records = []
@@ -177,9 +318,19 @@ class ChatHistory:
         # use to generate unique ids for context messages
         self._current_context_id = 0
 
-        # Initialize the auto_context_message to empty
-        self.auto_context_message = None
-        self.auto_update_context = False
+        # Tail-injection instruction registration (plan §4.3). Set via
+        # Agent.set_auto_context. Rendered fresh into the outgoing list on every
+        # Agent.execute() call and never persisted.
+        # The legacy `auto_context_message` / `auto_update_context` fields are
+        # now deprecation-shim properties on the class (see below); they
+        # delegate to `instruction` for backwards compatibility.
+        self.instruction = None
+
+        # Observability hook (plan §4.5). Populated by Agent.execute() with a
+        # snapshot of the final outgoing message list — including tail
+        # injections — just before the model is invoked. Intended for tests,
+        # verbose logging, and cache-hit measurement.
+        self.last_sent_messages = None
 
     def set_system_message(
         self,
@@ -191,30 +342,115 @@ class ChatHistory:
             message=system_message,
         )
 
+    # ------------------------------------------------------------------
+    # Deprecation shims for the legacy auto-context API. These forward to
+    # the new `instruction` (InstructionSource) mechanism. Scheduled for
+    # removal in a future release.
+    # ------------------------------------------------------------------
+
+    @property
+    def auto_context_message(self) -> Optional["_AutoContextMessageShim"]:
+        """DEPRECATED. Returns a shim over `self.instruction`. Use
+        `chat_history.instruction` directly in new code."""
+        warnings.warn(
+            "ChatHistory.auto_context_message is deprecated; "
+            "use chat_history.instruction (an InstructionSource) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if self.instruction is None:
+            return None
+        return _AutoContextMessageShim(self.instruction)
+
+    @auto_context_message.setter
+    def auto_context_message(self, value) -> None:
+        """DEPRECATED. Accepts either None or a legacy AutoContextMessage; routes
+        to the new instruction mechanism. Use `Agent.set_auto_context()` instead."""
+        warnings.warn(
+            "Direct assignment to ChatHistory.auto_context_message is deprecated; "
+            "use Agent.set_auto_context() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if value is None:
+            self.instruction = None
+            return
+        default_content = (
+            getattr(value, "default_content", None)
+            or (getattr(value, "content", "") if isinstance(getattr(value, "content", ""), str) else "")
+        )
+        self.instruction = InstructionSource(
+            default_content=default_content,
+            content_updater=getattr(value, "content_updater", None),
+            auto_update=True,
+            model=getattr(value, "_model", None),
+        )
+
+    @property
+    def auto_update_context(self) -> bool:
+        """DEPRECATED. Returns `self.instruction.auto_update` if an instruction
+        is registered, else False."""
+        warnings.warn(
+            "ChatHistory.auto_update_context is deprecated; "
+            "check/set chat_history.instruction.auto_update instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.instruction.auto_update if self.instruction is not None else False
+
+    @auto_update_context.setter
+    def auto_update_context(self, value: bool) -> None:
+        """DEPRECATED. Sets `self.instruction.auto_update` if an instruction is
+        registered; no-op otherwise."""
+        warnings.warn(
+            "ChatHistory.auto_update_context is deprecated; "
+            "pass auto_update=... to Agent.set_auto_context() or set "
+            "chat_history.instruction.auto_update directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if self.instruction is not None:
+            self.instruction.auto_update = bool(value)
+
     @property
     def auto_context_message_token_estimate(self) -> int:
-        if self.auto_context_message:
-            return self.auto_context_message.token_count
-        else:
-            return 0
+        """DEPRECATED. Always returns 0 — instruction token accounting now lives
+        on `instruction_token_estimate`."""
+        warnings.warn(
+            "ChatHistory.auto_context_message_token_estimate is deprecated; "
+            "use chat_history.instruction_token_estimate instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return 0
 
     async def update_auto_context(self):
-        coroutines: list[Coroutine] = []
-        if self.auto_update_context:
-            if self.auto_context_message:
-                coroutines.append(self.auto_context_message.update_content())
-            for message in self.raw_records:
-                if isinstance(message.message, AutoContextMessage):
-                    coroutines.append(message.message.update_content())
-            if coroutines:
-                await asyncio.gather(*coroutines)
+        """DEPRECATED. Instruction updates are handled automatically by
+        `Agent.execute()` via `build_tail_injections()`. If you need manual
+        control, call `chat_history.instruction.update_content()` directly.
+        """
+        warnings.warn(
+            "ChatHistory.update_auto_context() is deprecated; "
+            "instruction updates happen automatically on Agent.execute(). "
+            "Use chat_history.instruction.update_content() for manual control.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if self.instruction is not None and self.instruction.auto_update:
+            await self.instruction.update_content()
+
+    @property
+    def instruction_token_estimate(self) -> int:
+        if self.instruction and isinstance(self.instruction.token_count, int):
+            return self.instruction.token_count
+        return 0
 
     @property
     def token_overhead(self):
         return sum((value for value in (
             self.base_tokens,
             self.tool_token_estimate,
-            self.auto_context_message_token_estimate,
+            self.instruction_token_estimate,
         ) if isinstance(value, int)))
 
     def get_tool_caller(self, tool_call_id: str) -> tuple[MessageRecord, ToolCall]:
@@ -393,7 +629,11 @@ class ChatHistory:
 
     async def records(self, auto_update_context: bool = True) -> list[RecordType]:
         """
-        Messages
+        Build the persisted record list that Agent.execute() will send (prior to
+        any ephemeral tail injections). The `auto_update_context` parameter is
+        retained for signature compatibility; as of the auto-context-relocation
+        work (Phase 1) there is nothing in the persisted list that needs
+        per-call updating, so the flag is effectively a no-op.
         """
         records: list[RecordType] = []
         summarized_messages: set[str] = set()
@@ -401,16 +641,12 @@ class ChatHistory:
         if self.system_message:
             records.append(self.system_message)
 
-        if auto_update_context:
-            await self.update_auto_context()
-
-        if self.auto_context_message:
-            records.append(
-                MessageRecord(message=self.auto_context_message))
-
         for summary_record in self.summaries:
             records.append(summary_record)
             summarized_messages.update(summary_record.summarized_messages)
+
+        if self.system_preamble:
+            records.append(self.system_preamble)
 
         if self.user_preamble:
             records.append(self.user_preamble)
@@ -429,12 +665,8 @@ class ChatHistory:
         if self.system_message:
             messages.append(self.system_message)
 
-        if auto_update_context:
-            await self.update_auto_context()
-
-        if self.auto_context_message:
-            messages.append(
-                MessageRecord(message=self.auto_context_message))
+        if self.system_preamble:
+            records.append(self.system_preamble)
 
         if self.user_preamble:
             messages.append(self.user_preamble)
@@ -445,6 +677,17 @@ class ChatHistory:
     async def all_messages(self, auto_update_context: bool = True) -> list[MessageType]:
         records = await self.all_records(auto_update_context=auto_update_context)
         return [cast(MessageType, record.message) for record in records]
+
+    def set_system_preamble_text(self, text: str):
+        """
+        Sets/updates the user_preamble
+
+        Set text to an empty string to remove the preamble message.
+        """
+        if text:
+            self.user_preamble = MessageRecord(message=SystemMessage(content=text), metadata={"preamble": True})
+        else:
+            self.user_preamble = None
 
     def set_user_preamble_text(self, text: str):
         """

@@ -47,11 +47,11 @@ class TestContextMessages:
 
 
 class TestAutoContext:
-    """Test automatic context updates."""
+    """Test automatic context updates (plan §4.3 instruction mechanism)."""
 
     @pytest.mark.asyncio
     async def test_auto_context_basic(self, react_agent):
-        """Test setting auto context."""
+        """Registering an instruction via set_auto_context fires the updater."""
         counter = {"value": 0}
 
         def update_counter():
@@ -64,14 +64,13 @@ class TestAutoContext:
             auto_update=True
         )
 
-        # First query should have counter = 1
         result = await react_agent.react_async("What is the counter value?")
         assert isinstance(result, str)
         assert counter["value"] >= 1
 
     @pytest.mark.asyncio
     async def test_auto_context_updates_each_call(self, react_agent):
-        """Test auto context updates on each agent call."""
+        """Updater fires on each react call, reflecting updated external state."""
         state = {"count": 0}
 
         def get_state():
@@ -83,13 +82,100 @@ class TestAutoContext:
             auto_update=True
         )
 
-        # Make multiple queries
         await react_agent.react_async("First query: what is 1+1?")
         state["count"] = 10
         result = await react_agent.react_async("What is the call count?")
 
-        # Should reflect updated state
         assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_instruction_delivered_at_tail(self, react_agent):
+        """
+        Phase 1: the instruction content is delivered at the tail of the
+        outgoing message list, wrapped in the <system_context_update> XML
+        tags, NOT as a SystemMessage near the top.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        react_agent.set_auto_context(
+            default_content="Operational context: quiet hours in effect.",
+            content_updater=lambda: "Operational context: quiet hours in effect.",
+            auto_update=True,
+        )
+
+        await react_agent.react_async("Say hello.")
+
+        sent = react_agent.chat_history.last_sent_messages
+        assert sent is not None and len(sent) > 0, "last_sent_messages must be populated after execute()"
+
+        # The tail message must be a HumanMessage carrying the XML wrapper.
+        tail = sent[-1]
+        assert isinstance(tail, HumanMessage), f"tail should be HumanMessage, got {type(tail).__name__}"
+        assert "<system_context_update>" in tail.content
+        assert "quiet hours in effect" in tail.content
+
+        # The instruction content must NOT appear in any non-tail message.
+        # In particular, it should not be folded into the leading SystemMessage.
+        for msg in sent[:-1]:
+            if isinstance(msg, SystemMessage):
+                assert "<system_context_update>" not in msg.content
+                assert "quiet hours in effect" not in msg.content
+
+    @pytest.mark.asyncio
+    async def test_instruction_not_persisted(self, react_agent):
+        """
+        Phase 1: instruction content is ephemeral — it appears in the outgoing
+        message list for one execute() call but is never written into
+        chat_history.raw_records.
+        """
+        react_agent.set_auto_context(
+            default_content="UNIQUE_INSTRUCTION_MARKER_7a2b3c",
+            content_updater=lambda: "UNIQUE_INSTRUCTION_MARKER_7a2b3c",
+            auto_update=True,
+        )
+
+        await react_agent.react_async("Say hello.")
+
+        # None of the persisted records should carry the instruction marker.
+        for record in react_agent.chat_history.raw_records:
+            content = getattr(record.message, "content", "") or ""
+            if isinstance(content, str):
+                assert "UNIQUE_INSTRUCTION_MARKER_7a2b3c" not in content, (
+                    f"instruction marker leaked into persisted record: {record.message!r}"
+                )
+
+        # And the instruction registration itself should still be live.
+        assert react_agent.chat_history.instruction is not None
+        assert react_agent.chat_history.instruction.current_content == "UNIQUE_INSTRUCTION_MARKER_7a2b3c"
+
+
+class TestLastSentMessagesHook:
+    """Test the Phase 0 observability hook on ChatHistory."""
+
+    @pytest.mark.asyncio
+    async def test_last_sent_messages_populated_after_execute(self, react_agent):
+        """ChatHistory.last_sent_messages is populated after execute()."""
+        assert react_agent.chat_history.last_sent_messages is None
+
+        await react_agent.react_async("What is 1+1?")
+
+        sent = react_agent.chat_history.last_sent_messages
+        assert sent is not None
+        assert len(sent) > 0
+
+    @pytest.mark.asyncio
+    async def test_last_sent_messages_recaptured_each_call(self, react_agent):
+        """Each execute() call replaces the last_sent_messages snapshot."""
+        await react_agent.react_async("What is 1+1?")
+        first_snapshot = list(react_agent.chat_history.last_sent_messages or [])
+        assert len(first_snapshot) > 0
+
+        await react_agent.react_async("What is 2+2?")
+        second_snapshot = list(react_agent.chat_history.last_sent_messages or [])
+        assert len(second_snapshot) > 0
+
+        # Second snapshot should be at least as long (history grew).
+        assert len(second_snapshot) >= len(first_snapshot)
 
 
 class TestToolAccessToContext:
