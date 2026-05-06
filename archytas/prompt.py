@@ -1,9 +1,93 @@
 import json
-from typing import Callable
-from archytas.tool_utils import get_tool_prompt_description, get_tool_names
+from dataclasses import dataclass
+from typing import Callable, Optional
 from .message_schemas import ToolUseRequest
 
 tool_use_schema = json.dumps(ToolUseRequest.model_json_schema(), indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Sectioned prompt assembly
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PromptSection:
+    """A single named section in an assembled system prompt.
+
+    Attributes:
+        body: The section text. Empty/whitespace-only bodies are dropped at
+            assembly time.
+        name: Display name passed to the header formatter. ``None`` renders
+            the section without a header.
+        role: Stable, machine-readable identifier for programmatic matching
+            in subclass overrides (filter, reorder, replace). Decoupled from
+            ``name`` so renaming the display name does not silently change
+            matching behavior.
+    """
+
+    body: str
+    name: Optional[str] = None
+    role: Optional[str] = None
+
+
+HeaderFormatter = Callable[[Optional[str]], Optional[str]]
+
+
+def DEFAULT_HEADER_FORMATTER(name: Optional[str]) -> Optional[str]:
+    """Default section header formatter.
+
+    Returns a markdown ``##``-level header for non-empty names; returns
+    ``None`` for ``None`` or empty names so the section renders without a
+    header.
+    """
+    if not name:
+        return None
+    return f"## {name}"
+
+
+def assemble_prompt(
+    sections: list[PromptSection],
+    header_formatter: HeaderFormatter = DEFAULT_HEADER_FORMATTER,
+) -> str:
+    """Join an ordered list of ``PromptSection``s into a single prompt string.
+
+    Sections with empty/whitespace-only bodies are dropped. Each remaining
+    section's name is passed to ``header_formatter``; if the formatter
+    returns a non-empty string the header is prepended to the body,
+    separated by a blank line. Sections are joined by blank lines.
+    """
+    parts: list[str] = []
+    for section in sections:
+        body = section.body.strip() if section.body else ""
+        if not body:
+            continue
+        header = header_formatter(section.name) if header_formatter else None
+        if header:
+            parts.append(f"{header}\n\n{body}")
+        else:
+            parts.append(body)
+    return "\n\n".join(parts)
+
+
+# Default Framework section text for the base Agent. ReAct-specific text
+# lives in DEFAULT_REACT_FRAMEWORK_PROMPT below.
+DEFAULT_BASE_FRAMEWORK_PROMPT = "You are a helpful assistant."
+
+
+# Default Framework section text for ReActAgent. Subclasses may override
+# the ``framework_prompt`` class attribute to replace this entirely.
+DEFAULT_REACT_FRAMEWORK_PROMPT = """\
+You are a ReAct (Reason & Action) agent. You act as an interface between a user and the system.
+
+Your job is to help the user complete their tasks by calling the appropriate tools, evaluating results, and communicating effectively.
+
+Key principles:
+1. Focus on what the user has requested. Don't go off the rails.
+2. Use tools as needed to fulfill the request - calling multiple tools is fine.
+3. Be efficient but thorough in addressing the specific request.
+4. If the user is explicit in their request, never expand the scope beyond those bounds.
+5. Proper communication is key. Explain the what and why as you are working.
+"""
 
 def tool_intro() -> str:
     return "# Tools\nYou have access to the following tools which can help you in your job:"
@@ -77,41 +161,6 @@ def notes(*, ask_user: bool) -> str:
 """.strip()
 
 
-def build_prompt(custom_prelude: str = None) -> str:
-    """
-    Build the prompt for the ReAct agent
-
-    Args:
-        tools (list): A list of tools to use. Each tool should have the @tool decorator. applied.
-
-    Returns:
-        str: The prompt for the ReAct agent
-    """
-    if custom_prelude is not None:
-        prelude = custom_prelude
-    else:
-        prelude = f'''\
-You are the ReAct (Reason & Action) assistant. You act as an interface between a user and the system.
-
-Your job is to help the user complete their tasks by calling the appropriate tools, evaluating results, and communicating effectively.
-
-Key principles:
-1. Focus precisely on what the user has asked for - no more, no less
-2. Use tools as needed to fulfill the request - multiple tools are fine when necessary
-3. Be efficient but thorough in addressing the specific request
-4. Don't expand the scope beyond the user's explicit question
-
-The user may not see the results of executing the tools, so communicate important results/outputs from tool executions. Only run one tool at a time and review the output before proceeding.
-
-CRITICAL: You must provide your thoughts via response text separate from calling a tool, explaining your reasoning when it adds clarity. The user may or may not see these thoughts.
-
-CRITICAL: When calling a tool, provide your thoughts in the response text.
-
-Remember: Your goal is to solve exactly what was asked. For example, if asked for a mean, provide the mean - don't generate additional visualizations or analyses unless specifically requested.
-'''
-    return prelude
-
-
 def build_all_tool_names(tools: list[Callable]) -> list[str]:
     """
     Build a list of tool names from a list of tools
@@ -122,5 +171,7 @@ def build_all_tool_names(tools: list[Callable]) -> list[str]:
     Returns:
         list: A list of tool names
     """
-    tool_names = get_tool_names(tools)
-    return tool_names
+    # Deferred import to avoid a circular import (tool_utils -> agent ->
+    # prompt) when this module is imported during agent initialization.
+    from archytas.tool_utils import get_tool_names
+    return get_tool_names(tools)

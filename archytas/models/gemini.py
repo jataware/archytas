@@ -35,8 +35,11 @@ class GeminiModel(BaseArchytasModel):
 
     MODEL_PROMPT_INSTRUCTIONS = """
 Before you call EACH and ANY tool, you MUST add a text block to the output a plain-text 1-3 sentence explanation of reasoning why a particular tool or code generation was selected for use. This will be shown to the user so the user can keep track of what you are up to, so be succinct, polite, and helpful.
-This must be done for EVERY tool call.
-If you invoke multiple tools in a row, you still MUST include the reasoning explanation even if it the reasoning has already been covered in a prior message.
+This must be done for EVERY tool call. When preparing to use a tool, you must explicitly address the user. Your internal thinking is for you; your text output is for the user. Always write a short text message directly to the user explaining what you are about to do before the actual tool invocation.
+
+IMPORTANT: You possess an internal thinking/reasoning process, but the user CANNOT see this as direct communication. Therefore, before generating ANY tool call, you MUST output a standard, top-level text response (e.g., a "type": "text" block) containing a 1-3 sentence conversational update for the user. Do not bury your explanation to the user inside your internal thinking block.
+
+Remember your internal reasoning and thoughts are communicated to the user. You must communicate with the user by including a text block in your chat generation output.
 """
 
     def auth(self, **kwargs) -> None:

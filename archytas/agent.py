@@ -13,19 +13,26 @@ from tenacity import (
 from typing import Callable, ContextManager, Any, Optional
 from uuid import UUID
 
-from rich import print as rprint
-from rich.spinner import Spinner
-from rich.live import Live
-
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage, ToolCall
 
 from .chat_history import ChatHistory, ContextMessage, AutoContextMessage, AgentResponse, InstructionSource
 from .exceptions import AuthenticationError, ExecutionError, ModelError
 from .models.base import BaseArchytasModel
+from .prompt import (
+    DEFAULT_BASE_FRAMEWORK_PROMPT,
+    DEFAULT_HEADER_FORMATTER,
+    HeaderFormatter,
+    PromptSection,
+    assemble_prompt,
+)
 from .utils import ensure_async
 
-from .exceptions import AuthenticationError
+
+# Sentinel used to distinguish an explicit `prompt=` pass-through (which
+# maps to `custom_prompt`/full override) from the default flow (which runs
+# the section assembler).
+_PROMPT_UNSET = object()
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +72,8 @@ logger = logging.getLogger(__name__)
 
 
 def cli_spinner():
+    from rich.live import Live
+    from rich.spinner import Spinner
     return Live(
         Spinner("dots", speed=2, text="thinking..."),
         refresh_per_second=30,
@@ -83,11 +92,20 @@ class no_spinner:
 class Agent:
     chat_history: ChatHistory
 
+    # Default Framework section text. Subclasses override this class
+    # attribute to replace the Framework body for all instances of that
+    # subclass; instance-level overrides go through the constructor's
+    # `framework_prompt=` kwarg.
+    framework_prompt: str = DEFAULT_BASE_FRAMEWORK_PROMPT
+
     def __init__(
         self,
         *,
         model: BaseArchytasModel,
-        prompt: str = "You are a helpful assistant.",
+        prompt=_PROMPT_UNSET,
+        custom_prompt: str | None = None,
+        framework_prompt: str | None = None,
+        header_formatter: HeaderFormatter | None = None,
         api_key: str | None = None,
         spinner: Callable[[], ContextManager] | None = cli_spinner,
         rich_print: bool = True,
@@ -100,7 +118,20 @@ class Agent:
 
         Args:
             model (BaseArchytasModel): The model to use. Defaults to OpenAIModel(model_name="gpt-4o").
-            prompt (str, optional): The prompt to use when starting a new conversation. Defaults to "You are a helpful assistant.".
+            prompt (str, optional): DEPRECATED back-compat alias. When passed
+                explicitly, treated as ``custom_prompt`` (full override that
+                bypasses the section assembler). Prefer ``custom_prompt`` for
+                new code.
+            custom_prompt (str, optional): Full system-prompt override.
+                Bypasses the assembler entirely; the value is used verbatim
+                as the system message. Defaults to None.
+            framework_prompt (str, optional): Per-instance override of the
+                Framework section body. Replaces the class-level
+                ``framework_prompt`` for this instance only. Defaults to None
+                (class attribute used).
+            header_formatter (callable, optional): Callable taking an
+                optional section name and returning either a header string or
+                None to omit the header. Defaults to ``DEFAULT_HEADER_FORMATTER``.
             api_key (str, optional): The LLM provider API key to use. Defaults to None. If None, the provider will use the default environment variable (e.g. OPENAI_API_KEY).
             spinner ((fn -> ContextManager) | None, optional): A function that returns a context manager that is run every time the LLM is generating a response. Defaults to cli_spinner which is used to display a spinner in the terminal.
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
@@ -121,12 +152,21 @@ class Agent:
             self.model = OpenAIModel({"api_key": api_key, "model_name": model_name})
         else:
             self.model = model
-        if not prompt:
-            prompt = ""
-        if hasattr(self.model, 'MODEL_PROMPT_INSTRUCTIONS'):
-            prompt += "\n\n" + self.model.MODEL_PROMPT_INSTRUCTIONS
+
+        # Back-compat: an explicit `prompt=` is treated as `custom_prompt`.
+        # The default-default (no caller passes anything) falls through to
+        # the assembler.
+        if prompt is not _PROMPT_UNSET and custom_prompt is None:
+            custom_prompt = prompt
+        self.custom_prompt = custom_prompt
+        if framework_prompt is not None:
+            self.framework_prompt = framework_prompt
+        self.header_formatter: HeaderFormatter = (
+            header_formatter if header_formatter is not None else DEFAULT_HEADER_FORMATTER
+        )
+
         self.chat_history = ChatHistory(messages)
-        self.chat_history.set_system_message(SystemMessage(content=prompt))
+        self.chat_history.set_system_message(SystemMessage(content=self.build_system_prompt()))
         if spinner is not None and self.rich_print:
             self.spinner = spinner
         else:
@@ -140,8 +180,60 @@ class Agent:
         # make_tool_dict runs). Map of tool_name -> tool callable.
         self.statetools: dict[str, Callable] = {}
 
+    def get_prompt_sections(self) -> list[PromptSection]:
+        """Return the ordered list of ``PromptSection``s composing the system
+        prompt.
+
+        Default returns the Framework section (sourced from
+        ``self.framework_prompt``) followed by the Model section (sourced
+        from ``self.model.MODEL_PROMPT_INSTRUCTIONS``). Subclasses should
+        call ``super().get_prompt_sections()`` and append their own
+        sections, or filter/reorder by ``role`` for structural
+        manipulation.
+        """
+        sections: list[PromptSection] = []
+
+        framework_text = (self.framework_prompt or "").strip()
+        if framework_text:
+            sections.append(
+                PromptSection(body=framework_text, name="Framework", role="framework")
+            )
+
+        model_text = getattr(self.model, "MODEL_PROMPT_INSTRUCTIONS", "") or ""
+        model_text = model_text.strip()
+        if model_text:
+            sections.append(
+                PromptSection(body=model_text, name="Model", role="model")
+            )
+
+        return sections
+
+    def build_system_prompt(self) -> str:
+        """Build the final system prompt string.
+
+        Returns ``self.custom_prompt`` verbatim if set; otherwise assembles
+        the sections returned by ``get_prompt_sections()`` using
+        ``self.header_formatter``.
+        """
+        if self.custom_prompt is not None:
+            return self.custom_prompt
+        return assemble_prompt(self.get_prompt_sections(), self.header_formatter)
+
+    def update_system_prompt(self) -> None:
+        """Rebuild the system prompt and write it to chat history.
+
+        Call this after changing anything that affects the assembled
+        prompt (e.g., ``framework_prompt``, model, sections returned by an
+        override of ``get_prompt_sections``).
+        """
+        self.chat_history.set_system_message(
+            SystemMessage(content=self.build_system_prompt())
+        )
+
     def print(self, *args, **kwargs):
         if self.rich_print:
+            # Defer rich print import until it is needed
+            from rich import print as rprint
             rprint(*args, **kwargs)
         else:
             print(*args, **kwargs)
