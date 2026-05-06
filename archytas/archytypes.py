@@ -10,6 +10,8 @@ from dataclasses import dataclass, is_dataclass
 from pydantic import BaseModel
 import logging
 
+from .multimodal import MultiModalResponse
+
 logger = logging.getLogger(__name__)
 
 
@@ -236,6 +238,11 @@ class Any_t(NormalizedType[Any]):
         return True
     def __req__(self, other):
         return True
+
+
+@dataclass(frozen=True)
+class MultiModal_t(NormalizedType[MultiModalResponse]):
+    ...
 
 
 def is_optional(annotation):

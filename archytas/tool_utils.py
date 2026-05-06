@@ -2,6 +2,7 @@ import logging
 import re
 from .constants import TAB
 from .agent import Agent
+from .multimodal import MultiModalResponse
 from .archytypes import evaluate_type_str, normalize_type, NormalizedType, is_primitive_type, is_structured_type
 from .structured_data_utils import get_structured_input_description, construct_structured_type
 from .summarizers import default_tool_summarizer
@@ -18,6 +19,7 @@ from .chat_history import ChatHistory
 
 if TYPE_CHECKING:
     from .chat_history import ToolMessage
+    from langchain_core.messages import DataContentBlock
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,9 @@ logger = logging.getLogger(__name__)
 # TODO: parse extra long manual page from doc string. man_page can be seen by calling man <tool_name>
 # man_page:str|None=None
 # wrapper._man_page = man_page
+
+
+ToolResponse: typing.TypeAlias = "str | MultiModalResponse | DataContentBlock | list[DataContentBlock]"
 
 
 # Class/type definition for types used in dependency injection.
@@ -70,7 +75,7 @@ def tool(func: Callable[P, R], /) -> Callable[P, R]: ...
 @overload
 def tool(*, name: str | None = None, autosummarize: bool = False,
          summarizer: "Optional[Callable[[ToolMessage, ChatHistory, Agent], None]]" = None,
-         devmode: bool = False) -> Callable[P, R]: ...
+         devmode: bool = False, internal: bool = False) -> Callable[P, R]: ...
 
 
 def tool(
@@ -80,7 +85,8 @@ def tool(
     name: str | None = None,
     autosummarize: bool = False,
     summarizer: "Optional[Callable[[ToolMessage, ChatHistory, Agent], None]]" = None,
-    devmode: bool = False
+    devmode: bool = False,
+    internal: bool = False,
 ) -> Callable[P, R]:
     """
     Decorator to convert a function into a tool for ReAct agents to use.
@@ -123,6 +129,7 @@ def tool(
         func.autosummarize = autosummarize              # type: ignore
         func.summarizer = summarizer                    # type: ignore
         func._devmode = devmode                         # type: ignore
+        func._internal = internal                       # type: ignore
 
         # attach usage description to the wrapper function
         args_list, ret, desc, injections = get_tool_signature(func)
@@ -140,6 +147,7 @@ def tool(
 
         ):
             """Output from LLM will be dumped into a json object. Depending on object type, call func accordingly."""
+            from langchain_core.messages import is_data_content_block
 
             # Initialise positional and keyword argument structs
             pargs, kwargs = arg_preprocessor(args)
@@ -162,20 +170,14 @@ def tool(
                     # Backward compatible - string tools still work
                     return result
 
-                case list() if all(isinstance(item, dict) for item in result):
-                    # LangChain multimodal format - validate structure
-                    for item in result:
-                        if "type" not in item:
-                            raise ValueError(f"Multimodal content dict must have 'type' field: {item}")
-                        if item["type"] not in ("text", "image_url"):
-                            raise ValueError(f"Unsupported content type: {item['type']}")
-                    return result
+                case MultiModalResponse():
+                    return result.blocks
 
-                case dict() if "type" in result:
-                    # Single content block - wrap in list
-                    if result["type"] not in ("text", "image_url"):
-                        raise ValueError(f"Unsupported content type: {result['type']}")
+                case dict() if is_data_content_block(result):
                     return [result]
+
+                case list() if all((is_data_content_block(item) for item in result)):
+                    return result
 
                 case _:
                     # Convert other types to string (backward compatible)
@@ -238,9 +240,9 @@ def statetool(
         # Apply the regular @tool decorator so the statetool gets standard
         # tool plumbing (schema conversion, DI, summarizer slots, etc.).
         if name is not None:
-            decorated = tool(name=name)(func)
+            decorated = tool(name=name, internal=True)(func)
         else:
-            decorated = tool(func)
+            decorated = tool(func, internal=True)
         decorated._is_statetool = True           # type: ignore[attr-defined]
         decorated._statetool_condition = condition  # type: ignore[attr-defined]
         return decorated

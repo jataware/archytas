@@ -6,12 +6,13 @@ import logging
 import traceback
 import typing
 import uuid
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from .agent import Agent, BaseMessage, SystemMessage, AgentResponse
+from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
+
+from .agent import Agent, BaseMessage, AgentResponse
 from .chat_history import SummaryRecord, MessageRecord
 from .exceptions import ContextWindowExceededError
-from .prompt import build_prompt, build_all_tool_names
+from .prompt import DEFAULT_REACT_FRAMEWORK_PROMPT, build_all_tool_names
 from .tools import ask_user
 from .tool_utils import make_tool_dict, tool, AgentRef
 from .models.base import BaseArchytasModel
@@ -19,63 +20,6 @@ from .utils import ensure_async
 
 
 logger = logging.Logger("archytas")
-
-
-def format_tool_result_for_display(result: str | list[dict] | dict) -> str:
-    """
-    Format tool result for display in terminal/logs.
-
-    Converts multimodal LangChain format to readable string.
-
-    Args:
-        result: Tool execution result (string or LangChain multimodal format)
-
-    Returns:
-        Formatted string for display
-    """
-    match result:
-        case str():
-            return result
-
-        case dict() if "type" in result:
-            # Single content block
-            return format_tool_result_for_display([result])
-
-        case list():
-            parts = []
-            for item in result:
-                if not isinstance(item, dict):
-                    continue
-
-                match item.get("type"):
-                    case "text":
-                        parts.append(item.get("text", ""))
-
-                    case "image_url":
-                        image_url = item.get("image_url", {})
-                        if isinstance(image_url, dict):
-                            url = image_url.get("url", "")
-                        else:
-                            url = str(image_url)
-
-                        # Show preview for base64, full URL for remote
-                        if url.startswith("data:"):
-                            # Extract mime type and show preview
-                            if ";" in url:
-                                mime_type = url.split(";")[0].replace("data:", "")
-                                parts.append(f"[Image: {mime_type}, base64 data]")
-                            else:
-                                parts.append("[Image: base64 data]")
-                        else:
-                            parts.append(f"[Image: {url}]")
-
-                    case _:
-                        parts.append(f"[{item.get('type', 'unknown')}]")
-
-            return "\n".join(parts) if parts else ""
-
-        case _:
-            return str(result)
 
 
 class Undefined:
@@ -172,6 +116,8 @@ class LoopController:
 
 
 class ReActAgent(Agent):
+    framework_prompt: str = DEFAULT_REACT_FRAMEWORK_PROMPT
+
     def __init__(
         self,
         *,
@@ -199,9 +145,19 @@ class ReActAgent(Agent):
             thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
                     print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
             messages (list[BaseMessage], optional): A list of messages to start the agent with. Defaults to None.
-            custom_prelude (str, optional): A custom prelude to use instead of the default.
-                If provided, this will completely replace the default prelude.
+            custom_prelude (str, optional): DEPRECATED. Use ``framework_prompt`` instead.
+                Maps to ``framework_prompt`` for one release; will be removed.
         """
+        # Deprecated alias for framework_prompt. Map and warn.
+        if custom_prelude is not None:
+            import warnings
+            warnings.warn(
+                "`custom_prelude` is deprecated; use `framework_prompt` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            kwargs.setdefault("framework_prompt", custom_prelude)
+
         # create a dictionary for looking up tools by name
         tools = tools or []
         if allow_ask_user:
@@ -211,7 +167,6 @@ class ReActAgent(Agent):
         self.tools = make_tool_dict(tools)
         self.current_query = None
         self.loop_messages: list[BaseMessage] = []
-        self.custom_prelude = custom_prelude
 
         if thought_handler is Undefined:
             self.thought_handler = self.thought_callback
@@ -224,9 +179,7 @@ class ReActAgent(Agent):
             names == keys
         ), f"Internal Error: tools dict keys does not match list of generated tool names. {names} != {keys}"
 
-        # create the prompt with the tools, and initialize the agent
-        self.prompt = build_prompt(custom_prelude=custom_prelude)
-        super().__init__(model=model, prompt=self.prompt, api_key=api_key, messages=messages, **kwargs)
+        super().__init__(model=model, api_key=api_key, messages=messages, **kwargs)
         self.model.set_tools(self.tools)
         # Separate statetools out of the registered tool dict so the
         # tail-injection machinery on Agent can iterate them directly.
@@ -237,7 +190,7 @@ class ReActAgent(Agent):
             for tool_name, tool_fn in self.tools.items()
             if getattr(tool_fn, "_is_statetool", False)
         }
-        self.update_prompt()
+        self.update_system_prompt()
 
         # react settings
         self.max_errors = max_errors or float("inf")
@@ -249,13 +202,6 @@ class ReActAgent(Agent):
 
         # keep track of the last tool used (for error messages)
         self.last_tool_name = ""
-
-    def update_prompt(self):
-        self.prompt = build_prompt(custom_prelude=self.custom_prelude)
-        model_prompt = self.model.MODEL_PROMPT_INSTRUCTIONS
-        if model_prompt:
-            self.prompt += "\n\n" + model_prompt
-        self.chat_history.set_system_message(SystemMessage(content=self.prompt))
 
     def disable(self, *tool_names):
         if len(tool_names) == 0:
@@ -279,7 +225,7 @@ class ReActAgent(Agent):
 
         if self.model:
             self.model.set_tools(self.tools)
-        self.update_prompt()
+        self.update_system_prompt()
 
     def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
         if self.verbose:
@@ -313,6 +259,76 @@ class ReActAgent(Agent):
         # Clear loop specific items
         self.chat_history.current_loop_id = None
         self.current_query = None
+
+    async def call_tool(self, tool_call_dict: dict, text: str, loop_controller: LoopController, react_context: dict):
+        tool_id = tool_call_dict["id"]
+        tool_name = tool_call_dict["name"]
+        tool_args = tool_call_dict["args"]
+
+        if self.thought_handler:
+            self.thought_handler(text, tool_name, tool_args)
+
+        # run tool
+        try:
+            tool_fn = self.tools[tool_name]
+        except KeyError:
+            message = ToolMessage(
+                content=f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}',
+                tool_call_id=tool_id,
+            )
+            return (message, False)
+
+        try:
+            tool_context = {
+                "agent": self,
+                "tool_name": tool_name,
+                "raw_tool": tool_fn,
+                "loop_controller": loop_controller,
+                "react_context": react_context,
+            }
+            tool_self_ref = getattr(tool_fn, "__self__", None)
+            self.log(
+                event_type="react_tool",
+                content={
+                    "tool": tool_name,
+                    "input": tool_args,
+                }
+            )
+            tool_output = await tool_fn.run(args=tool_args, tool_context=tool_context, self_ref=tool_self_ref)
+            self.log(
+                event_type="react_tool_output",
+                content={
+                    "tool": tool_name,
+                    "input": tool_args,
+                    "output": tool_output,
+                }
+            )
+            if self.verbose:
+                self.display_observation(tool_output)
+
+            message = ToolMessage(
+                content=tool_output,
+                tool_call_id=tool_id,
+                artifact={
+                    "tool_name": tool_name,
+                    "summarized": False
+                }
+            )
+            return (message, True)
+        except asyncio.CancelledError:
+            message = ToolMessage(
+                content='Execution of this tool was interrupted by the user.',
+                tool_call_id=tool_id
+            )
+            return (message, False)
+        except Exception as e:
+            message = ToolMessage(
+                content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
+                tool_call_id=tool_id
+            )
+            if self.verbose:
+                self.print(f"[red]Exception raised in tool: '{tool_name}'[/red]\n[yellow]{''.join(traceback.format_exception(e))}[/yellow]")
+            return (message, False)
 
     @catch_failure
     async def react_async(self, query: str, react_context:dict=None) -> str:
@@ -360,167 +376,83 @@ class ReActAgent(Agent):
                             }
                         })
 
-            if action.tool_calls:
-                for tool_call in action.tool_calls:
-                    tool_id = tool_call["id"]
-                    tool_name = tool_call["name"]
-                    tool_args = tool_call["args"]
+            tool_calls = action.tool_calls or []
 
-                    # exit ReAct loop if agent says final_answer or fail_task
-                    if tool_name == "final_answer":
-                        self.debug(
-                            event_type="react_final_answer",
-                            content={
-                                "final_answer": tool_args,
-                            }
-                        )
-                        self.current_query = None
-                        # Store final answer as response in message,
-                        response = tool_args.get("response", None)
-                        if not response:
-                            # TODO: Handle this case
-                            raise ValueError("The LLM provided an empty message for a final_answer. This is not valid.")
-                        final_message = ToolMessage(
-                            content=str(response),
-                            tool_call_id=tool_id,
-                        )
-                        self.chat_history.add_message(final_message)
-                        await self.post_loop()
-                        return response
-                    if tool_name == "fail_task":
-                        reason = tool_args.get("reason", "No reason identified.")
-                        error = tool_args.get("error", None)
-                        await self.post_loop(skip_summarization=True)
-                        raise FailedTaskError(
-                            message=reason,
-                            extra=error,
-                            tool_call_id=tool_id
-                        )
+            terminal_tool = None
+            tool_call_coroutines = []
+            for tool_call in tool_calls:
+                if tool_call["name"] not in ("final_answer", "fail_task"):
+                    tool_call_coroutines.append(self.call_tool(tool_call, action.text, controller, react_context))
+                elif terminal_tool is None:
+                    terminal_tool = tool_call
+                else:
+                    raise ValueError("Only one of tools `final_answer` and `fail_task` can be called at a time.")
+            if tool_call_coroutines:
+                tool_call_results: list[tuple[ToolMessage, bool]] = await asyncio.gather(*tool_call_coroutines)
 
-                    if self.thought_handler:
-                        self.thought_handler(action.text, tool_name, tool_args)
+                for tool_message, successful in tool_call_results:
 
+                    # Always add tool response before handling state changes to ensure message history is correct.
+                    self.chat_history.add_message(tool_message)
 
-                    # run tool
-                    try:
-                        tool_fn = self.tools[tool_name]
-                    except KeyError:
-                        self.chat_history.add_message(ToolMessage(
-                            content=f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}',
-                            tool_call_id=tool_id,
-                        ))
-                        continue
+                # TODO: How to handle these are a little unclear given that now that we are running multiple tools at once
+                #   what happens when the loop controller state commands conflict.
+                #   I'm not sure if this is being used any more and if so, what the expectations are.
+                #
+                # # Log cases when tools override controller state
+                # if controller.state != LoopController.PROCEED:
+                #     self.debug(
+                #         event_type="react_controller_state",
+                #         content={
+                #             "state": controller.state,
+                #         }
+                #     )
+                #
+                # # Check loop controller to see if we need to stop or error
+                # if controller.state == LoopController.STOP_SUCCESS:
+                #     await self.post_loop()
+                #     return tool_output
+                # if controller.state == LoopController.STOP_FATAL:
+                #     await self.post_loop()
+                #     raise FailedTaskError(
+                #         tool_output,
+                #         tool_call_id=tool_id
+                #     )
 
-                    try:
-                        tool_context = {
-                            "agent": self,
-                            "tool_name": tool_name,
-                            "raw_tool": tool_fn,
-                            "loop_controller": controller,
-                            "react_context": react_context,
+            if terminal_tool:
+                tool_id = terminal_tool["id"]
+                tool_name = terminal_tool["name"]
+                tool_args = terminal_tool["args"]
+                # exit ReAct loop if agent says final_answer or fail_task
+                if tool_name == "final_answer":
+                    self.debug(
+                        event_type="react_final_answer",
+                        content={
+                            "final_answer": tool_args,
                         }
-                        tool_self_ref = getattr(tool_fn, "__self__", None)
-                        self.log(
-                            event_type="react_tool",
-                            content={
-                                "tool": tool_name,
-                                "input": tool_args,
-                            }
-                        )
-                        tool_output = await tool_fn.run(args=tool_args, tool_context=tool_context, self_ref=tool_self_ref)
-                        self.log(
-                            event_type="react_tool_output",
-                            content={
-                                "tool": tool_name,
-                                "input": tool_args,
-                                "output": tool_output,
-                            }
-                        )
-
-                        # Handle multimodal tool outputs (e.g., images from MCP tools)
-                        # OpenAI doesn't support images in tool messages, so we need to extract
-                        # images and send them in a separate user message
-                        tool_content = tool_output
-                        image_content = None
-
-                        if isinstance(tool_output, list):
-                            # Check if there are any images in the output
-                            text_blocks = []
-                            image_blocks = []
-
-                            for block in tool_output:
-                                if isinstance(block, dict):
-                                    if block.get("type") == "image_url":
-                                        image_blocks.append(block)
-                                    else:
-                                        text_blocks.append(block)
-
-                            # If there are images, separate them
-                            if image_blocks:
-                                # Tool message gets only text content
-                                tool_content = text_blocks if text_blocks else "Image generated"
-                                # Images will be sent in a follow-up user message
-                                image_content = image_blocks
-
-                        tool_message = ToolMessage(
-                            content=tool_content,
-                            tool_call_id=tool_id,
-                            artifact={
-                                "tool_name": tool_name,
-                                "summarized": False
-                            }
-                        )
-
-                        # Always add tool response before handling state changes to ensure message history is correct.
-                        self.chat_history.add_message(tool_message)
-
-                        # If the tool returned images, inject them as a user message
-                        # This works around OpenAI's limitation that images can only be in user messages
-                        if image_content:
-                            image_message = HumanMessage(
-                                content=[
-                                    {"type": "text", "text": f"[Tool '{tool_name}' returned the following image(s):]"},
-                                    *image_content
-                                ]
-                            )
-                            self.chat_history.add_message(image_message)
-
-                        # Have the agent observe the result, and get the next action
-                        if self.verbose:
-                            self.display_observation(tool_output)
-
-                        # Log cases when tools override controller state
-                        if controller.state != LoopController.PROCEED:
-                            self.debug(
-                                event_type="react_controller_state",
-                                content={
-                                    "state": controller.state,
-                                }
-                            )
-                        # Check loop controller to see if we need to stop or error
-                        if controller.state == LoopController.STOP_SUCCESS:
-                            await self.post_loop()
-                            return tool_output
-                        if controller.state == LoopController.STOP_FATAL:
-                            await self.post_loop()
-                            raise FailedTaskError(
-                                tool_output,
-                                tool_call_id=tool_id
-                            )
-                    except asyncio.CancelledError:
-                        self.chat_history.add_message(ToolMessage(
-                            content='Execution of this tool was interrupted by the user.',
-                            tool_call_id=tool_id
-                        ))
-                        self.chat_history.current_loop_id = None
-                    except Exception as e:
-                        self.chat_history.add_message(ToolMessage(
-                            content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
-                            tool_call_id=tool_id
-                        ))
-                        self.chat_history.current_loop_id = None
-                        if self.verbose:
-                            self.print(f"[red]Exception raised in tool: '{tool_name}'[/red]\n[yellow]{''.join(traceback.format_exception(e))}[/yellow]")
+                    )
+                    self.current_query = None
+                    # Store final answer as response in message,
+                    response = tool_args.get("response", None)
+                    if not response:
+                        # TODO: Handle this case
+                        raise ValueError("The LLM provided an empty message for a final_answer. This is not valid.")
+                    final_message = ToolMessage(
+                        content=str(response),
+                        tool_call_id=tool_id,
+                    )
+                    self.chat_history.add_message(final_message)
+                    await self.post_loop()
+                    return response
+                if tool_name == "fail_task":
+                    reason = tool_args.get("reason", "No reason identified.")
+                    error = tool_args.get("error", None)
+                    await self.post_loop(skip_summarization=True)
+                    raise FailedTaskError(
+                        message=reason,
+                        extra=error,
+                        tool_call_id=tool_id
+                    )
 
             # Execute to fetch next step in the ReAct loop
             try:
@@ -536,6 +468,7 @@ class ReActAgent(Agent):
                     await history_summarization_task
                 # Now that summarization has completed, try to execute again.
                 reaction = await self.execute()
+
 
     @staticmethod
     def extract_action(action: dict) -> tuple[str, str, str, bool]:
@@ -592,7 +525,7 @@ class ReActAgent(Agent):
         """
         self.print(f"observation: {observation}\n")
 
-    @tool(autosummarize=True)
+    @tool(autosummarize=True, internal=True)
     def retrieve_summarized_messages_of_summary(
         self,
         summary_record_uuid: str,
