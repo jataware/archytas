@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import inspect
 import json
 import sys
@@ -6,6 +7,20 @@ import logging
 import traceback
 import typing
 import uuid
+
+
+_OUTPUT_PREVIEW_BUDGET = 200
+
+
+def _truncate_output_preview(output: typing.Any) -> tuple[str, bool]:
+    """Render a tool output as a short string for live status display.
+
+    Returns ``(preview, truncated)``. Tentative budget — see plan.
+    """
+    text = output if isinstance(output, str) else repr(output)
+    if len(text) > _OUTPUT_PREVIEW_BUDGET:
+        return text[:_OUTPUT_PREVIEW_BUDGET], True
+    return text, False
 
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 
@@ -127,7 +142,8 @@ class ReActAgent(Agent):
         allow_ask_user: bool = True,
         max_errors: int | None = 3,
         max_react_steps: int | None = None,
-        thought_handler: typing.Callable | None = Undefined,
+        on_react_step: typing.Callable | None = Undefined,
+        on_tool_call_update: typing.Callable | None = Undefined,
         messages: typing.Optional[list[BaseMessage]] | None = None,
         custom_prelude: str = None,
         **kwargs,
@@ -142,8 +158,13 @@ class ReActAgent(Agent):
             allow_ask_user (bool): Whether to include the ask_user tool, which allows the model to ask the user for clarification. Defaults to True.
             max_errors (int, optional): The maximum number of errors to allow during a task. Defaults to 3.
             max_react_steps (int, optional): The maximum number of steps to allow during a task. Defaults to infinity.
-            thought_handler (function, optional): Hook to control logging/output of the thoughts made in the middle of a react loop. Set to None to disable, or leave default of Undefined to
-                    print to terminal. Otherwise expects a callable function with the signature of `func(thought: str, tool_name: str, tool_input: str) -> None`.
+            on_react_step (function, optional): Hook called once per ReAct step, before tool dispatch. Set to None to disable, or leave default of Undefined to
+                    print to terminal. Signature: ``func(thought: str, thought_id: str, tool_calls: list[dict]) -> None``,
+                    where each tool_calls item is ``{"tool_call_id": str, "tool_name": str, "tool_input": dict}``.
+            on_tool_call_update (function, optional): Hook called at each tool lifecycle transition. Set to None to disable.
+                    Signature: ``func(tool_call_id: str, state: str, **fields) -> None``, where ``state`` is one of
+                    ``"running"`` / ``"done"`` / ``"error"`` / ``"cancelled"``. Optional ``fields`` may include
+                    ``started_at``, ``ended_at``, ``output_preview``, ``output_truncated``, ``error``.
             messages (list[BaseMessage], optional): A list of messages to start the agent with. Defaults to None.
             custom_prelude (str, optional): DEPRECATED. Use ``framework_prompt`` instead.
                 Maps to ``framework_prompt`` for one release; will be removed.
@@ -168,10 +189,15 @@ class ReActAgent(Agent):
         self.current_query = None
         self.loop_messages: list[BaseMessage] = []
 
-        if thought_handler is Undefined:
-            self.thought_handler = self.thought_callback
+        if on_react_step is Undefined:
+            self.on_react_step = self._default_react_step_callback
         else:
-            self.thought_handler = thought_handler
+            self.on_react_step = on_react_step
+
+        if on_tool_call_update is Undefined:
+            self.on_tool_call_update = self._default_tool_call_update_callback
+        else:
+            self.on_tool_call_update = on_tool_call_update
 
         # check that the tools dict keys match the list of generated tool names
         names, keys = sorted(build_all_tool_names(tools)), sorted([*self.tools.keys()])
@@ -227,12 +253,16 @@ class ReActAgent(Agent):
             self.model.set_tools(self.tools)
         self.update_system_prompt()
 
-    def thought_callback(self, thought: str, tool_name: str, tool_input: str) -> None:
+    def _default_react_step_callback(self, thought: str, thought_id: str, tool_calls: list[dict]) -> None:
         if self.verbose:
-            # TODO: better coloring
-            self.print(
-                f"thought: {thought}\ntool: {tool_name}\ntool_input: {tool_input}\n"
-            )
+            self.print(f"thought: {thought}")
+            for tc in tool_calls:
+                self.print(f"  tool: {tc['tool_name']} input: {tc['tool_input']}")
+
+    def _default_tool_call_update_callback(self, tool_call_id: str, state: str, **fields) -> None:
+        if self.verbose:
+            extras = " ".join(f"{k}={v!r}" for k, v in fields.items() if k not in ("started_at", "ended_at"))
+            self.print(f"tool_call {tool_call_id} -> {state} {extras}")
 
     def react(self, query: str, react_context:dict=None) -> str:
         """
@@ -260,23 +290,37 @@ class ReActAgent(Agent):
         self.chat_history.current_loop_id = None
         self.current_query = None
 
-    async def call_tool(self, tool_call_dict: dict, text: str, loop_controller: LoopController, react_context: dict):
+    async def call_tool(self, tool_call_dict: dict, loop_controller: LoopController, react_context: dict):
         tool_id = tool_call_dict["id"]
         tool_name = tool_call_dict["name"]
         tool_args = tool_call_dict["args"]
-
-        if self.thought_handler:
-            self.thought_handler(text, tool_name, tool_args)
 
         # run tool
         try:
             tool_fn = self.tools[tool_name]
         except KeyError:
+            if self.on_tool_call_update:
+                self.on_tool_call_update(
+                    tool_id,
+                    "error",
+                    error={
+                        "ename": "UnknownTool",
+                        "evalue": f'Unknown tool "{tool_name}"',
+                    },
+                    ended_at=datetime.datetime.utcnow().isoformat(),
+                )
             message = ToolMessage(
                 content=f'Unknown tool "{tool_name}"\nAvailable tools: {", ".join(self.tools.keys())}',
                 tool_call_id=tool_id,
             )
             return (message, False)
+
+        if self.on_tool_call_update:
+            self.on_tool_call_update(
+                tool_id,
+                "running",
+                started_at=datetime.datetime.utcnow().isoformat(),
+            )
 
         try:
             tool_context = {
@@ -306,6 +350,16 @@ class ReActAgent(Agent):
             if self.verbose:
                 self.display_observation(tool_output)
 
+            if self.on_tool_call_update:
+                preview, truncated = _truncate_output_preview(tool_output)
+                self.on_tool_call_update(
+                    tool_id,
+                    "done",
+                    ended_at=datetime.datetime.utcnow().isoformat(),
+                    output_preview=preview,
+                    output_truncated=truncated,
+                )
+
             message = ToolMessage(
                 content=tool_output,
                 tool_call_id=tool_id,
@@ -316,12 +370,29 @@ class ReActAgent(Agent):
             )
             return (message, True)
         except asyncio.CancelledError:
+            if self.on_tool_call_update:
+                self.on_tool_call_update(
+                    tool_id,
+                    "cancelled",
+                    ended_at=datetime.datetime.utcnow().isoformat(),
+                )
             message = ToolMessage(
                 content='Execution of this tool was interrupted by the user.',
                 tool_call_id=tool_id
             )
             return (message, False)
         except Exception as e:
+            if self.on_tool_call_update:
+                self.on_tool_call_update(
+                    tool_id,
+                    "error",
+                    ended_at=datetime.datetime.utcnow().isoformat(),
+                    error={
+                        "ename": type(e).__name__,
+                        "evalue": str(e),
+                        "traceback": traceback.format_exception(e),
+                    },
+                )
             message = ToolMessage(
                 content=f'error running tool "{tool_name}"\n\n:{e}\n{traceback.format_exception(e)}',
                 tool_call_id=tool_id
@@ -378,11 +449,31 @@ class ReActAgent(Agent):
 
             tool_calls = action.tool_calls or []
 
+            # Notify consumers about this ReAct step before dispatching its tool calls.
+            # Skips terminal tools (final_answer / fail_task) — they don't represent
+            # user-visible reasoning steps in the same way.
+            if self.on_react_step and tool_calls:
+                step_tool_calls = [
+                    {
+                        "tool_call_id": tc["id"],
+                        "tool_name": tc["name"],
+                        "tool_input": tc["args"],
+                    }
+                    for tc in tool_calls
+                    if tc["name"] not in ("final_answer", "fail_task")
+                ]
+                if step_tool_calls:
+                    self.on_react_step(
+                        action.text or "",
+                        uuid.uuid4().hex,
+                        step_tool_calls,
+                    )
+
             terminal_tool = None
             tool_call_coroutines = []
             for tool_call in tool_calls:
                 if tool_call["name"] not in ("final_answer", "fail_task"):
-                    tool_call_coroutines.append(self.call_tool(tool_call, action.text, controller, react_context))
+                    tool_call_coroutines.append(self.call_tool(tool_call, controller, react_context))
                 elif terminal_tool is None:
                     terminal_tool = tool_call
                 else:
