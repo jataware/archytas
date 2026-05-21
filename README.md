@@ -43,20 +43,17 @@ Read the [mcp quick start doc](docs/MCP_QUICK_START.md)  for more info
 
 # Quickstart
 ```bash
-# make sure poetry is installed
-pip install poetry
-
 # clone and install
 git clone git@github.com:jataware/archytas.git
 cd archytas
-poetry install
+uv pip install -e .
 
 # make sure OPENAI_API_KEY var is set
 # or pass it in as an argument to the agent
 export OPENAI_API_KEY="sk-..."
 
 # run demo
-poetry run chat-repl
+uv run chat-repl
 ```
 
 # Simple Usage
