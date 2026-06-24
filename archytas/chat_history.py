@@ -838,14 +838,14 @@ class ChatHistory:
 
     def set_system_preamble_text(self, text: str):
         """
-        Sets/updates the user_preamble
+        Sets/updates the system_preamble
 
         Set text to an empty string to remove the preamble message.
         """
         if text:
-            self.user_preamble = MessageRecord(message=SystemMessage(content=text), metadata={"preamble": True})
+            self.system_preamble = MessageRecord(message=SystemMessage(content=text), metadata={"preamble": True})
         else:
-            self.user_preamble = None
+            self.system_preamble = None
 
     def set_user_preamble_text(self, text: str):
         """
@@ -876,8 +876,11 @@ class ChatHistory:
         """Serialize this chat history to a JSON-compatible aggregate document.
 
         The document carries the :data:`CHAT_HISTORY_SCHEMA` envelope marker,
-        the raw message records, the summary records, and a block of useful
-        (non-reconstructive) metadata describing the model and token budget.
+        the system message, the system/user preambles, the raw message records,
+        the summary records, and a block of useful (non-reconstructive) metadata
+        describing the model and token budget.
+
+        The system message and preambles serialize to ``None`` when unset.
 
         The model itself and runtime-only state (summarizers, in-flight
         summarization task, last sent messages) are intentionally not
@@ -904,6 +907,9 @@ class ChatHistory:
                 "tool_token_estimate": self.tool_token_estimate,
                 "token_estimate": self._token_estimate,
             },
+            "system_message": self.system_message.to_dict() if self.system_message else None,
+            "system_preamble": self.system_preamble.to_dict() if self.system_preamble else None,
+            "user_preamble": self.user_preamble.to_dict() if self.user_preamble else None,
             "raw_records": [record.to_dict() for record in self.raw_records],
             "summaries": [summary.to_dict() for summary in self.summaries],
         }
@@ -920,8 +926,9 @@ class ChatHistory:
 
         ``uuid``s on every record are preserved unchanged, and
         :class:`SummaryRecord`s are restored with their ``summarized_messages``
-        sets intact. A live ``model`` and summarizers may be supplied since they
-        are not part of the serialized document.
+        sets intact. The system message and preambles are restored when present
+        and left unset when ``None`` or absent. A live ``model`` and summarizers
+        may be supplied since they are not part of the serialized document.
         """
         _check_schema(data, expected=CHAT_HISTORY_SCHEMA)
 
@@ -930,6 +937,15 @@ class ChatHistory:
             loop_summarizer=loop_summarizer,
             history_summarizer=history_summarizer,
         )
+
+        # System message and preambles are optional: null or absent => leave unset.
+        if data.get("system_message"):
+            history.system_message = MessageRecord.from_dict(data["system_message"])
+        if data.get("system_preamble"):
+            history.system_preamble = MessageRecord.from_dict(data["system_preamble"])
+        if data.get("user_preamble"):
+            history.user_preamble = MessageRecord.from_dict(data["user_preamble"])
+
         history.raw_records = [
             MessageRecord.from_dict(record) for record in data.get("raw_records", [])
         ]

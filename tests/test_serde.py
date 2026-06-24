@@ -54,6 +54,10 @@ def build_history() -> ChatHistory:
     )
     history.summaries.append(summary)
 
+    history.set_system_message("you are a helpful assistant")
+    history.set_system_preamble_text("system preamble text")
+    history.set_user_preamble_text("user preamble text")
+
     history.tool_token_estimate = 42
     return history
 
@@ -233,7 +237,15 @@ class TestChatHistorySerde:
     def test_document_shape(self):
         doc = build_history().to_dict()
         assert doc["format"] == CHAT_HISTORY_SCHEMA.to_dict()
-        assert set(doc) == {"format", "metadata", "raw_records", "summaries"}
+        assert set(doc) == {
+            "format",
+            "metadata",
+            "system_message",
+            "system_preamble",
+            "user_preamble",
+            "raw_records",
+            "summaries",
+        }
         assert len(doc["raw_records"]) == 3
         assert len(doc["summaries"]) == 1
 
@@ -290,6 +302,83 @@ class TestChatHistorySerde:
         assert doc["metadata"]["model"] is None
         restored = ChatHistory.from_dict(doc)
         assert restored.model is None
+
+
+class TestSystemMessageAndPreambles:
+    def test_roundtrip_preserves_system_message_and_preambles(self):
+        history = build_history()
+        restored = ChatHistory.from_dict(assert_json_compatible(history.to_dict()))
+
+        assert restored.system_message is not None
+        assert restored.system_message.message.content == "you are a helpful assistant"
+        assert restored.system_message.uuid == history.system_message.uuid
+
+        assert restored.system_preamble is not None
+        assert isinstance(restored.system_preamble.message, SystemMessage)
+        assert restored.system_preamble.message.content == "system preamble text"
+        assert restored.system_preamble.uuid == history.system_preamble.uuid
+        assert restored.system_preamble.metadata == {"preamble": True}
+
+        assert restored.user_preamble is not None
+        assert isinstance(restored.user_preamble.message, HumanMessage)
+        assert restored.user_preamble.message.content == "user preamble text"
+        assert restored.user_preamble.uuid == history.user_preamble.uuid
+
+    def test_unset_fields_serialize_to_null(self):
+        doc = ChatHistory().to_dict()
+        assert doc["system_message"] is None
+        assert doc["system_preamble"] is None
+        assert doc["user_preamble"] is None
+
+    def test_null_fields_roundtrip_to_none(self):
+        restored = ChatHistory.from_dict(assert_json_compatible(ChatHistory().to_dict()))
+        assert restored.system_message is None
+        assert restored.system_preamble is None
+        assert restored.user_preamble is None
+
+    def test_missing_keys_tolerated(self):
+        # A document predating these fields (keys entirely absent) must still load.
+        doc = build_history().to_dict()
+        del doc["system_message"]
+        del doc["system_preamble"]
+        del doc["user_preamble"]
+        restored = ChatHistory.from_dict(doc)
+        assert restored.system_message is None
+        assert restored.system_preamble is None
+        assert restored.user_preamble is None
+        # the rest of the document is unaffected
+        assert len(restored.raw_records) == 3
+
+    def test_setters_target_distinct_fields(self):
+        # Regression: set_system_preamble_text once routed to user_preamble.
+        # The two setters must populate distinct fields and not clobber each other.
+        history = ChatHistory()
+        history.set_system_preamble_text("sys")
+        history.set_user_preamble_text("usr")
+
+        assert history.system_preamble is not None
+        assert isinstance(history.system_preamble.message, SystemMessage)
+        assert history.system_preamble.message.content == "sys"
+
+        assert history.user_preamble is not None
+        assert isinstance(history.user_preamble.message, HumanMessage)
+        assert history.user_preamble.message.content == "usr"
+
+        # And the distinction survives a serde round-trip.
+        restored = ChatHistory.from_dict(assert_json_compatible(history.to_dict()))
+        assert restored.system_preamble.message.content == "sys"
+        assert isinstance(restored.system_preamble.message, SystemMessage)
+        assert restored.user_preamble.message.content == "usr"
+        assert isinstance(restored.user_preamble.message, HumanMessage)
+
+    def test_partial_set_roundtrips(self):
+        history = ChatHistory()
+        history.set_system_message("only a system message")
+        restored = ChatHistory.from_dict(assert_json_compatible(history.to_dict()))
+        assert restored.system_message is not None
+        assert restored.system_message.message.content == "only a system message"
+        assert restored.system_preamble is None
+        assert restored.user_preamble is None
 
 
 # ---------------------------------------------------------------------------
