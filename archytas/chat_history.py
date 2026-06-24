@@ -10,10 +10,11 @@ import warnings
 from dataclasses import MISSING
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field as dataclass_field
-from typing import TYPE_CHECKING,Callable, Collection, Optional, TypeVar, Generic, cast, Any, TypeAlias, Coroutine
+from typing import TYPE_CHECKING,Callable, Collection, Mapping, Optional, TypeVar, Generic, cast, Any, TypeAlias, Coroutine
 from typing_extensions import Self
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage, AIMessage, ToolCall
+from langchain_core.messages import message_to_dict, messages_from_dict
 from pydantic import Field
 
 from .exceptions import AuthenticationError, ExecutionError, ModelError, ContextWindowExceededError
@@ -216,6 +217,96 @@ class AgentResponse:
     metadata: dict = dataclass_field(default_factory=dict)
 
 
+# ----------------------------------------------------------------------------
+# Serialization (serde) schema registry.
+#
+# Each serialized document/record carries a reified `SerdeSchema` — a named,
+# versioned descriptor that can be inspected, compared, and embedded in the
+# JSON. The intent is to decouple two independently-evolving concerns:
+#
+#   * The *envelope* schema (record/document structure: uuid, token_count,
+#     metadata, which lists exist, etc.). Versioned by RECORD_*_SCHEMA /
+#     CHAT_HISTORY_SCHEMA.
+#   * The *message body* format — how a LangChain `BaseMessage` is turned into
+#     JSON. Versioned separately by MESSAGE_FORMAT and stamped onto every
+#     record as a `message_format` marker. If LangChain's wire format drifts,
+#     only MESSAGE_FORMAT needs to move; the envelope versions stay put.
+# ----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SerdeSchema:
+    """A reified, comparable description of a serialization format.
+
+    Instances are hashable/comparable (frozen dataclass), serialize to a small
+    inspectable dict via :meth:`to_dict`, and support compatibility checks via
+    :meth:`is_compatible`.
+    """
+    name: str
+    version: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"schema": self.name, "version": self.version}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "SerdeSchema":
+        return cls(name=str(data["schema"]), version=int(data["version"]))
+
+    def is_compatible(self, other: "SerdeSchema") -> bool:
+        """Two schemas are compatible when they name the same format at the
+        same major version. (Versioning is currently a single integer, so this
+        is exact-match; widen here if minor/forward-compatible versions land.)
+        """
+        return self.name == other.name and self.version == other.version
+
+
+# Inner message-body format marker (LangChain `message_to_dict`/`messages_from_dict`).
+MESSAGE_FORMAT = SerdeSchema(name="archytas.message.langchain", version=1)
+
+# Envelope schemas for each record/document type.
+MESSAGE_RECORD_SCHEMA = SerdeSchema(name="archytas.MessageRecord", version=1)
+SUMMARY_RECORD_SCHEMA = SerdeSchema(name="archytas.SummaryRecord", version=1)
+CHAT_HISTORY_SCHEMA = SerdeSchema(name="archytas.ChatHistory", version=1)
+
+
+def _serialize_message(message: BaseMessage) -> dict[str, Any]:
+    """Convert a LangChain message to a JSON-compatible dict."""
+    return message_to_dict(message)
+
+
+def _deserialize_message(data: Mapping[str, Any]) -> BaseMessage:
+    """Reconstruct a LangChain message from its serialized dict form."""
+    return messages_from_dict([dict(data)])[0]
+
+
+def _read_schema(data: Mapping[str, Any], key: str = "format") -> Optional[SerdeSchema]:
+    """Extract the embedded :class:`SerdeSchema` from a serialized payload, if present."""
+    raw = data.get(key)
+    if not raw:
+        return None
+    return SerdeSchema.from_dict(raw)
+
+
+def _check_schema(data: Mapping[str, Any], expected: SerdeSchema, key: str = "format") -> None:
+    """Warn (do not raise) when a payload's declared schema is unknown or drifts.
+
+    Deserialization stays lenient so that older/newer envelopes can still be
+    loaded best-effort; the warning makes the drift visible for inspection.
+    """
+    found = _read_schema(data, key=key)
+    if found is None:
+        warnings.warn(
+            f"Serialized payload is missing a '{key}' schema marker; "
+            f"expected {expected.to_dict()}. Attempting to load anyway.",
+            stacklevel=3,
+        )
+    elif not found.is_compatible(expected):
+        warnings.warn(
+            f"Serialized payload schema {found.to_dict()} is not compatible with "
+            f"expected {expected.to_dict()}. Attempting to load anyway.",
+            stacklevel=3,
+        )
+
+
 @dataclass
 class MessageRecord(Generic[MessageType]):
     message: MessageType
@@ -224,11 +315,78 @@ class MessageRecord(Generic[MessageType]):
     metadata: dict[str, Any] = dataclass_field(default_factory=lambda: {})
     react_loop_id: Optional[int] = dataclass_field(default=None)
 
+    @classmethod
+    def _record_schema(cls) -> SerdeSchema:
+        """The envelope schema for this record type. Overridden by subclasses."""
+        return MESSAGE_RECORD_SCHEMA
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize this record to a JSON-compatible dict.
+
+        The result carries the envelope ``format`` schema and an inner
+        ``message_format`` marker for the LangChain message body.
+        """
+        return {
+            "format": self._record_schema().to_dict(),
+            "message_format": MESSAGE_FORMAT.to_dict(),
+            "uuid": self.uuid,
+            "token_count": self.token_count,
+            "metadata": copy.deepcopy(self.metadata),
+            "react_loop_id": self.react_loop_id,
+            "message": _serialize_message(self.message),
+        }
+
+    @classmethod
+    def _common_kwargs(cls, data: Mapping[str, Any]) -> dict[str, Any]:
+        """Parse the fields shared by every record type from a serialized dict."""
+        _check_schema(data, key="message_format", expected=MESSAGE_FORMAT)
+        return {
+            "message": _deserialize_message(data["message"]),
+            "uuid": data["uuid"],
+            "token_count": data.get("token_count"),
+            "metadata": dict(data.get("metadata") or {}),
+            "react_loop_id": data.get("react_loop_id"),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "MessageRecord":
+        """Reconstruct a record from its serialized dict form.
+
+        When invoked on the base class against a payload that declares a
+        subclass schema (e.g. a :class:`SummaryRecord`), dispatches to that
+        subclass so a heterogeneous list can be loaded through one entry point.
+        """
+        schema = _read_schema(data)
+        if cls is MessageRecord and schema is not None and schema.name == SUMMARY_RECORD_SCHEMA.name:
+            return SummaryRecord.from_dict(data)
+        _check_schema(data, expected=cls._record_schema())
+        return cls(**cls._common_kwargs(data))
+
 
 @dataclass
 class SummaryRecord(MessageRecord[SystemMessage]):
     message: SystemMessage
     summarized_messages: set[str] = dataclass_field(default_factory=lambda: set())
+
+    @classmethod
+    def _record_schema(cls) -> SerdeSchema:
+        return SUMMARY_RECORD_SCHEMA
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize, carrying ``summarized_messages`` as a (sorted) list across
+        the JSON boundary; :meth:`from_dict` restores it to a set."""
+        data = super().to_dict()
+        data["summarized_messages"] = sorted(self.summarized_messages)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "SummaryRecord":
+        _check_schema(data, expected=cls._record_schema())
+        kwargs = cls._common_kwargs(data)
+        return cls(
+            summarized_messages=set(data.get("summarized_messages") or []),
+            **kwargs,
+        )
 
 
 RecordType: TypeAlias = MessageRecord | SummaryRecord
@@ -709,3 +867,84 @@ class ChatHistory:
         record = MessageRecord(message=message, token_count=token_count, react_loop_id=self.current_loop_id)
         self.raw_records.append(record)
         return record
+
+    # ------------------------------------------------------------------
+    # Serialization (serde)
+    # ------------------------------------------------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize this chat history to a JSON-compatible aggregate document.
+
+        The document carries the :data:`CHAT_HISTORY_SCHEMA` envelope marker,
+        the raw message records, the summary records, and a block of useful
+        (non-reconstructive) metadata describing the model and token budget.
+
+        The model itself and runtime-only state (summarizers, in-flight
+        summarization task, last sent messages) are intentionally not
+        serialized; provide a live ``model``/summarizers to :meth:`from_dict`.
+        """
+        model_meta: Optional[dict[str, Any]] = None
+        if self.model is not None:
+            try:
+                context_window = self.model.contextsize()
+            except Exception:
+                context_window = None
+            model_meta = {
+                "class": type(self.model).__name__,
+                "model_name": getattr(self.model, "model_name", None),
+                "context_window": context_window,
+            }
+
+        return {
+            "format": CHAT_HISTORY_SCHEMA.to_dict(),
+            "metadata": {
+                "model": model_meta,
+                "current_loop_id": self.current_loop_id,
+                "summarization_threshold": self.summarization_threshold,
+                "tool_token_estimate": self.tool_token_estimate,
+                "token_estimate": self._token_estimate,
+            },
+            "raw_records": [record.to_dict() for record in self.raw_records],
+            "summaries": [summary.to_dict() for summary in self.summaries],
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        model: Optional[BaseArchytasModel] = None,
+        loop_summarizer: Optional[callable] = default_loop_summarizer,
+        history_summarizer: Optional[callable] = default_history_summarizer,
+    ) -> "ChatHistory":
+        """Reconstruct a :class:`ChatHistory` from :meth:`to_dict` output.
+
+        ``uuid``s on every record are preserved unchanged, and
+        :class:`SummaryRecord`s are restored with their ``summarized_messages``
+        sets intact. A live ``model`` and summarizers may be supplied since they
+        are not part of the serialized document.
+        """
+        _check_schema(data, expected=CHAT_HISTORY_SCHEMA)
+
+        history = cls(
+            model=model,
+            loop_summarizer=loop_summarizer,
+            history_summarizer=history_summarizer,
+        )
+        history.raw_records = [
+            MessageRecord.from_dict(record) for record in data.get("raw_records", [])
+        ]
+        history.summaries = [
+            SummaryRecord.from_dict(summary) for summary in data.get("summaries", [])
+        ]
+
+        metadata = data.get("metadata") or {}
+        if metadata.get("current_loop_id") is not None:
+            history.current_loop_id = metadata["current_loop_id"]
+        if metadata.get("summarization_threshold") is not None:
+            history.summarization_threshold = metadata["summarization_threshold"]
+        if metadata.get("tool_token_estimate") is not None:
+            history.tool_token_estimate = metadata["tool_token_estimate"]
+        if metadata.get("token_estimate") is not None:
+            history._token_estimate = metadata["token_estimate"]
+
+        return history
