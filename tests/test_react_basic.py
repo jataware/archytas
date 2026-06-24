@@ -158,7 +158,7 @@ class TestToolErrors:
 
         # Agent should hit step limit before completing the task
         with pytest.raises(FailedTaskError) as exc_info:
-            await agent.react_async("Call increment_counter exactly 10 times, then return the final count")
+            await agent.react_async("Call increment_counter exactly 10 times, calling only one tool at a time per react loop, then return the final count. It is important that you do not try to batch the tool calls. Wait for each tool to return before calling next instance.")
 
         assert "Too many steps" in str(exc_info.value)
 
@@ -272,22 +272,37 @@ class TestAsyncReAct:
 
         assert ai_message is not None
         assert ai_message.content is not None
-        # anthropic / gemini return content as list, not str
+        # anthropic / gemini / openai-reasoning return content as a list of
+        # typed blocks; chat-completion style models return a plain string.
         if isinstance(ai_message.content, list):
             assert len(ai_message.content) > 0
-            response = ai_message.content[0]
             print(ai_message)
-            # gemini include_thoughts=True returns thinking blocks
-            if response.get("type") == "thinking":
-                assert response["thinking"] is not None
-                assert isinstance(response["thinking"], str)
-                assert len(response["thinking"]) > 0
-            # anthropic and others fill it in the text field
-            else:
-                assert response["text"] is not None
-                assert isinstance(response["text"], str)
-                assert len(response["text"]) > 0
-        # openai returns just a plain string
+            # Providers shape the "thought" content differently, and the order
+            # of blocks is not guaranteed, so scan all blocks and require at
+            # least one block carrying meaningful reasoning/response text:
+            #   - gemini (include_thoughts=True): {"type": "thinking", "thinking": ...}
+            #   - anthropic and chat-style: {"type": "text", "text": ...}
+            #   - openai reasoning models (e.g. gpt-5): {"type": "reasoning", "summary": [...]}
+            def _block_has_content(block) -> bool:
+                if not isinstance(block, dict):
+                    return isinstance(block, str) and len(block) > 0
+                block_type = block.get("type")
+                if block_type == "thinking":
+                    return isinstance(block.get("thinking"), str) and len(block["thinking"]) > 0
+                if block_type == "text":
+                    return isinstance(block.get("text"), str) and len(block["text"]) > 0
+                if block_type == "reasoning":
+                    summary = block.get("summary") or []
+                    return any(
+                        isinstance(part, dict)
+                        and isinstance(part.get("text"), str)
+                        and len(part["text"]) > 0
+                        for part in summary
+                    )
+                return False
+
+            assert any(_block_has_content(block) for block in ai_message.content)
+        # chat-completion style models return a plain string
         else:
             assert isinstance(ai_message.content, str)
             assert len(ai_message.content) > 0
