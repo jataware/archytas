@@ -1,6 +1,11 @@
 # python cache
 __pycache__/
 
+# lock files (this is a library not an application)
+uv.lock
+poetry.lock
+pylock.toml
+
 # build files
 dist/
 
