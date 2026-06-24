@@ -824,7 +824,7 @@ class ChatHistory:
             messages.append(self.system_message)
 
         if self.system_preamble:
-            records.append(self.system_preamble)
+            messages.append(self.system_preamble)
 
         if self.user_preamble:
             messages.append(self.user_preamble)

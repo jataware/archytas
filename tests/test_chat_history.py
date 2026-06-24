@@ -2,7 +2,8 @@
 Tests for chat history management.
 """
 import pytest
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from archytas.chat_history import ChatHistory
 from archytas.react import ReActAgent
 
 
@@ -187,3 +188,66 @@ class TestHistoryEdgeCases:
         result = await agent.react_async("Say hello.")
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+class TestAllRecords:
+    """Pure-unit tests for ChatHistory.all_records()/all_messages().
+
+    These require no model or API key.
+
+    Regression coverage for a bug where all_records() appended the system
+    preamble to an undefined `records` name (it should be `messages`), raising
+    NameError. The branch was previously dead because set_system_preamble_text
+    misrouted to user_preamble, leaving system_preamble unset.
+    """
+
+    @pytest.mark.asyncio
+    async def test_all_records_includes_system_preamble(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_system_preamble_text("system preamble")
+        history.set_user_preamble_text("user preamble")
+        history.add_message(HumanMessage(content="hello"))
+
+        records = await history.all_records()
+
+        contents = [r.message.content for r in records]
+        assert contents == [
+            "system message",
+            "system preamble",
+            "user preamble",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_all_records_with_only_system_preamble(self):
+        # The exact branch that used to raise NameError: system_preamble set
+        # while system_message and user_preamble are unset.
+        history = ChatHistory()
+        history.set_system_preamble_text("system preamble")
+
+        records = await history.all_records()
+
+        assert len(records) == 1
+        assert records[0] is history.system_preamble
+        assert isinstance(records[0].message, SystemMessage)
+        assert records[0].message.content == "system preamble"
+
+    @pytest.mark.asyncio
+    async def test_all_messages_includes_system_preamble(self):
+        history = ChatHistory()
+        history.set_system_preamble_text("system preamble")
+        history.add_message(HumanMessage(content="hello"))
+
+        messages = await history.all_messages()
+
+        assert [m.content for m in messages] == ["system preamble", "hello"]
+
+    @pytest.mark.asyncio
+    async def test_all_records_without_preamble(self):
+        history = ChatHistory()
+        history.add_message(HumanMessage(content="hello"))
+
+        records = await history.all_records()
+
+        assert [r.message.content for r in records] == ["hello"]
