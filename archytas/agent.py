@@ -165,7 +165,7 @@ class Agent:
             header_formatter if header_formatter is not None else DEFAULT_HEADER_FORMATTER
         )
 
-        self.chat_history = ChatHistory(messages)
+        self.chat_history = ChatHistory(messages, model=self.model)
         self.chat_history.set_system_message(SystemMessage(content=self.build_system_prompt()))
         if spinner is not None and self.rich_print:
             self.spinner = spinner

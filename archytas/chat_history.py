@@ -468,10 +468,8 @@ class ChatHistory:
                 MessageRecord(message=message) for message in messages
             ))
 
-        if self.model is not None:
-            self.summarization_threshold = self.model.default_summarization_threshold
-        else:
-            self.summarization_threshold = -1
+        # Model specific initialization
+        self.set_model(model)
 
         # use to generate unique ids for context messages
         self._current_context_id = 0
@@ -499,6 +497,17 @@ class ChatHistory:
         self.system_message = MessageRecord(
             message=system_message,
         )
+
+    def set_model(
+        self,
+        model: Optional[BaseArchytasModel]
+    ):
+        self.model = model
+        if self.model is not None:
+            self.summarization_threshold = self.model.default_summarization_threshold
+        else:
+            self.summarization_threshold = -1
+
 
     # ------------------------------------------------------------------
     # Deprecation shims for the legacy auto-context API. These forward to
@@ -862,14 +871,14 @@ class ChatHistory:
         Set text to an empty string or None to remove the preamble message.
         """
         match value:
-            case str() if bool(value.strip()): 
+            case str() if bool(value.strip()):
                 self.user_preamble = MessageRecord(message=HumanMessage(content=value), metadata={"preamble": True})
             case MessageRecord():
                 if isinstance(value.message, HumanMessage) and value.metadata.get("preamble", None) == True:
                     self.user_preamble = value
                 else:
                     self.user_preamble = MessageRecord(message=HumanMessage(content=value.message.content), metadata={"preamble": True})
-            case _: 
+            case _:
                 self.user_preamble = None
 
     def add_message(
