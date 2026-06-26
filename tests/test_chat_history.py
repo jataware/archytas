@@ -3,7 +3,7 @@ Tests for chat history management.
 """
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from archytas.chat_history import ChatHistory
+from archytas.chat_history import ChatHistory, MessageRecord
 from archytas.react import ReActAgent
 
 
@@ -251,3 +251,303 @@ class TestAllRecords:
         records = await history.all_records()
 
         assert [r.message.content for r in records] == ["hello"]
+
+    @pytest.mark.asyncio
+    async def test_setting_user_preamble_string(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.add_message(HumanMessage(content="hello"))
+        history.set_user_preamble_text("user preamble")
+
+        records = await history.all_records()
+
+        contents = [r.message.content for r in records]
+        assert contents == [
+            "system message",
+            "user preamble",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_user_preamble_empty_string(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_user_preamble_text("user preamble")
+        history.add_message(HumanMessage(content="hello"))
+        
+        initial_records = await history.all_records()
+
+        history.set_user_preamble_text("")
+
+        updated_records = await history.all_records()
+
+        initial_contents = [r.message.content for r in initial_records]
+        final_contents = [r.message.content for r in updated_records]
+
+        assert initial_contents == [
+            "system message",
+            "user preamble",
+            "hello",
+        ]
+        assert final_contents == [
+            "system message",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_user_preamble_blank_string(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_user_preamble_text("user preamble")
+        history.add_message(HumanMessage(content="hello"))
+        
+        initial_records = await history.all_records()
+
+        history.set_user_preamble_text("   ")
+
+        updated_records = await history.all_records()
+
+        initial_contents = [r.message.content for r in initial_records]
+        final_contents = [r.message.content for r in updated_records]
+
+        assert initial_contents == [
+            "system message",
+            "user preamble",
+            "hello",
+        ]
+        assert final_contents == [
+            "system message",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_user_preamble_none(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_user_preamble_text("user preamble")
+        history.add_message(HumanMessage(content="hello"))
+        
+        initial_records = await history.all_records()
+
+        history.set_user_preamble_text(None)
+
+        final_records = await history.all_records()
+
+        initial_contents = [r.message.content for r in initial_records]
+        final_contents = [r.message.content for r in final_records]
+
+        assert initial_contents == [
+            "system message",
+            "user preamble",
+            "hello",
+        ]
+        assert final_contents == [
+            "system message",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_user_preamble_valid_record(self):
+        orig_user_preamble = MessageRecord(HumanMessage(content="original user preamble"), uuid="abc123", metadata={"preamble": True})
+
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.add_message(HumanMessage(content="hello"))
+        history.set_user_preamble_text(orig_user_preamble)
+
+        records = await history.all_records()
+        assert records[1] == orig_user_preamble
+        assert records[1].uuid == orig_user_preamble.uuid
+
+        contents = [r.message.content for r in records]
+        assert contents == [
+            "system message",
+            "original user preamble",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_user_preamble_other_record(self):
+        human_user_preamble = MessageRecord(HumanMessage(content="human user preamble"), uuid="abc123")
+        system_user_preamble = MessageRecord(SystemMessage(content="system user preamble"), uuid="system123")
+
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.add_message(HumanMessage(content="hello"))
+        history.set_user_preamble_text(human_user_preamble)
+
+        records_1 = await history.all_records()
+        assert records_1[1].uuid != human_user_preamble.uuid
+        assert isinstance(records_1[1].message, HumanMessage)
+        assert records_1[1].metadata.get("preamble", None) == True
+
+        contents = [r.message.content for r in records_1]
+        assert contents == [
+            "system message",
+            "human user preamble",
+            "hello",
+        ]
+
+        history.set_user_preamble_text(system_user_preamble)
+
+        records_2 = await history.all_records()
+        assert records_2[1].uuid != human_user_preamble.uuid
+        assert isinstance(records_2[1].message, HumanMessage)
+        assert records_2[1].metadata.get("preamble", None) == True
+
+        contents = [r.message.content for r in records_2]
+        assert contents == [
+            "system message",
+            "system user preamble",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_system_preamble_string(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.add_message(HumanMessage(content="hello"))
+        history.set_system_preamble_text("system preamble")
+
+        records = await history.all_records()
+
+        contents = [r.message.content for r in records]
+        assert contents == [
+            "system message",
+            "system preamble",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_system_preamble_empty_string(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_system_preamble_text("system preamble")
+        history.add_message(HumanMessage(content="hello"))
+
+        initial_records = await history.all_records()
+
+        history.set_system_preamble_text("")
+
+        final_records = await history.all_records()
+
+        initial_contents = [r.message.content for r in initial_records]
+        final_contents = [r.message.content for r in final_records]
+
+        assert initial_contents == [
+            "system message",
+            "system preamble",
+            "hello",
+        ]
+        assert final_contents == [
+            "system message",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_system_preamble_blank_string(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_system_preamble_text("system preamble")
+        history.add_message(HumanMessage(content="hello"))
+
+        initial_records = await history.all_records()
+
+        history.set_system_preamble_text("   ")
+
+        updated_records = await history.all_records()
+
+        initial_contents = [r.message.content for r in initial_records]
+        final_contents = [r.message.content for r in updated_records]
+
+        assert initial_contents == [
+            "system message",
+            "system preamble",
+            "hello",
+        ]
+        assert final_contents == [
+            "system message",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_system_preamble_none(self):
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.set_system_preamble_text("system preamble")
+        history.add_message(HumanMessage(content="hello"))
+
+        initial_records = await history.all_records()
+
+        history.set_system_preamble_text(None)
+
+        final_records = await history.all_records()
+
+        initial_contents = [r.message.content for r in initial_records]
+        final_contents = [r.message.content for r in final_records]
+
+        assert initial_contents == [
+            "system message",
+            "system preamble",
+            "hello",
+        ]
+        assert final_contents == [
+            "system message",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_system_preamble_valid_record(self):
+        orig_system_preamble = MessageRecord(SystemMessage(content="original system preamble"), uuid="abc123", metadata={"preamble": True})
+
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.add_message(HumanMessage(content="hello"))
+        history.set_system_preamble_text(orig_system_preamble)
+
+        records = await history.all_records()
+        assert records[1] == orig_system_preamble
+        assert records[1].uuid == orig_system_preamble.uuid
+
+        contents = [r.message.content for r in records]
+        assert contents == [
+            "system message",
+            "original system preamble",
+            "hello",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_setting_system_preamble_other_record(self):
+        system_system_preamble = MessageRecord(SystemMessage(content="system system preamble"), uuid="system123")
+        human_system_preamble = MessageRecord(HumanMessage(content="human system preamble"), uuid="abc123")
+
+        history = ChatHistory()
+        history.set_system_message("system message")
+        history.add_message(HumanMessage(content="hello"))
+        history.set_system_preamble_text(system_system_preamble)
+
+        records_1 = await history.all_records()
+        assert records_1[1].uuid != system_system_preamble.uuid
+        assert isinstance(records_1[1].message, SystemMessage)
+        assert records_1[1].metadata.get("preamble", None) == True
+
+        contents = [r.message.content for r in records_1]
+        assert contents == [
+            "system message",
+            "system system preamble",
+            "hello",
+        ]
+
+        history.set_system_preamble_text(human_system_preamble)
+
+        records_2 = await history.all_records()
+        assert records_2[1].uuid != human_system_preamble.uuid
+        assert isinstance(records_2[1].message, SystemMessage)
+        assert records_2[1].metadata.get("preamble", None) == True
+
+        contents = [r.message.content for r in records_2]
+        assert contents == [
+            "system message",
+            "human system preamble",
+            "hello",
+        ]

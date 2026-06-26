@@ -836,27 +836,41 @@ class ChatHistory:
         records = await self.all_records(auto_update_context=auto_update_context)
         return [cast(MessageType, record.message) for record in records]
 
-    def set_system_preamble_text(self, text: str):
+    def set_system_preamble_text(self, value: str|MessageRecord|None=None):
         """
         Sets/updates the system_preamble
+        The passed in value can be a raw string, an existing MessageRecord or None.
 
-        Set text to an empty string to remove the preamble message.
+        Set text to an empty string or None to remove the preamble message.
         """
-        if text:
-            self.system_preamble = MessageRecord(message=SystemMessage(content=text), metadata={"preamble": True})
-        else:
-            self.system_preamble = None
+        match value:
+            case str() if bool(value.strip()):
+                self.system_preamble = MessageRecord(message=SystemMessage(content=value), metadata={"preamble": True})
+            case MessageRecord():
+                if isinstance(value.message, SystemMessage) and value.metadata.get("preamble", None) == True:
+                    self.system_preamble = value
+                else:
+                    self.system_preamble = MessageRecord(message=SystemMessage(content=value.message.content), metadata={"preamble": True})
+            case _:
+                self.system_preamble = None
 
-    def set_user_preamble_text(self, text: str):
+    def set_user_preamble_text(self, value: str|MessageRecord|None=None):
         """
         Sets/updates the user_preamble
+        The passed in value can be a raw string, an existing MessageRecord or None.
 
-        Set text to an empty string to remove the preamble message.
+        Set text to an empty string or None to remove the preamble message.
         """
-        if text:
-            self.user_preamble = MessageRecord(message=HumanMessage(content=text), metadata={"preamble": True})
-        else:
-            self.user_preamble = None
+        match value:
+            case str() if bool(value.strip()): 
+                self.user_preamble = MessageRecord(message=HumanMessage(content=value), metadata={"preamble": True})
+            case MessageRecord():
+                if isinstance(value.message, HumanMessage) and value.metadata.get("preamble", None) == True:
+                    self.user_preamble = value
+                else:
+                    self.user_preamble = MessageRecord(message=HumanMessage(content=value.message.content), metadata={"preamble": True})
+            case _: 
+                self.user_preamble = None
 
     def add_message(
         self,
