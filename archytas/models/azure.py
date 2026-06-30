@@ -18,12 +18,14 @@ class AzureOpenAIModel(OpenAIModel):
         else:
             auth_token = self.config.api_key
         if not auth_token:
-            auth_token = DEFERRED_TOKEN_VALUE
-        set_env_auth(AZURE_OPENAI_API_KEY=auth_token)
-
-        # Replace local auth token from value from environment variables to allow fetching preset auth variables in the
-        # environment.
-        auth_token = os.environ.get('AZURE_OPENAI_API_KEY', DEFERRED_TOKEN_VALUE)
+            # No key configured: defer to the environment (e.g. a user-set
+            # AZURE_OPENAI_API_KEY), without clobbering it.
+            set_env_auth(AZURE_OPENAI_API_KEY=DEFERRED_TOKEN_VALUE)
+            auth_token = os.environ.get('AZURE_OPENAI_API_KEY', DEFERRED_TOKEN_VALUE)
+        else:
+            # An explicit key wins over the environment -- including a value an
+            # earlier model instance wrote there -- so a new key takes effect now.
+            os.environ['AZURE_OPENAI_API_KEY'] = auth_token
 
         if auth_token != DEFERRED_TOKEN_VALUE:
             self.config.api_key = auth_token
