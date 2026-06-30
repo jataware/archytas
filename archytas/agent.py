@@ -180,6 +180,17 @@ class Agent:
         # make_tool_dict runs). Map of tool_name -> tool callable.
         self.statetools: dict[str, Callable] = {}
 
+    def set_model(self, model: BaseArchytasModel) -> None:
+        """Swap the active model at runtime, keeping the chat history in sync.
+
+        The chat history keeps its own reference to the model (used for token
+        budgeting and the model metadata it serializes), so assigning
+        ``agent.model`` alone leaves that reference stale. Always route runtime
+        model changes through this method so both stay consistent.
+        """
+        self.model = model
+        self.chat_history.set_model(model)
+
     def get_prompt_sections(self) -> list[PromptSection]:
         """Return the ordered list of ``PromptSection``s composing the system
         prompt.
