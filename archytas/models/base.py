@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from pydantic import BaseModel as PydanticModel, ConfigDict, create_model, Field
@@ -13,6 +14,9 @@ if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, BaseMessage
     from langchain_core.language_models.chat_models import BaseChatModel
     from ..agent import AgentResponse
+
+
+logger = logging.getLogger(__name__)
 
 
 class EnvironmentAuth:
@@ -298,7 +302,12 @@ class BaseArchytasModel(ABC):
             )
             return result
         except Exception as error:
-            print(error)
+            # Delegated to handle_invoke_error, which either transforms this into
+            # a specific exception or re-raises it (so it surfaces upstream with a
+            # traceback). Log at debug rather than printing to stdout, so expected,
+            # handled errors -- e.g. a model rejecting a parameter that a subclass
+            # then retries without -- don't look like failures.
+            logger.debug("Model invocation raised; delegating to handle_invoke_error: %r", error)
             return self.handle_invoke_error(error)
         finally:
             # Reset so a subsequent invocation that doesn't come through
