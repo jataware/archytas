@@ -75,6 +75,25 @@ class AnthropicModel(BaseArchytasModel):
         super().__init__(config, **kwargs)
         self.tool_name_map = {}
         self.rev_tool_name_map = {}
+        # Some newer Claude models reject an explicit `temperature`. The model
+        # name gives no reliable signal (a "5" appears in models that both do and
+        # don't accept it), so we learn it from the first rejection and remember.
+        self._temperature_unsupported = False
+
+    async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+        # Newer Claude models (e.g. Sonnet 5) reject an explicit `temperature`.
+        # Strip it once the model complains and skip it on every subsequent call.
+        if self._temperature_unsupported:
+            kwargs.pop("temperature", None)
+        try:
+            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+        except BadRequestError as err:
+            already_stripped = "temperature" not in kwargs
+            if already_stripped or "temperature" not in (getattr(err, "message", "") or "").lower():
+                raise
+            self._temperature_unsupported = True
+            kwargs.pop("temperature", None)
+            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
