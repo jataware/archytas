@@ -441,6 +441,27 @@ class Agent:
             fired.append((tool_name, output))
 
         if fired:
+            # Record the last-known token size of each fired statetool's output
+            # (issue #86). These injections are ephemeral and never persisted,
+            # so ChatHistory tracks them separately (statetool_token_estimates)
+            # and folds them into token_overhead. Entries are only ever
+            # updated here — a statetool that doesn't fire this turn keeps its
+            # previous size rather than dropping to zero — which keeps token
+            # estimates stable across loop steps and prevents the actual-usage
+            # delta from being wrongly absorbed into base_tokens.
+            for tool_name, output in fired:
+                try:
+                    estimate = await self.model.get_num_tokens_from_messages(
+                        [HumanMessage(content=output)]
+                    )
+                except Exception as err:
+                    logger.debug(
+                        "Token estimation for statetool %r failed: %r", tool_name, err
+                    )
+                    continue
+                if estimate:
+                    self.chat_history.statetool_token_estimates[tool_name] = estimate
+
             state_messages = await self.build_state_injection(fired)
             tail.extend(state_messages)
             if self.verbose:
