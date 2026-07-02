@@ -415,6 +415,9 @@ class OutboundChatHistory:
     summary_token_count: Optional[int]
     overhead_token_count: Optional[int]
     summarization_threshold: Optional[int]
+    # Last-known per-statetool injection sizes (issue #86). Optional with a
+    # default so existing constructors that don't pass it keep working.
+    statetool_token_estimates: Optional[dict[str, int]] = None
 
 
 class ChatHistory:
@@ -430,6 +433,13 @@ class ChatHistory:
     history_summarizer: Optional[callable]
     summarization_threshold: int
     tool_token_estimate: int
+    # Last-known token size of each statetool's injected output, keyed by tool
+    # name (issue #86). Statetool pairs are ephemeral tail injections, so they
+    # never appear in the persisted records; tracking their last observed size
+    # here keeps the token overhead stable across loop steps where a statetool
+    # does or doesn't fire. Entries are updated when a statetool fires and
+    # retained (not zeroed) when it doesn't.
+    statetool_token_estimates: dict[str, int]
     _tool_hash: str
     _token_estimate: int|None
     history_summarization_task: Optional[asyncio.Task]
@@ -459,6 +469,7 @@ class ChatHistory:
         self.system_message = None
         self.model = model
         self.tool_token_estimate = 0
+        self.statetool_token_estimates = {}
         self._tool_hash = ""
         self._token_estimate = None
         self.loop_summarizer = loop_summarizer
@@ -613,10 +624,19 @@ class ChatHistory:
         return 0
 
     @property
+    def statetool_token_estimate(self) -> int:
+        """Sum of the last-known token sizes of all statetool injections."""
+        return sum(
+            value for value in self.statetool_token_estimates.values()
+            if isinstance(value, int)
+        )
+
+    @property
     def token_overhead(self):
         return sum((value for value in (
             self.base_tokens,
             self.tool_token_estimate,
+            self.statetool_token_estimate,
             self.instruction_token_estimate,
         ) if isinstance(value, int)))
 
@@ -928,6 +948,7 @@ class ChatHistory:
                 "current_loop_id": self.current_loop_id,
                 "summarization_threshold": self.summarization_threshold,
                 "tool_token_estimate": self.tool_token_estimate,
+                "statetool_token_estimates": dict(self.statetool_token_estimates),
                 "token_estimate": self._token_estimate,
             },
             "system_message": self.system_message.to_dict() if self.system_message else None,
@@ -983,6 +1004,8 @@ class ChatHistory:
             history.summarization_threshold = metadata["summarization_threshold"]
         if metadata.get("tool_token_estimate") is not None:
             history.tool_token_estimate = metadata["tool_token_estimate"]
+        if metadata.get("statetool_token_estimates"):
+            history.statetool_token_estimates = dict(metadata["statetool_token_estimates"])
         if metadata.get("token_estimate") is not None:
             history._token_estimate = metadata["token_estimate"]
 
