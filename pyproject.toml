@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "archytas"
-version = "2.0.4"
+version = "2.0.5"
 description = "A library for pairing LLM agents with tools so they perform open ended tasks"
 authors = [
     {name = "David Andrew Samson", email = "david.andrew.engineer@gmail.com"},
@@ -90,7 +90,7 @@ testing = [
 ]
 
 [tool.bumpversion]
-current_version="2.0.4"
+current_version="2.0.5"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)((?P<release>[ab])(?P<revision>\\d+))?"
 serialize = [
   "{major}.{minor}.{patch}{release}{revision}",
