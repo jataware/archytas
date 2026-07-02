@@ -100,6 +100,11 @@ class OpenAIModel(BaseArchytasModel):
                 model=model,
                 tiktoken_model_name=titoken_model_name,
             )
+            # Optional custom endpoint (LiteLLM, an org gateway, or any other
+            # OpenAI-compatible server), configured per-provider like azure's
+            # `endpoint`.
+            if self.config.model_extra and self.config.model_extra.get("base_url"):
+                model_kwargs["base_url"] = self.config.model_extra["base_url"]
             reasoning = self._get_reasoning_config(model)
             if reasoning is not None:
                 model_kwargs["reasoning"] = reasoning
