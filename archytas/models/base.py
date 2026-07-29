@@ -194,11 +194,16 @@ class BaseArchytasModel(ABC):
         ...
 
     def invoke(self, input, *, config=None, stop=None, agent_tools=None, **kwargs):
+        # agent_tools is consumed here, not forwarded. LangChain passes unknown
+        # kwargs through to the provider payload, where the OpenAI client
+        # rejects it: TypeError: Completions.create() got an unexpected keyword
+        # argument 'agent_tools'. Mirrors ainvoke.
+        if self.lc_tools is None and agent_tools is not None:
+            self.set_tools(agent_tools)
         result = self.model.invoke(
             self._preprocess_messages(input),
             config,
             stop=stop,
-            agent_tools=agent_tools,
             **kwargs
         )
         return result
