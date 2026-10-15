@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance  # only available to type checkers
-from dataclasses import is_dataclass, asdict, _MISSING_TYPE
+from dataclasses import MISSING, is_dataclass, asdict
 
 from .archytypes import (
     normalize_type, NormalizedType,
@@ -172,8 +172,11 @@ def get_dataclass_input_description(arg_type: Dataclass_t, arg_name: str, arg_de
     """
     chunks = []
     num_fields = len(arg_type.cls.__dataclass_fields__)
-    num_required_fields = sum(1 for field in arg_type.cls.__dataclass_fields__.values() if isinstance(
-        field.default, _MISSING_TYPE) and isinstance(field.default, _MISSING_TYPE))
+    num_required_fields = sum(
+        1
+        for field in arg_type.cls.__dataclass_fields__.values()
+        if field.default is MISSING and field.default_factory is MISSING
+    )
     num_optional_fields = num_fields - num_required_fields
 
     # argument name and high level description
@@ -198,9 +201,9 @@ def get_dataclass_input_description(arg_type: Dataclass_t, arg_name: str, arg_de
         field_desc = field.metadata.get("description", "")
 
         # determine the default value of the field
-        if not isinstance(field.default, _MISSING_TYPE):
+        if field.default is not MISSING:
             field_default = field.default
-        elif not isinstance(field.default_factory, _MISSING_TYPE):
+        elif field.default_factory is not MISSING:
             field_default = field.default_factory()
         else:
             field_default = None
