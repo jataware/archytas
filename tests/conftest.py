@@ -17,20 +17,20 @@ def pytest_addoption(parser):
     parser.addoption(
         "--openai-model",
         action="store",
-        default="gpt-5",
-        help="Comma-delimited list of OpenAI models to test (default: gpt-5)"
+        default="gpt-6.1-terra",
+        help="Comma-delimited list of OpenAI models to test (default: gpt-6.1-terra)"
     )
     parser.addoption(
         "--anthropic-model",
         action="store",
-        default="claude-sonnet-4-5-20250929",
-        help="Comma-delimited list of Anthropic models to test (default: claude-sonnet-4-5-20250929)"
+        default="claude-sonnet-5-5",
+        help="Comma-delimited list of Anthropic models to test (default: claude-sonnet-5-5)"
     )
     parser.addoption(
         "--gemini-model",
         action="store",
-        default="gemini-2.5-pro",
-        help="Comma-delimited list of Gemini models to test (default: gemini-2.5-pro)"
+        default="gemini-3.6-flash",
+        help="Comma-delimited list of Gemini models to test (default: gemini-3.6-flash)"
     )
 
 

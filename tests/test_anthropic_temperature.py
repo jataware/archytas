@@ -2,7 +2,9 @@
 import asyncio
 import inspect
 
+import httpx
 import pytest
+from anthropic import BadRequestError
 from langchain_core.messages import AIMessage, HumanMessage
 
 from archytas.agent import Agent
@@ -55,7 +57,8 @@ def test_agent_temperature_defaults_to_none():
     (OpenAIModel, {"api_key": "sk-dummy", "model_name": "gpt-4o"}),
     (AnthropicModel, {"api_key": "sk-dummy", "model_name": "claude-sonnet-5"}),
 ])
-def test_provider_invocations_use_profile(model_class, config):
+def test_provider_invocations_use_profile(model_class, config, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy")
     model = model_class(config)
     fake = _FakeChatModel({"temperature": False})
     model._model = fake
@@ -74,3 +77,51 @@ def test_provider_specific_temperature_format(model_class, key):
     assert result == {key: {"temperature": 0.5, "other": 1}}
     model._model.profile = None
     assert model._prepare_invoke_kwargs({"temperature": 0.5}) == {}
+
+
+def _bad_request(message):
+    response = httpx.Response(400, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    return BadRequestError(message, response=response, body={"error": {"message": message}})
+
+
+class _RejectingChatModel(_FakeChatModel):
+    def __init__(self, error, profile=None):
+        super().__init__(profile if profile is not None else {"temperature": True})
+        self.error = error
+
+    async def ainvoke(self, messages, config=None, stop=None, **kwargs):
+        self.calls.append(kwargs)
+        if self.error and "temperature" in kwargs:
+            raise self.error
+        return AIMessage(content="ok")
+
+
+def test_anthropic_retries_rejected_temperature_and_remembers(monkeypatch):
+    model = AnthropicModel({"api_key": "dummy", "model_name": "claude-sonnet-4-5-20250929"})
+    fake = _RejectingChatModel(_bad_request("temperature: Extra inputs are not permitted"))
+    model._model = fake
+    seen_tail_counts = []
+    monkeypatch.setattr(model, "_preprocess_messages", lambda messages: seen_tail_counts.append(model.tail_injection_count) or messages)
+    model.tail_injection_count = 2
+    result = asyncio.run(model.ainvoke([HumanMessage(content="hi")], temperature=0.0))
+    assert result.content == "ok"
+    assert fake.calls == [{"temperature": 0.0}, {}]
+    assert seen_tail_counts == [2, 2]
+    assert model.tail_injection_count == 0
+    fake.calls.clear()
+    asyncio.run(model.ainvoke([HumanMessage(content="hi")], temperature=0.0))
+    assert fake.calls == [{}]
+
+
+@pytest.mark.parametrize("message", [
+    "max_tokens: Extra inputs are not permitted",
+    "temperature must be between 0 and 1",
+])
+def test_anthropic_does_not_retry_other_errors(message):
+    model = AnthropicModel({"api_key": "dummy", "model_name": "claude-sonnet-4-5-20250929"})
+    fake = _RejectingChatModel(_bad_request(message))
+    model._model = fake
+    with pytest.raises(BadRequestError):
+        asyncio.run(model.ainvoke([HumanMessage(content="hi")], temperature=0.0))
+    assert len(fake.calls) == 1
+    assert model._temperature_unsupported is False

@@ -75,6 +75,31 @@ class AnthropicModel(BaseArchytasModel):
         super().__init__(config, **kwargs)
         self.tool_name_map = {}
         self.rev_tool_name_map = {}
+        self._temperature_unsupported = False
+
+    async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+        if self._temperature_unsupported:
+            kwargs.pop("temperature", None)
+        profile = getattr(self._model, "profile", None) or {}
+        temperature_sent = kwargs.get("temperature") is not None and profile.get("temperature") is True
+        tail_count = self.tail_injection_count
+        try:
+            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+        except BadRequestError as error:
+            message = (getattr(error, "message", "") or "").lower()
+            unsupported = re.search(
+                r"extra inputs|not permitted|not supported|unsupported|does not support|"
+                r"not allowed|unexpected|deprecated",
+                message,
+            )
+            if not temperature_sent or "temperature" not in message or not unsupported:
+                raise
+            self._temperature_unsupported = True
+            kwargs.pop("temperature", None)
+            # The base invocation resets this after each attempt.
+            self.tail_injection_count = tail_count
+            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+
     def auth(self, **kwargs) -> None:
         if 'api_key' in kwargs:
             self.api_key = kwargs['api_key']
