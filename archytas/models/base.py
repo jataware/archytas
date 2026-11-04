@@ -183,6 +183,13 @@ class BaseArchytasModel(ABC):
         return class_default_modelname
 
 
+    def _profile_contextsize(self, model_name: str | None = None) -> int | None:
+        if model_name is not None and model_name != self.model_name:
+            return None
+        profile = getattr(self._model, "profile", None) or {}
+        size = profile.get("max_input_tokens")
+        return size if isinstance(size, int) and not isinstance(size, bool) and size > 0 else None
+
     @cache
     def contextsize(self, model_name: Optional[str]=None) -> int | None:
         if model_name is None:
@@ -292,7 +299,14 @@ class BaseArchytasModel(ABC):
 
         return await self.get_num_tokens_from_messages(messages=messages, tools=tools)
 
+    def _prepare_invoke_kwargs(self, kwargs: dict) -> dict:
+        profile = getattr(self._model, "profile", None) or {}
+        if kwargs.get("temperature") is None or profile.get("temperature") is not True:
+            kwargs.pop("temperature", None)
+        return kwargs
+
     async def ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
+        kwargs = self._prepare_invoke_kwargs(kwargs)
         if self.lc_tools is None and agent_tools is not None:
             self.set_tools(agent_tools)
 

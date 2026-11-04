@@ -111,7 +111,7 @@ class Agent:
         rich_print: bool = True,
         verbose: bool = False,
         messages: Optional[list[BaseMessage]] | None = None,
-        temperature: float = 0.0,
+        temperature: float | None = None,
     ):
         """
         Agent class for managing communication with Language Models mediated by Langchain
@@ -137,6 +137,7 @@ class Agent:
             rich_print (bool, optional): Whether to use rich to print messages. Defaults to True. Can also be set via the DISABLE_RICH_PRINT environment variable.
             verbose (bool, optional): Expands the debug output. Includes full query context on requests to the LLM. Defaults to False.
             messages (list[BaseMessage], optional): A list of messages to initialize the agent's conversation history with. Defaults to an empty list.
+            temperature (float, optional): Sampling temperature. Sent only when the model profile confirms support. Defaults to None.
 
         Raises:
             Exception: If no API key is given.

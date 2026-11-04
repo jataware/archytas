@@ -25,13 +25,13 @@ Be sure to always use the `final_answer` tool to report back to the user.
         # Dummy tool in required to enable "tool mode" on the model
         return ChatOllama(model=self.config.model_name or self.DEFAULT_MODEL)
     
-    def ainvoke(self, input, *, config=None, stop=None, **kwargs):
+    def _prepare_invoke_kwargs(self, kwargs: dict) -> dict:
+        kwargs = super()._prepare_invoke_kwargs(kwargs)
         if "temperature" in kwargs:
-            if "options" not in kwargs:
-                kwargs["options"] = {"temperature": kwargs.pop("temperature")}
-            else:
-                kwargs["options"].update({"temperature": kwargs.pop("temperature")})
-        return super().ainvoke(input, config=config, stop=stop, **kwargs)
+            options = dict(kwargs.get("options") or {})
+            options["temperature"] = kwargs.pop("temperature")
+            kwargs["options"] = options
+        return kwargs
     
     @lru_cache()
     def contextsize(self, model_name: str | None = None) -> int | None:

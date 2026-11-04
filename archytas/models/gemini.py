@@ -53,8 +53,13 @@ Remember your internal reasoning and thoughts are communicated to the user. You 
         else:
             raise AuthenticationError("Gemini API key not provided.")
 
-    def _get_supported_reasoning_efforts(self, model_name: str) -> list[str] | None:
-        """Return the list of supported reasoning effort levels for the given model, or None if unsupported."""
+    def _get_supported_reasoning_efforts(self, model_name: str, profile: dict | None = None) -> list[str] | None:
+        """Return supported effort levels, falling back to known model families."""
+        if profile is not None:
+            if "reasoning_effort_levels" in profile:
+                return profile["reasoning_effort_levels"] or None
+            if profile.get("reasoning_output") is False:
+                return None
         model_lower = model_name.lower()
         # Check prefixes longest-first so e.g. "gemini-3.1-flash-lite" matches before "gemini-3.1".
         for prefix in sorted(REASONING_EFFORT_LEVELS, key=len, reverse=True):
@@ -62,7 +67,7 @@ Remember your internal reasoning and thoughts are communicated to the user. You 
                 return REASONING_EFFORT_LEVELS[prefix]
         return None
 
-    def _get_thinking_config(self, model_name: str) -> dict[str, object] | None:
+    def _get_thinking_config(self, model_name: str, profile: dict | None = None) -> dict[str, object] | None:
         """
         Build the thinking kwargs dict for ChatGoogleGenerativeAI, or None if the model
         doesn't support thinking.
@@ -70,7 +75,7 @@ Remember your internal reasoning and thoughts are communicated to the user. You 
         For "budget" effort, returns include_thoughts + thinking_budget_token_limit.
         For named levels (minimal/low/medium/high), returns include_thoughts + thinking_level.
         """
-        supported = self._get_supported_reasoning_efforts(model_name)
+        supported = self._get_supported_reasoning_efforts(model_name, profile)
         if supported is None:
             return None
 
@@ -108,18 +113,26 @@ Remember your internal reasoning and thoughts are communicated to the user. You 
             model=model_name,
             api_key=self.api_key,
         )
-        thinking = self._get_thinking_config(model_name)
+        chat_model = ChatGoogleGenerativeAI(**model_kwargs)
+        thinking = self._get_thinking_config(model_name, getattr(chat_model, "profile", None))
         if thinking is not None:
             model_kwargs.update(thinking)
-        return ChatGoogleGenerativeAI(**model_kwargs)
+            chat_model = ChatGoogleGenerativeAI(**model_kwargs)
+        return chat_model
 
-    async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        # Gemini doesn't accept a temperature keyword on invoke
-        kwargs.pop("temperature")
-        return  await super().ainvoke(input, config=config, stop=stop, **kwargs)
+    def _prepare_invoke_kwargs(self, kwargs: dict) -> dict:
+        kwargs = super()._prepare_invoke_kwargs(kwargs)
+        if "temperature" in kwargs:
+            generation_config = dict(kwargs.get("generation_config") or {})
+            generation_config["temperature"] = kwargs.pop("temperature")
+            kwargs["generation_config"] = generation_config
+        return kwargs
 
     @lru_cache()
     def contextsize(self, model_name = None):
+        profile_size = self._profile_contextsize(model_name)
+        if profile_size is not None:
+            return profile_size
         if model_name is None:
             model_name = self.model_name
         if "flash" in model_name:

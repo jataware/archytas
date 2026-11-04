@@ -71,8 +71,13 @@ class OpenAIModel(BaseArchytasModel):
             # This method reinitializes the clients
             self.model.validate_environment()
 
-    def _get_supported_reasoning_efforts(self, model_name: str) -> list[str] | None:
-        """Return the list of supported reasoning effort levels for the given model, or None if unsupported."""
+    def _get_supported_reasoning_efforts(self, model_name: str, profile: dict | None = None) -> list[str] | None:
+        """Return supported effort levels, falling back to known model families."""
+        if profile is not None:
+            if "reasoning_effort_levels" in profile:
+                return profile["reasoning_effort_levels"] or None
+            if profile.get("reasoning_output") is False:
+                return None
         model_lower = model_name.lower()
         # Check prefixes longest-first so "gpt-5.4" matches before "gpt-5".
         for prefix in sorted(REASONING_EFFORT_LEVELS, key=len, reverse=True):
@@ -80,9 +85,9 @@ class OpenAIModel(BaseArchytasModel):
                 return REASONING_EFFORT_LEVELS[prefix]
         return None
 
-    def _get_reasoning_config(self, model_name: str) -> dict[str, str] | None:
+    def _get_reasoning_config(self, model_name: str, profile: dict | None = None) -> dict[str, str] | None:
         """Build the reasoning config dict for a model, or None if reasoning is not supported."""
-        supported = self._get_supported_reasoning_efforts(model_name)
+        supported = self._get_supported_reasoning_efforts(model_name, profile)
         if supported is None:
             return None
         if REASONING_EFFORT_REQUEST and REASONING_EFFORT_REQUEST in supported:
@@ -105,10 +110,12 @@ class OpenAIModel(BaseArchytasModel):
             # `endpoint`.
             if self.config.model_extra and self.config.model_extra.get("base_url"):
                 model_kwargs["base_url"] = self.config.model_extra["base_url"]
-            reasoning = self._get_reasoning_config(model)
+            chat_model = ChatOpenAI(**model_kwargs)
+            reasoning = self._get_reasoning_config(model, getattr(chat_model, "profile", None))
             if reasoning is not None:
                 model_kwargs["reasoning"] = reasoning
-            return ChatOpenAI(**model_kwargs)
+                chat_model = ChatOpenAI(**model_kwargs)
+            return chat_model
         except (APIConnectionError, OpenAIError) as err:
             if not self.config.api_key:
                 raise AuthenticationError("OpenAI API Key not set")
@@ -118,10 +125,6 @@ class OpenAIModel(BaseArchytasModel):
     def ainvoke(self, input, *, config=None, stop=None, **kwargs):
         if self.model is None or not getattr(self.model, 'openai_api_key', None):
             raise AuthenticationError("OpenAI API Key missing")
-        # Reasoning models don't accept a temperature keyword on invoke.
-        model_lower = self.model.model_name.lower()
-        if model_lower.startswith(("o3", "o4")) or "gpt-5" in model_lower:
-            kwargs.pop("temperature", None)
         return super().ainvoke(input, config=config, stop=stop, **kwargs)
 
     def process_result(self, response_message: "AIMessage") -> "AgentResponse":
@@ -177,6 +180,9 @@ class OpenAIModel(BaseArchytasModel):
 
     @lru_cache()
     def contextsize(self, model_name = None):
+        profile_size = self._profile_contextsize(model_name)
+        if profile_size is not None:
+            return profile_size
         if model_name is None:
             model_name = self.model_name
         try:
