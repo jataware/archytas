@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from archytas.models.anthropic import AnthropicModel
+from archytas.models.bedrock import BedrockModel
 from archytas.models.gemini import GeminiModel
 from archytas.models.openai import OpenAIModel
 
@@ -12,6 +13,7 @@ from archytas.models.openai import OpenAIModel
     (OpenAIModel, "gpt-5-custom", 400_000),
     (GeminiModel, "gemini-2.5-flash-custom", 1_048_576),
     (AnthropicModel, "claude-sonnet-custom", 200_000),
+    (BedrockModel, "us.anthropic.claude-custom", 50_000),
 ])
 def test_context_size_profile_and_fallback(model_class, name, fallback):
     model = object.__new__(model_class)

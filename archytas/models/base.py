@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import logging
@@ -258,7 +259,11 @@ class BaseArchytasModel(ABC):
         tools: Optional[Sequence] = None,
     ) -> int:
         try:
-            return self._model.get_num_tokens_from_messages(messages=messages, tools=tools)
+            return await asyncio.to_thread(
+                self._model.get_num_tokens_from_messages,
+                messages=messages,
+                tools=tools,
+            )
         except Exception as err:
             print(err)
             pass

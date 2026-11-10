@@ -3,8 +3,7 @@ import logging
 import os
 from functools import lru_cache
 
-import boto3
-from botocore.exceptions import ClientError, NoCredentialsError, ValidationError
+from botocore.exceptions import ClientError, NoCredentialsError
 from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import SystemMessage
 
@@ -37,7 +36,6 @@ class BedrockModel(BaseArchytasModel):
         self.aws_access_key = None
         self.aws_secret_key = None
         self.aws_session_token = None
-        self.has_quota_permissions = False  # Track if we have ListServiceQuotas permission
         super().__init__(config, **kwargs)
 
     def auth(self, **kwargs) -> None:
@@ -92,14 +90,6 @@ class BedrockModel(BaseArchytasModel):
             max_tokens = self.config.model_extra.get('max_tokens', None)
 
         model = self.config.model_name or self.DEFAULT_MODEL
-
-        # Check permissions early - warn if missing but don't fail
-        try:
-            self._check_service_quotas_permission()
-            self.has_quota_permissions = True
-        except AuthenticationError as e:
-            logging.warning(f"AWS ListServiceQuotas permission missing - using default token limits: {e}")
-            self.has_quota_permissions = False
 
         if self.credentials_profile_name:
             return ChatBedrockConverse(
@@ -167,85 +157,6 @@ class BedrockModel(BaseArchytasModel):
                     pass
             raise
 
-    def _check_service_quotas_permission(self):
-        """Quick check if we have ListServiceQuotas permission - fail fast if not"""
-        logging.info("BedrockModel._check_service_quotas_permission: Starting permission check")
-        try:
-            quota_service = boto3.client('service-quotas', region_name=os.environ.get("AWS_REGION", "us-east-1"))
-            logging.info("BedrockModel._check_service_quotas_permission: About to test ListServiceQuotas")
-            # Just try to list the first quota to test permission
-            quota_service.list_service_quotas(ServiceCode='bedrock', MaxResults=1)
-            logging.info("BedrockModel._check_service_quotas_permission: Permission check passed")
-        except ClientError as e:
-            logging.error(f"BedrockModel._check_service_quotas_permission: ClientError - {e.response['Error']['Code']}")
-            if e.response['Error']['Code'] == 'AccessDeniedException':
-                raise AuthenticationError(f"AWS credentials lack ListServiceQuotas permission. This is required for Bedrock token limits. Error: {e}")
-            raise
-        except Exception as e:
-            logging.error(f"BedrockModel._check_service_quotas_permission: Unexpected error - {e}")
-            raise
-
     @lru_cache()
     def contextsize(self, model_name = None):
-        # Reasonable but small default
-        limit = 50_000
-
-        if model_name is None:
-            model_name = self.model_name
-
-        # Skip AWS API calls if we know permissions are missing
-        if not self.has_quota_permissions:
-            logging.info(f"BedrockModel.contextsize: Skipping AWS quota lookup (no permissions), using default limit: {limit}")
-            return limit
-
-        try:
-            bedrock = boto3.client('bedrock', region_name=os.environ.get("AWS_REGION", "us-east-1"))
-            quota_service = boto3.client('service-quotas', region_name=os.environ.get("AWS_REGION", "us-east-1"))
-        except Exception as e:
-            logging.error(f"BedrockModel.contextsize: Failed to create AWS clients, using default limit: {e}")
-            return limit
-
-        # Determine if the model name is an inference profile. If so, extract the model id for the profile.
-        try:
-            response = bedrock.get_inference_profile(inferenceProfileIdentifier=model_name)
-            model_ids = set(model["modelArn"].split("foundation-model/")[1] for model in response["models"])
-            if len(model_ids) > 1:
-                logging.warning(f"Found multiple separate model ids. This shouldn't happen. ({', '.join(model_ids)})")
-            if len(model_ids) == 0:
-                logging.warning("No model ids found. Something is broken.")
-            model_id = list(model_ids)[0]
-        except ClientError as err:
-            model_id = model_name
-        except Exception as err:
-            model_id = model_name
-            logging.error("Unexpected error caught. Proceeding anyway.", exc_info=err)
-
-        # Look up human name for model. Used in quota names.
-        try:
-            response = bedrock.get_foundation_model(
-                modelIdentifier=model_id
-            )
-            model_human_name = response["modelDetails"]["modelName"]
-        except ValidationError as err:
-            model_human_name = None
-            logging.error(err)
-
-        # Iterate over quotas to extra quota limit
-        try:
-            paginator = quota_service.get_paginator('list_service_quotas')
-            response_iterator = paginator.paginate(ServiceCode='bedrock')
-
-            for page in response_iterator:
-                for quota in page['Quotas']:
-                    if model_human_name in quota['QuotaName'] and 'tokens per minute' in quota['QuotaName']:
-                        limit = int(quota["Value"])
-                        break
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'AccessDeniedException':
-                logging.error(f"BedrockModel.contextsize: ListServiceQuotas permission denied, using default limit: {limit}")
-            else:
-                logging.error(f"BedrockModel.contextsize: AWS API error, using default limit: {e}")
-        except Exception as e:
-            logging.error(f"BedrockModel.contextsize: Unexpected error getting quotas, using default limit: {e}")
-
-        return limit
+        return self._profile_contextsize(model_name) or 50_000
