@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import copy
 import json
 import logging
@@ -18,6 +19,17 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+class ByteSafeJsonDump(json.JSONEncoder):
+    def default(self, o):
+        match o:
+            case bytes() | bytearray():
+                try:
+                    return o.decode()
+                except UnicodeDecodeError:
+                    return base64.b64encode(o).decode("ascii")
+            case _:
+                return super().default(o)
 
 
 class EnvironmentAuth:
@@ -101,6 +113,7 @@ class BaseArchytasModel(ABC):
     DEFAULT_MODEL: ClassVar[Optional[str]] = None
     DEFAULT_SUMMARIZATION_RATIO: float = 0.5
     MODEL_PROMPT_INSTRUCTIONS: str = ""
+    MODEL_SPECIFIC_CONTENT_TYPES: ClassVar[frozenset[str]] = frozenset()
 
     _model: "BaseChatModel"
     config: ModelConfig
@@ -201,6 +214,36 @@ class BaseArchytasModel(ABC):
     def initialize_model(self, **kwargs):
         ...
 
+    def mark_model_specific_content(self, message: "BaseMessage") -> "BaseMessage":
+        """Mark provider-specific content with its originating model identity."""
+        if isinstance(message.content, list) and any(
+            isinstance(block, dict) and block.get("type") in self.MODEL_SPECIFIC_CONTENT_TYPES
+            for block in message.content
+        ):
+            message = message.model_copy(deep=True)
+            object.__setattr__(message, "_archytas_model_specific", (
+                type(self), self.model_name, self.MODEL_SPECIFIC_CONTENT_TYPES,
+            ))
+        return message
+
+    @staticmethod
+    def filter_model_specific_content(message: "BaseMessage", model=None) -> "BaseMessage":
+        """Remove marked content unless it belongs to the supplied model."""
+        marker = getattr(message, "_archytas_model_specific", None)
+        if marker is None or (model is not None and marker[:2] == (type(model), model.model_name)):
+            return message
+        filtered = message.model_copy(deep=True)
+        filtered.content = [
+            block for block in filtered.content
+            if not (isinstance(block, dict) and block.get("type") in marker[2])
+        ]
+        return filtered
+
+    def _prepare_messages(self, messages: "list[BaseMessage]"):
+        return self._preprocess_messages([
+            self.filter_model_specific_content(message, self) for message in messages
+        ])
+
     def invoke(self, input, *, config=None, stop=None, agent_tools=None, **kwargs):
         # agent_tools is consumed here, not forwarded. LangChain passes unknown
         # kwargs through to the provider payload, where the OpenAI client
@@ -209,7 +252,7 @@ class BaseArchytasModel(ABC):
         if self.lc_tools is None and agent_tools is not None:
             self.set_tools(agent_tools)
         result = self.model.invoke(
-            self._preprocess_messages(input),
+            self._prepare_messages(input),
             config,
             stop=stop,
             **kwargs
@@ -282,7 +325,7 @@ class BaseArchytasModel(ABC):
                 )
             )
             tools = self.convert_tools(tools)
-        messages = self._preprocess_messages(messages)
+        messages = self._prepare_messages(messages)
         messages: list[BaseMessage] = copy.deepcopy(messages)
         for message in messages:
             if isinstance(message.content, list):
@@ -292,10 +335,11 @@ class BaseArchytasModel(ABC):
                         case {"type": "text"}:
                             content.append(content_object)
                         case dict():
+                            logger.warning(f"{content_object=}")
                             content.append(
                                 {
                                     "type": "text",
-                                    "text": json.dumps(content_object)
+                                    "text": json.dumps(content_object, cls=ByteSafeJsonDump)
                                 }
                             )
                         case _:
@@ -316,7 +360,7 @@ class BaseArchytasModel(ABC):
             self.set_tools(agent_tools)
 
         try:
-            messages = self._preprocess_messages(input)
+            messages = self._prepare_messages(input)
             self.last_sent_messages = list(messages)
             result = await self.model.ainvoke(
                 messages,

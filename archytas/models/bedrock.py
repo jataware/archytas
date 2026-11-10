@@ -19,6 +19,7 @@ class BedrockModel(BaseArchytasModel):
     # but we have to use inference profiles
     DEFAULT_MODEL: str = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
     DEFAULT_REGION: str = "us-east-1"
+    MODEL_SPECIFIC_CONTENT_TYPES = frozenset({"reasoning_content"})
 
     tool_name_map: dict
     rev_tool_name_map: dict

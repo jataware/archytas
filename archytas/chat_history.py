@@ -270,7 +270,7 @@ CHAT_HISTORY_SCHEMA = SerdeSchema(name="archytas.ChatHistory", version=1)
 
 def _serialize_message(message: BaseMessage) -> dict[str, Any]:
     """Convert a LangChain message to a JSON-compatible dict."""
-    return message_to_dict(message)
+    return message_to_dict(BaseArchytasModel.filter_model_specific_content(message))
 
 
 def _deserialize_message(data: Mapping[str, Any]) -> BaseMessage:
@@ -476,7 +476,8 @@ class ChatHistory:
         self.history_summarizer = history_summarizer
         if messages:
             self.raw_records.extend((
-                MessageRecord(message=message) for message in messages
+                MessageRecord(message=model.mark_model_specific_content(message) if model else message)
+                for message in messages
             ))
 
         # Model specific initialization
@@ -794,7 +795,10 @@ class ChatHistory:
                     content = record.message.content
                     message = HumanMessage(content=content)
                     try:
-                        message_token_est = await model.get_num_tokens_from_messages([message])
+                        if getattr(record.message, "_archytas_model_specific", None):
+                            message_token_est = await model.token_estimate([record.message])
+                        else:
+                            message_token_est = await model.get_num_tokens_from_messages([message])
                     except NotImplementedError:
                         message_token_est = 0
                     record.token_count = message_token_est
@@ -907,6 +911,8 @@ class ChatHistory:
         token_count: Optional[int] = None,
     ):
         """Appends a message to the message list."""
+        if self.model is not None:
+            message = self.model.mark_model_specific_content(message)
         record = MessageRecord(message=message, token_count=token_count, react_loop_id=self.current_loop_id)
         self.raw_records.append(record)
         return record
