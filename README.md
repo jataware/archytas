@@ -77,6 +77,13 @@ for query in REPL():
         print(f"Error: {e}")
 ```
 
+Each agent supports one active `react()` or `react_async()` run at a time.
+Overlapping calls raise `RuntimeError` before changing conversation history.
+Await the active run, or cancel and await it, before starting another turn.
+Applications must also coordinate access when multiple agent instances or workers
+share a conversation, and avoid direct history changes or calls to `query()` or
+`execute()` while a ReAct run is active.
+
 # Documentation
 See the [wiki docs](https://github.com/jataware/archytas/wiki) for details.
 
