@@ -6,7 +6,7 @@ patched model listing.
 """
 import pytest
 
-import archytas.models.openrouter as openrouter_mod
+import archytas.models.providers.openrouter as openrouter_mod
 from archytas.exceptions import AuthenticationError
 from archytas.models.openai import OpenAIModel
 from archytas.models.openrouter import OPENROUTER_BASE_URL, DEFAULT_CONTEXT_SIZE, OpenRouterModel

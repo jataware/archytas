@@ -11,7 +11,7 @@ from .families import (
     ReasoningSettings,
     register_model_family,
 )
-from .provider import ModelProvider
+from .providers.base import ModelProvider
 
 __all__ = [
     "BaseArchytasModel",

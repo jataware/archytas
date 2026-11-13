@@ -13,7 +13,7 @@ from functools import cache
 from langchain_core.tools import StructuredTool
 
 from .families import ModelFamily, resolve_model_family
-from .provider import ModelProvider
+from .providers.base import ModelProvider
 
 if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, BaseMessage

@@ -14,6 +14,36 @@ by agents, chat history, tools, and token estimation. Existing subclass hooks,
 including `auth`, `initialize_model`, `_preprocess_messages`, `_rectify_result`,
 `process_result`, and `handle_invoke_error`, remain overrideable.
 
+## Package layout
+
+Implementations are grouped by responsibility:
+
+```text
+archytas/models/
+    base.py                 # Composed model facade and ModelConfig
+    providers/
+        base.py             # ModelProvider interface
+        openai.py           # Service-specific provider implementations
+        bedrock.py
+        ...
+    families/
+        base.py             # ModelFamily, reasoning settings, registry, helpers
+        openai.py           # Family behavior implementations
+        anthropic.py
+        gemini.py           # Includes Gemini generation-specific variants
+        llama.py
+    openai.py               # Existing model compatibility wrappers
+    bedrock.py
+    ...
+```
+
+For example, import implementations from
+`archytas.models.providers.bedrock.BedrockProvider` and
+`archytas.models.families.anthropic.AnthropicModelFamily`. Existing top-level
+model imports, family package exports, and the `archytas.models.provider`
+interface import remain supported. Legacy OpenAI and Gemini reasoning settings
+remain in their top-level modules to preserve existing overrides.
+
 ## Select a family in runtime configuration
 
 Prefix the configured model name with a registered family slug and a colon:
@@ -58,6 +88,33 @@ family from arbitrary model names. Defaults are:
 Bedrock's default model is `us.openai.gpt-6.1-terra`. Existing Claude deployments
 on Bedrock should explicitly select the `anthropic:` family. Other defaults and
 existing configuration fields are unchanged.
+
+## Provider authentication and API settings
+
+Anthropic, Gemini, and Groq resolve API keys from the `api_key` constructor
+keyword, then `config.api_key`, then `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or
+`GROQ_API_KEY`, respectively. Empty values fall through to the next source.
+Configured keys are not written to those environment variables.
+
+Bedrock accepts a credentials profile or explicit AWS credentials. Constructor
+credentials take precedence over configured credentials, which take precedence
+over environment credentials. Access and secret keys must be supplied together
+when passed as constructor keywords. A complete explicit pair does not inherit
+an environment session token; supply `aws_session_token` with that pair if needed.
+
+Azure OpenAI accepts an optional `api_version` in the configuration or as a
+constructor keyword. The keyword takes precedence; the default remains
+`2024-10-21`:
+
+```python
+from archytas.models.azure import AzureOpenAIModel
+
+model = AzureOpenAIModel({
+    "model_name": "my-deployment",
+    "endpoint": "https://example.openai.azure.com",
+    "api_version": "2024-10-21",
+})
+```
 
 ## Select components in Python
 

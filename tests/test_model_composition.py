@@ -3,15 +3,17 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from archytas.models.base import BaseArchytasModel, ModelConfig
-from archytas.models.bedrock import BedrockModel, BedrockProvider
+from archytas.models.bedrock import BedrockModel
 from archytas.models.families import (
     AnthropicModelFamily, Gemini2ModelFamily, Gemini3ModelFamily,
     LlamaModelFamily, ModelFamily, OpenAIModelFamily, register_model_family,
     resolve_model_family,
 )
-from archytas.models.openai import OpenAIModel, OpenAIProvider
+from archytas.models.openai import OpenAIModel
 from archytas.models.openrouter import OpenRouterModel
-from archytas.models.provider import ModelProvider
+from archytas.models.providers.base import ModelProvider
+from archytas.models.providers.bedrock import BedrockProvider
+from archytas.models.providers.openai import OpenAIProvider
 
 
 class FakeChatModel:
@@ -102,8 +104,8 @@ def test_versioned_family_can_override_behavior_without_changing_original():
 
 @pytest.mark.parametrize("family,system_count", [("openai", 2), ("anthropic", 1)])
 @pytest.mark.parametrize("wrapper,module", [
-    (BedrockModel, "archytas.models.bedrock"),
-    (OpenRouterModel, "archytas.models.openrouter"),
+    (BedrockModel, "archytas.models.providers.bedrock"),
+    (OpenRouterModel, "archytas.models.providers.openrouter"),
 ])
 async def test_same_families_through_bedrock_and_openrouter(monkeypatch, family, system_count, wrapper, module):
     client_symbol = "ChatBedrockConverse" if wrapper is BedrockModel else "ChatOpenAI"
@@ -121,7 +123,7 @@ async def test_same_families_through_bedrock_and_openrouter(monkeypatch, family,
 
 
 def test_bedrock_defaults_and_family_only_cache_markers(monkeypatch):
-    monkeypatch.setattr("archytas.models.bedrock.ChatBedrockConverse", FakeChatModel)
+    monkeypatch.setattr("archytas.models.providers.bedrock.ChatBedrockConverse", FakeChatModel)
     monkeypatch.delenv("ARCHYTAS_DISABLE_PROMPT_CACHE", raising=False)
     default = BedrockModel({"model_name": ""})
     assert default.model_name == "us.openai.gpt-6.1-terra"
@@ -138,7 +140,7 @@ def test_bedrock_defaults_and_family_only_cache_markers(monkeypatch):
 
 
 def test_provider_wire_result_processing_is_independent_of_family(monkeypatch):
-    monkeypatch.setattr("archytas.models.openai.ChatOpenAI", FakeChatModel)
+    monkeypatch.setattr("archytas.models.providers.openai.ChatOpenAI", FakeChatModel)
     model = OpenAIModel({"model_name": "anthropic:claude", "api_key": "dummy"})
     response = AIMessage(content=[
         {"type": "reasoning", "summary": [{"text": "summary"}]},
@@ -152,7 +154,7 @@ def test_provider_wire_result_processing_is_independent_of_family(monkeypatch):
 
 
 def test_explicit_provider_override_retains_facade(monkeypatch):
-    monkeypatch.setattr("archytas.models.bedrock.ChatBedrockConverse", FakeChatModel)
+    monkeypatch.setattr("archytas.models.providers.bedrock.ChatBedrockConverse", FakeChatModel)
     model = OpenAIModel({"model_name": "anthropic:claude"}, provider=BedrockProvider)
     assert isinstance(model, BaseArchytasModel)
     assert type(model.provider) is BedrockProvider
@@ -161,7 +163,7 @@ def test_explicit_provider_override_retains_facade(monkeypatch):
 
 
 def test_content_identity_uses_composition_not_wrapper_class(monkeypatch):
-    monkeypatch.setattr("archytas.models.bedrock.ChatBedrockConverse", FakeChatModel)
+    monkeypatch.setattr("archytas.models.providers.bedrock.ChatBedrockConverse", FakeChatModel)
     first = BedrockModel({"model_name": "anthropic:model"})
     same = OpenAIModel({"model_name": "anthropic:model"}, provider=BedrockProvider)
     other_family = BedrockModel({"model_name": "openai:model"})
@@ -198,7 +200,7 @@ def test_legacy_subclass_hooks_still_run():
 
 def test_reasoning_preferences_are_encoded_by_provider():
     from archytas.models import ReasoningSettings
-    from archytas.models.gemini import GeminiProvider
+    from archytas.models.providers.gemini import GeminiProvider
 
     class ReasoningFamily(ModelFamily):
         def reasoning_config(self, model, model_name, profile=None):
@@ -218,7 +220,7 @@ def test_reasoning_preferences_are_encoded_by_provider():
 
 
 def test_legacy_reasoning_capability_hook_is_preserved(monkeypatch):
-    monkeypatch.setattr("archytas.models.openai.ChatOpenAI", FakeChatModel)
+    monkeypatch.setattr("archytas.models.providers.openai.ChatOpenAI", FakeChatModel)
     monkeypatch.setattr("archytas.models.openai.REASONING_EFFORT_REQUEST", None)
 
     class CustomOpenAIModel(OpenAIModel):
