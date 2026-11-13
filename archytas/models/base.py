@@ -4,13 +4,16 @@ import copy
 import json
 import logging
 import os
-from abc import ABC, abstractmethod
+from abc import ABC
 from pydantic import BaseModel as PydanticModel, ConfigDict, create_model, Field
 from pydantic.fields import FieldInfo
 from typing import TYPE_CHECKING, Annotated, Any, Optional, ClassVar, Sequence
 from functools import cache
 
 from langchain_core.tools import StructuredTool
+
+from .families import ModelFamily, resolve_model_family
+from .provider import ModelProvider
 
 if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, BaseMessage
@@ -109,11 +112,25 @@ fail_task = StructuredTool(
 )
 
 
+class _FamilyPromptInstructions:
+    def __get__(self, instance, owner):
+        family = instance.model_family if instance is not None else owner.DEFAULT_FAMILY
+        return family.MODEL_PROMPT_INSTRUCTIONS
+
+
+class _ProviderContentTypes:
+    def __get__(self, instance, owner):
+        provider = instance.provider if instance is not None else owner.DEFAULT_PROVIDER
+        return provider.MODEL_SPECIFIC_CONTENT_TYPES
+
+
 class BaseArchytasModel(ABC):
     DEFAULT_MODEL: ClassVar[Optional[str]] = None
+    DEFAULT_PROVIDER: ClassVar[type[ModelProvider]] = ModelProvider
+    DEFAULT_FAMILY: ClassVar[type[ModelFamily]] = ModelFamily
     DEFAULT_SUMMARIZATION_RATIO: float = 0.5
-    MODEL_PROMPT_INSTRUCTIONS: str = ""
-    MODEL_SPECIFIC_CONTENT_TYPES: ClassVar[frozenset[str]] = frozenset()
+    MODEL_PROMPT_INSTRUCTIONS = _FamilyPromptInstructions()
+    MODEL_SPECIFIC_CONTENT_TYPES = _ProviderContentTypes()
 
     _model: "BaseChatModel"
     config: ModelConfig
@@ -126,6 +143,14 @@ class BaseArchytasModel(ABC):
             self.config = ModelConfig(**config)
         else:
             self.config = config
+        self.provider = kwargs.pop("provider", self.DEFAULT_PROVIDER)
+        self.model_family = kwargs.pop("model_family", self.DEFAULT_FAMILY)
+        if self.config.model_name:
+            name, prefixed_family = resolve_model_family(self.config.model_name, self.model_family)
+            if name != self.config.model_name:
+                self.config = self.config.model_copy(update={"model_name": name})
+                # A runtime name prefix is the most specific family selection.
+                self.model_family = prefixed_family
         self.auth(**kwargs)
         self._model = self.initialize_model(**kwargs)
         self.lc_tools = None
@@ -142,8 +167,34 @@ class BaseArchytasModel(ABC):
         # invocation so stale values don't leak into subsequent calls.
         self.tail_injection_count = 0
 
+    @property
+    def provider(self) -> ModelProvider:
+        if not hasattr(self, "_provider"):
+            self._provider = self.DEFAULT_PROVIDER()
+        return self._provider
+
+    @provider.setter
+    def provider(self, value: ModelProvider | type[ModelProvider]) -> None:
+        value = value() if isinstance(value, type) else value
+        if not isinstance(value, ModelProvider):
+            raise TypeError("provider must be a ModelProvider instance or class")
+        self._provider = value
+
+    @property
+    def model_family(self) -> ModelFamily:
+        if not hasattr(self, "_model_family"):
+            self._model_family = self.DEFAULT_FAMILY()
+        return self._model_family
+
+    @model_family.setter
+    def model_family(self, value: ModelFamily | type[ModelFamily]) -> None:
+        value = value() if isinstance(value, type) else value
+        if not isinstance(value, ModelFamily):
+            raise TypeError("model_family must be a ModelFamily instance or class")
+        self._model_family = value
+
     def auth(self, **kwargs) -> None:
-        pass
+        self.provider.auth(self, **kwargs)
 
     @property
     def additional_prompt_info(self) -> str | None:
@@ -208,11 +259,28 @@ class BaseArchytasModel(ABC):
     def contextsize(self, model_name: Optional[str]=None) -> int | None:
         if model_name is None:
             model_name = self.model_name
-        return None
+        profile_size = self._profile_contextsize(model_name)
+        if profile_size is not None:
+            return profile_size
+        provider_size = self.provider.contextsize(self, model_name)
+        if provider_size is not None:
+            return provider_size
+        family_size = self.model_family.contextsize(self, model_name)
+        if family_size is not None:
+            return family_size
+        return self.provider.fallback_contextsize(self, model_name)
 
-    @abstractmethod
     def initialize_model(self, **kwargs):
-        ...
+        return self.provider.initialize_model(self, **kwargs)
+
+    def _get_supported_reasoning_efforts(self, model_name: str, profile: dict | None = None):
+        return self.model_family.supported_reasoning_efforts(model_name, profile)
+
+    def _get_reasoning_config(self, model_name: str, profile: dict | None = None):
+        return self.provider.reasoning_config(self, model_name, profile)
+
+    def _get_thinking_config(self, model_name: str, profile: dict | None = None):
+        return self.provider.reasoning_config(self, model_name, profile)
 
     def mark_model_specific_content(self, message: "BaseMessage") -> "BaseMessage":
         """Mark provider-specific content with its originating model identity."""
@@ -222,15 +290,18 @@ class BaseArchytasModel(ABC):
         ):
             message = message.model_copy(deep=True)
             object.__setattr__(message, "_archytas_model_specific", (
-                type(self), self.model_name, self.MODEL_SPECIFIC_CONTENT_TYPES,
+                self._content_identity(), self.model_name, self.MODEL_SPECIFIC_CONTENT_TYPES,
             ))
         return message
+
+    def _content_identity(self):
+        return type(self.provider), type(self.model_family)
 
     @staticmethod
     def filter_model_specific_content(message: "BaseMessage", model=None) -> "BaseMessage":
         """Remove marked content unless it belongs to the supplied model."""
         marker = getattr(message, "_archytas_model_specific", None)
-        if marker is None or (model is not None and marker[:2] == (type(model), model.model_name)):
+        if marker is None or (model is not None and marker[:2] == (model._content_identity(), model.model_name)):
             return message
         filtered = message.model_copy(deep=True)
         filtered.content = [
@@ -349,12 +420,15 @@ class BaseArchytasModel(ABC):
         return await self.get_num_tokens_from_messages(messages=messages, tools=tools)
 
     def _prepare_invoke_kwargs(self, kwargs: dict) -> dict:
-        profile = getattr(self._model, "profile", None) or {}
-        if kwargs.get("temperature") is None or profile.get("temperature") is not True:
-            kwargs.pop("temperature", None)
-        return kwargs
+        kwargs = self.model_family.prepare_invoke_kwargs(self, kwargs)
+        return self.provider.prepare_invoke_kwargs(self, kwargs)
 
     async def ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
+        return await self.provider.ainvoke(
+            self, self._ainvoke, input, config=config, stop=stop, agent_tools=agent_tools, **kwargs
+        )
+
+    async def _ainvoke(self, input, *, config=None, stop=None, agent_tools: dict=None, **kwargs):
         kwargs = self._prepare_invoke_kwargs(kwargs)
         if self.lc_tools is None and agent_tools is not None:
             self.set_tools(agent_tools)
@@ -383,12 +457,18 @@ class BaseArchytasModel(ABC):
             self.tail_injection_count = 0
 
     def _preprocess_messages(self, messages: "list[BaseMessage]"):
-        return messages
+        messages = self.model_family.preprocess_messages(self, messages)
+        return self.provider.preprocess_messages(self, messages)
 
     def _rectify_result(self, response_message: "AIMessage"):
-        return response_message
+        response_message = self.provider.normalize_result(self, response_message)
+        return self.model_family.rectify_result(self, response_message)
 
     def process_result(self, response_message: "AIMessage") -> "AgentResponse":
+        result = self.provider.process_result(self, response_message)
+        return self.model_family.process_result(self, result)
+
+    def _default_process_result(self, response_message: "AIMessage") -> "AgentResponse":
         from ..agent import AgentResponse
         content = response_message.content
         tool_calls = response_message.tool_calls
@@ -416,4 +496,4 @@ class BaseArchytasModel(ABC):
         return AgentResponse(text=text, tool_calls=tool_calls)
 
     def handle_invoke_error(self, error: BaseException):
-        raise error
+        return self.provider.handle_invoke_error(self, error)

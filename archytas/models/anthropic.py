@@ -11,6 +11,8 @@ from langchain_anthropic.llms import AnthropicLLM
 from pydantic import BaseModel as PydanticModel, Field
 
 from .base import BaseArchytasModel, EnvironmentAuth, ModelConfig
+from .families import AnthropicModelFamily
+from .provider import ModelProvider
 from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
 
 
@@ -65,26 +67,15 @@ class DummyTool(PydanticModel):
     input: str = Field(..., description="input")
 
 
-class AnthropicModel(BaseArchytasModel):
-    DEFAULT_MODEL: str = "claude-3-5-sonnet-latest"
-    api_key: str = ""
-    tool_name_map: dict
-    rev_tool_name_map: dict
-
-    def __init__(self, config: ModelConfig, **kwargs) -> None:
-        super().__init__(config, **kwargs)
-        self.tool_name_map = {}
-        self.rev_tool_name_map = {}
-        self._temperature_unsupported = False
-
-    async def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        if self._temperature_unsupported:
+class AnthropicProvider(ModelProvider):
+    async def ainvoke(self, model, invoke, input, *, config=None, stop=None, **kwargs):
+        if getattr(model, "_temperature_unsupported", False):
             kwargs.pop("temperature", None)
-        profile = getattr(self._model, "profile", None) or {}
+        profile = getattr(model._model, "profile", None) or {}
         temperature_sent = kwargs.get("temperature") is not None and profile.get("temperature") is True
-        tail_count = self.tail_injection_count
+        tail_count = model.tail_injection_count
         try:
-            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+            return await invoke(input, config=config, stop=stop, **kwargs)
         except BadRequestError as error:
             message = (getattr(error, "message", "") or "").lower()
             unsupported = re.search(
@@ -94,57 +85,44 @@ class AnthropicModel(BaseArchytasModel):
             )
             if not temperature_sent or "temperature" not in message or not unsupported:
                 raise
-            self._temperature_unsupported = True
+            model._temperature_unsupported = True
             kwargs.pop("temperature", None)
             # The base invocation resets this after each attempt.
-            self.tail_injection_count = tail_count
-            return await super().ainvoke(input, config=config, stop=stop, **kwargs)
+            model.tail_injection_count = tail_count
+            return await invoke(input, config=config, stop=stop, **kwargs)
 
-    def auth(self, **kwargs) -> None:
+    def auth(self, model, **kwargs) -> None:
         if 'api_key' in kwargs:
-            self.api_key = kwargs['api_key']
+            model.api_key = kwargs['api_key']
         else:
-            self.api_key = self.config.api_key or ""
-        if not self.api_key:
+            model.api_key = model.config.api_key or ""
+        if not model.api_key:
             raise AuthenticationError("No auth credentials found.")
 
-    def initialize_model(self, **kwargs):
+    def initialize_model(self, model, **kwargs):
         max_tokens = None
-        if self.config.model_extra:
-            max_tokens = self.config.model_extra.get('max_tokens', None)
+        if model.config.model_extra:
+            max_tokens = model.config.model_extra.get('max_tokens', None)
         return ChatAnthropic(
-            model=self.config.model_name or self.DEFAULT_MODEL,
-            api_key=self.api_key,
+            model=model.config.model_name or model.DEFAULT_MODEL,
+            api_key=model.api_key,
             max_tokens=max_tokens
         )
 
-    def _preprocess_messages(self, messages):
-        from ..agent import ContextMessage
-        output = []
-
-        system_messages = []
-        # Combine all system/context messages into a single initial system message.
-        # (ContextMessage subsumes the legacy AutoContextMessage via inheritance,
-        # so no separate case is needed for it.)
-        for message in messages:
-            match message:
-                case SystemMessage() | ContextMessage():
-                    system_messages.append(message.content)
-                case _:
-                    output.append(message)
-        # Condense all context/system messages into a single first message as required by Anthropic
-        output.insert(0, SystemMessage(content="\n".join(system_messages)))
+    def preprocess_messages(self, model, messages):
+        # Cache markers are an API feature, not a family message-order rule.
+        output = list(messages)
 
         # Prompt-caching marker (plan §4.4): attach cache_control:ephemeral to
         # the last PERSISTED message in the outgoing list. Tail injections
         # (state pairs + instruction) are beyond the cacheable prefix and
         # must not be marked. The boundary is communicated by
-        # self.tail_injection_count, set by Agent.execute() just before
+        # model.tail_injection_count, set by Agent.execute() just before
         # invoke. System-type messages in the persisted portion have been
         # collapsed into the leading SystemMessage; tail messages are never
         # system-type, so their count is unchanged by the collapse.
         if not _prompt_cache_disabled():
-            tail_count = getattr(self, "tail_injection_count", 0) or 0
+            tail_count = getattr(model, "tail_injection_count", 0) or 0
             last_persisted_idx = len(output) - tail_count - 1
             # Skip marking the lone collapsed SystemMessage (idx 0) — caching
             # the system prompt alone is usually not worth the cache breakpoint.
@@ -153,7 +131,7 @@ class AnthropicModel(BaseArchytasModel):
 
         return output
 
-    def handle_invoke_error(self, error: BaseException):
+    def handle_invoke_error(self, model, error: BaseException):
         if isinstance(error, AnthropicAuthenticError):
             raise AuthenticationError("Anthropic Authentication Error") from error
         # TODO: Retry with delay on rate limit errors?
@@ -179,17 +157,17 @@ class AnthropicModel(BaseArchytasModel):
             #     )
             raise
 
-    @lru_cache()
-    def contextsize(self, model_name = None):
-        profile_size = self._profile_contextsize(model_name)
-        if profile_size is not None:
-            return profile_size
-        if model_name is None:
-            model_name = self.model_name
-        # TODO: This is accurate for all current models (as of 2025-02-27), for all Haiku and Sonnet models. Seems like
-        # new models would have a new name if the context window changes. Hopefully in the future, this value can be
-        # retrieved programatically.
-        if model_name and ("haiku" in model_name or "sonnet" in model_name):
-            return 200_000
-        else:
-            return None
+
+class AnthropicModel(BaseArchytasModel):
+    DEFAULT_MODEL: str = "claude-3-5-sonnet-latest"
+    DEFAULT_PROVIDER = AnthropicProvider
+    DEFAULT_FAMILY = AnthropicModelFamily
+    api_key: str = ""
+    tool_name_map: dict
+    rev_tool_name_map: dict
+
+    def __init__(self, config: ModelConfig, **kwargs) -> None:
+        super().__init__(config, **kwargs)
+        self.tool_name_map = {}
+        self.rev_tool_name_map = {}
+        self._temperature_unsupported = False

@@ -1,61 +1,57 @@
+import os
+
 from langchain_openai import AzureChatOpenAI
+from openai import APIConnectionError, OpenAIError
+
 from archytas.exceptions import AuthenticationError
 from archytas.models.base import ModelConfig, set_env_auth
-from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError
-from .openai import OpenAIModel
-import os
+from .openai import OpenAIModel, OpenAIProvider
 
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
-class AzureOpenAIModel(OpenAIModel):
-    def __init__(self, config: ModelConfig, **kwargs):
-        super().__init__(config, **kwargs)
 
-    def auth(self, **kwargs) -> None:
-        auth_token = None
-        if 'api_key' in kwargs:
-            auth_token = kwargs['api_key']
-        else:
-            auth_token = self.config.api_key
+class AzureOpenAIProvider(OpenAIProvider):
+    def auth(self, model, **kwargs) -> None:
+        auth_token = kwargs['api_key'] if 'api_key' in kwargs else model.config.api_key
         if not auth_token:
-            # No key configured: defer to the environment (e.g. a user-set
-            # AZURE_OPENAI_API_KEY), without clobbering it.
+            # Defer to the environment without clobbering a user-set value.
             set_env_auth(AZURE_OPENAI_API_KEY=DEFERRED_TOKEN_VALUE)
             auth_token = os.environ.get('AZURE_OPENAI_API_KEY', DEFERRED_TOKEN_VALUE)
         else:
-            # An explicit key wins over the environment -- including a value an
-            # earlier model instance wrote there -- so a new key takes effect now.
+            # An explicit key wins over a stale environment value.
             os.environ['AZURE_OPENAI_API_KEY'] = auth_token
-
         if auth_token != DEFERRED_TOKEN_VALUE:
-            self.config.api_key = auth_token
-        # Reset the openai client with the new value, if needed.
-        if getattr(self, "model", None):
-            self.model.azure_openai_api_key._secret_value = auth_token
-            self.model.client = None
-            self.model.async_client = None
+            model.config.api_key = auth_token
+        if getattr(model, "model", None):
+            model.model.azure_openai_api_key._secret_value = auth_token
+            model.model.client = None
+            model.model.async_client = None
+            model.model.validate_environment()
 
-            # This method reinitializes the clients
-            self.model.validate_environment()
-
-    def initialize_model(self, **kwargs):
+    def initialize_model(self, model, **kwargs):
         if 'AZURE_OPENAI_ENDPOINT' in os.environ:
-            self.endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
-        elif self.config.model_extra is None or 'endpoint' not in self.config.model_extra:
+            model.endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
+        elif model.config.model_extra is None or 'endpoint' not in model.config.model_extra:
             raise AuthenticationError('Azure OpenAI models must have endpoint set.')
         else:
-            self.endpoint = self.config.model_extra['endpoint']
+            model.endpoint = model.config.model_extra['endpoint']
         try:
             return AzureChatOpenAI(
-                model=self.config.model_name or "",
-                azure_endpoint=self.endpoint,
+                model=model.config.model_name or "",
+                azure_endpoint=model.endpoint,
                 api_version='2024-10-21'
             )
         except (APIConnectionError, OpenAIError) as err:
-            if not self.config.api_key:
+            if not model.config.api_key:
                 raise AuthenticationError("OpenAI API Key not set")
-            else:
-                raise AuthenticationError("OpenAI Authentication Error") from err
+            raise AuthenticationError("OpenAI Authentication Error") from err
+
+
+class AzureOpenAIModel(OpenAIModel):
+    DEFAULT_PROVIDER = AzureOpenAIProvider
+
+    def __init__(self, config: ModelConfig, **kwargs):
+        super().__init__(config, **kwargs)
 
 
 class AzureFoundryModel():
