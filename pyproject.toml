@@ -89,6 +89,27 @@ testing = [
     "fastmcp>=0.1.0",
 ]
 
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+minversion = "6.0"
+pythonpath = ["."]
+addopts = ["-v", "--strict-markers", "--tb=short", "--disable-warnings"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests requiring API keys",
+    "unit: marks tests as unit tests (no external dependencies)",
+    "asyncio: marks tests as async",
+]
+asyncio_mode = "auto"
+asyncio_default_test_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "session"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
 [tool.bumpversion]
 current_version="2.0.11"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)((?P<release>[ab])(?P<revision>\\d+))?"
