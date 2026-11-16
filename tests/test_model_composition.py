@@ -70,11 +70,12 @@ def test_prefix_does_not_mutate_callers_config():
     assert model.config.model_name == "model"
 
 
-def test_prefix_is_more_specific_than_constructor_family():
+def test_constructor_family_is_more_specific_than_prefix():
     model = BaseArchytasModel(
         {"model_name": "anthropic:model"}, provider=FakeProvider(), model_family=OpenAIModelFamily(),
     )
-    assert type(model.model_family) is AnthropicModelFamily
+    assert type(model.model_family) is OpenAIModelFamily
+    assert model.model_name == "model"
 
 
 def test_registered_empty_name_is_rejected():
@@ -122,6 +123,62 @@ async def test_same_families_through_bedrock_and_openrouter(monkeypatch, family,
     assert messages[2].content == "second"
 
 
+@pytest.mark.parametrize("name,family", [
+    ("us.anthropic.claude-sonnet:0", AnthropicModelFamily),
+    ("anthropic.claude-sonnet:0", AnthropicModelFamily),
+    ("us.openai.gpt-example", OpenAIModelFamily),
+    ("arn:aws:bedrock:us-east-1:123:inference-profile/us.anthropic.claude:0", AnthropicModelFamily),
+    ("opaque-profile", OpenAIModelFamily),
+])
+def test_bedrock_infers_family_without_changing_id(monkeypatch, name, family):
+    monkeypatch.setattr("archytas.models.providers.bedrock.ChatBedrockConverse", FakeChatModel)
+    model = BedrockModel({"model_name": name})
+    assert type(model.model_family) is family
+    assert model._model.options["model"] == name
+
+
+@pytest.mark.parametrize("name,family", [
+    ("openai.gpt-example", OpenAIModelFamily),
+    ("us.openai.gpt-example", OpenAIModelFamily),
+    ("eu.anthropic.claude-sonnet:0", AnthropicModelFamily),
+    ("AP.ANTHROPIC.claude-sonnet:0", AnthropicModelFamily),
+    ("meta.llama3-70b-instruct-v1:0", LlamaModelFamily),
+    ("us.meta.llama3-70b-instruct-v1:0", LlamaModelFamily),
+    ("global.meta.llama4-scout-17b-instruct-v1:0", LlamaModelFamily),
+    ("arn:aws:bedrock:us-east-1:123:foundation-model/meta.llama4-scout-v1:0", LlamaModelFamily),
+    ("metaXllama3-70b", None),
+    ("meta-llama4-scout", None),
+    ("meta.llama30-70b", None),
+    ("opaque-profile", None),
+])
+def test_bedrock_provider_family_inference(name, family):
+    assert BedrockProvider().parse_prefix(name) == (family, name)
+
+
+def test_bedrock_explicit_selections_override_inference(monkeypatch):
+    monkeypatch.setattr("archytas.models.providers.bedrock.ChatBedrockConverse", FakeChatModel)
+    prefixed = BedrockModel({"model_name": "openai:us.anthropic.claude:0"})
+    explicit = BedrockModel(
+        {"model_name": "anthropic:us.anthropic.claude:0"}, model_family=OpenAIModelFamily,
+    )
+    for model in (prefixed, explicit):
+        assert type(model.model_family) is OpenAIModelFamily
+        assert model._model.options["model"] == "us.anthropic.claude:0"
+
+
+@pytest.mark.parametrize("name,wire_name", [
+    ("llama:latest", "llama:latest"),
+    ("llama:llama:latest", "llama:latest"),
+])
+def test_ollama_llama_tag_and_explicit_prefix(monkeypatch, name, wire_name):
+    from archytas.models.ollama import OllamaModel
+
+    monkeypatch.setattr("archytas.models.providers.ollama.ChatOllama", FakeChatModel)
+    model = OllamaModel({"model_name": name})
+    assert type(model.model_family) is LlamaModelFamily
+    assert model._model.options["model"] == wire_name
+
+
 def test_bedrock_defaults_and_family_only_cache_markers(monkeypatch):
     monkeypatch.setattr("archytas.models.providers.bedrock.ChatBedrockConverse", FakeChatModel)
     monkeypatch.delenv("ARCHYTAS_DISABLE_PROMPT_CACHE", raising=False)
@@ -140,6 +197,7 @@ def test_bedrock_defaults_and_family_only_cache_markers(monkeypatch):
 
 
 def test_provider_wire_result_processing_is_independent_of_family(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
     monkeypatch.setattr("archytas.models.providers.openai.ChatOpenAI", FakeChatModel)
     model = OpenAIModel({"model_name": "anthropic:claude", "api_key": "dummy"})
     response = AIMessage(content=[
@@ -220,6 +278,7 @@ def test_reasoning_preferences_are_encoded_by_provider():
 
 
 def test_legacy_reasoning_capability_hook_is_preserved(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
     monkeypatch.setattr("archytas.models.providers.openai.ChatOpenAI", FakeChatModel)
     monkeypatch.setattr("archytas.models.openai.REASONING_EFFORT_REQUEST", None)
 

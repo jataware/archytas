@@ -64,17 +64,20 @@ from archytas.models.bedrock import BedrockModel
 model = BedrockModel({"model_name": os.environ["LLM_SERVICE_MODEL"]})
 ```
 
-The family prefix is removed before the provider sees the name. It does not
-select the provider or change authentication. The built-in slugs are `generic`,
+The provider parses the family prefix and removes it from the model ID sent to
+the API. The prefix does not select the provider or change authentication. The built-in slugs are `generic`,
 `openai`, `anthropic`, `gemini`, `gemini2`, `gemini3`, and `llama`.
 
-Only registered prefixes match. Names such as `llama3:latest`,
-`us.anthropic.claude-sonnet:0`, and Bedrock ARNs remain unchanged. Unknown prefixes
-are also passed through unchanged. A recognized prefix without a model name is
-an error.
+The shared parser recognizes registered prefixes. Unknown prefixes are passed
+through unchanged; a recognized prefix without a model name is an error.
+Providers can override this parsing. Ollama treats `llama:latest` as a native
+model ID and selects the Llama family; `llama:llama:latest` explicitly selects
+the same family and sends `llama:latest` to Ollama.
 
-Without a prefix, the wrapper's default family is used; Archytas does not guess a
-family from arbitrary model names. Defaults are:
+Bedrock recognizes OpenAI and Anthropic model IDs, including regional IDs such
+as `us.anthropic.claude-sonnet:0` and ARNs ending in a recognizable model ID.
+It leaves those IDs unchanged. Opaque IDs that do not identify a family use the
+wrapper default unless a family is selected explicitly. Wrapper defaults are:
 
 | Model wrapper | Default family |
 | --- | --- |
@@ -85,8 +88,8 @@ family from arbitrary model names. Defaults are:
 | Groq | Legacy Groq message/instruction policy |
 | Bedrock | OpenAI |
 
-Bedrock's default model is `us.openai.gpt-6.1-terra`. Existing Claude deployments
-on Bedrock should explicitly select the `anthropic:` family. Other defaults and
+Bedrock's default model is `us.openai.gpt-6.1-terra`. Claude deployments with
+opaque IDs should explicitly select the `anthropic:` family. Other defaults and
 existing configuration fields are unchanged.
 
 ## Provider authentication and API settings
@@ -130,8 +133,9 @@ model = BedrockModel(
 )
 ```
 
-A registered prefix in `model_name` takes precedence over the constructor's
-`model_family`. The `provider` keyword can likewise replace the provider. A
+The constructor's `model_family` takes precedence over the provider's parsed or
+inferred family. The provider still parses the model name before receiving it.
+The `provider` keyword can likewise replace the provider. A
 provider and family can also be composed directly with
 `BaseArchytasModel(config, provider=..., model_family=...)`.
 

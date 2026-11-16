@@ -12,7 +12,7 @@ from functools import cache
 
 from langchain_core.tools import StructuredTool
 
-from .families import ModelFamily, resolve_model_family
+from .families import ModelFamily
 from .providers.base import ModelProvider
 
 if TYPE_CHECKING:
@@ -144,13 +144,13 @@ class BaseArchytasModel(ABC):
         else:
             self.config = config
         self.provider = kwargs.pop("provider", self.DEFAULT_PROVIDER)
-        self.model_family = kwargs.pop("model_family", self.DEFAULT_FAMILY)
+        explicit_family = kwargs.pop("model_family", None)
+        parsed_family = None
         if self.config.model_name:
-            name, prefixed_family = resolve_model_family(self.config.model_name, self.model_family)
+            parsed_family, name = self.provider.parse_prefix(self.config.model_name)
             if name != self.config.model_name:
                 self.config = self.config.model_copy(update={"model_name": name})
-                # A runtime name prefix is the most specific family selection.
-                self.model_family = prefixed_family
+        self.model_family = explicit_family if explicit_family is not None else (parsed_family or self.DEFAULT_FAMILY)
         self.auth(**kwargs)
         self._model = self.initialize_model(**kwargs)
         self.lc_tools = None

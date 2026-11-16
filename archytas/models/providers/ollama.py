@@ -4,6 +4,13 @@ from .base import ModelProvider
 
 
 class OllamaProvider(ModelProvider):
+    def parse_prefix(self, model_name):
+        # A single llama:tag is a native Ollama ID, not an explicit prefix.
+        if model_name.startswith("llama:") and model_name.count(":") == 1 and model_name[6:]:
+            from ..families.llama import LlamaModelFamily
+            return LlamaModelFamily, model_name
+        return super().parse_prefix(model_name)
+
     def initialize_model(self, model, **kwargs):
         # Dummy tool in required to enable "tool mode" on the model
         return ChatOllama(model=model.config.model_name or model.DEFAULT_MODEL)

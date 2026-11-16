@@ -1,20 +1,44 @@
 import json
 import logging
 import os
+import re
+from typing import ClassVar
 
 from botocore.exceptions import ClientError, NoCredentialsError
 from langchain_aws import ChatBedrockConverse
 
 from ...exceptions import AuthenticationError
-from ..families.anthropic import AnthropicModelFamily
+from ..families import ModelFamily, AnthropicModelFamily, LlamaModelFamily, OpenAIModelFamily
 from .base import ModelProvider
 
 DEFERRED_TOKEN_VALUE = "***deferred***"
 
 
+
+
 class BedrockProvider(ModelProvider):
     MODEL_SPECIFIC_CONTENT_TYPES = frozenset({"reasoning_content"})
     DEFAULT_REGION = "us-east-1"
+
+    BEDROCK_MODEL_FAMILY_REGEX_MAP: ClassVar[dict[str, type[ModelFamily]]] = {
+        "anthropic": AnthropicModelFamily,
+        "openai": OpenAIModelFamily,
+        "meta.llama3": LlamaModelFamily,
+        "meta.llama4": LlamaModelFamily,
+    }
+
+    def parse_prefix(self, model_name):
+        family, name = super().parse_prefix(model_name)
+        if family is not None:
+            return family, name
+        # Foundation model and inference profile ARNs can include a recognizable ID.
+        identifier = name.rsplit("/", 1)[-1]
+        family_regex = "|".join(re.escape(key) for key in self.BEDROCK_MODEL_FAMILY_REGEX_MAP.keys())
+        regex_search = r"^(?:(?:us|eu|ap|global)\.)?(" + family_regex + r")[\.-]"
+        match = re.match(regex_search, identifier, re.IGNORECASE)
+        if match:
+            family = self.BEDROCK_MODEL_FAMILY_REGEX_MAP[match.group(1).lower()]
+        return family, name
 
     def auth(self, model, **kwargs) -> None:
         for attribute in (

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
     from ...agent import AgentResponse
     from ..base import BaseArchytasModel
+    from ..families import ModelFamily
 
 
 class ModelProvider:
@@ -18,6 +19,13 @@ class ModelProvider:
     """
 
     MODEL_SPECIFIC_CONTENT_TYPES: frozenset[str] = frozenset()
+
+    def parse_prefix(self, model_name: str) -> tuple[type["ModelFamily"] | None, str]:
+        """Resolve a family and the model identifier to send to the provider."""
+        from ..families import resolve_model_family
+
+        name, family = resolve_model_family(model_name, None)
+        return (type(family) if family is not None else None), name
 
     def auth(self, model: "BaseArchytasModel", **kwargs: Any) -> None:
         pass

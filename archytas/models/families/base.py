@@ -73,7 +73,7 @@ def register_model_family(family: type[ModelFamily]) -> type[ModelFamily]:
     return family
 
 
-def resolve_model_family(model_name: str, default: ModelFamily) -> tuple[str, ModelFamily]:
+def resolve_model_family(model_name: str, default: ModelFamily | None) -> tuple[str, ModelFamily | None]:
     """Strip only registered leading prefixes; leave provider IDs intact."""
     slug, separator, name = model_name.partition(":")
     family = _FAMILIES.get(slug) if separator else None
