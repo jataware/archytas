@@ -7,6 +7,7 @@ import logging
 import traceback
 import typing
 import uuid
+from threading import Lock
 
 
 _OUTPUT_PREVIEW_BUDGET = 200
@@ -75,7 +76,7 @@ Extra details:
 
 
 def catch_failure(fn):
-    def handle_error(message_records: list[MessageRecord], error: Exception, agent: "ReActAgent|None" = None):
+    def handle_error(message_records: list[MessageRecord], error: BaseException, agent: "ReActAgent|None" = None):
         last_ai_message = None
         seen_tool_message_ids = set()
         messages = [record.message for record in message_records]
@@ -85,15 +86,16 @@ def catch_failure(fn):
                     last_ai_message = message
                     break
                 case ToolMessage():
-                    seen_tool_message_ids.add(message.id)
+                    seen_tool_message_ids.add(message.tool_call_id)
         if not last_ai_message:
             return
         if last_ai_message.tool_calls:
             missing_tool_ids = set(tool_call["id"] for tool_call in last_ai_message.tool_calls if tool_call["id"] not in seen_tool_message_ids)
             for missing_tool_id in missing_tool_ids:
                 error_message = ToolMessage(
-                    content=str(error),
+                    content=str(error) or type(error).__name__,
                     tool_call_id=missing_tool_id,
+                    status="error",
                 )
                 if agent:
                     agent.chat_history.add_message(error_message)
@@ -103,6 +105,9 @@ def catch_failure(fn):
             return await ensure_async(fn(self, *args, **kwargs))
         except FailedTaskError as failed_task:
             handle_error(self.chat_history.raw_records, failed_task, self)
+            raise
+        except asyncio.CancelledError as error:
+            handle_error(self.chat_history.raw_records, error, self)
             raise
         except Exception as error:
         # TODO: Is it good to handle other errors here too? Probably, but flow can be tricky.
@@ -188,6 +193,8 @@ class ReActAgent(Agent):
         self.tools = make_tool_dict(tools)
         self.current_query = None
         self.loop_messages: list[BaseMessage] = []
+        # Nonblocking ownership guard also works with react()'s fresh event loops.
+        self._react_lock = Lock()
 
         if on_react_step is Undefined:
             self.on_react_step = self._default_react_step_callback
@@ -378,7 +385,8 @@ class ReActAgent(Agent):
                 )
             message = ToolMessage(
                 content='Execution of this tool was interrupted by the user.',
-                tool_call_id=tool_id
+                tool_call_id=tool_id,
+                status="error",
             )
             return (message, False)
         except Exception as e:
@@ -401,12 +409,25 @@ class ReActAgent(Agent):
                 self.print(f"[red]Exception raised in tool: '{tool_name}'[/red]\n[yellow]{''.join(traceback.format_exception(e))}[/yellow]")
             return (message, False)
 
-    @catch_failure
     async def react_async(self, query: str, react_context:dict=None) -> str:
         """
         Asynchronous react loop function.
         Continually calls tools until a satisfactory answer is reached.
+
+        Raises RuntimeError if another run is active on this agent. Callers must
+        wait for that run to finish (or cancel and await it) before starting another.
         """
+        if not self._react_lock.acquire(blocking=False):
+            raise RuntimeError("A ReAct run is already running on this agent; wait for it to finish before starting another.")
+        try:
+            return await self._react_async(query, react_context)
+        finally:
+            self._react_lock.release()
+
+    @catch_failure
+    async def _react_async(self, query: str, react_context:dict=None) -> str:
+        # Error recovery must finish before ownership is released, and must not
+        # run for a rejected concurrent invocation (which owns no tool calls).
 
         # reset error and steps counter
         self.errors = 0
@@ -479,12 +500,21 @@ class ReActAgent(Agent):
                 else:
                     raise ValueError("Only one of tools `final_answer` and `fail_task` can be called at a time.")
             if tool_call_coroutines:
-                tool_call_results: list[tuple[ToolMessage, bool]] = await asyncio.gather(*tool_call_coroutines)
-
-                for tool_message, successful in tool_call_results:
-
-                    # Always add tool response before handling state changes to ensure message history is correct.
-                    self.chat_history.add_message(tool_message)
+                tool_tasks = [asyncio.create_task(coro) for coro in tool_call_coroutines]
+                try:
+                    await asyncio.gather(*tool_tasks)
+                finally:
+                    # gather() can raise while sibling tools are still running.
+                    # Settle them before releasing the run, retaining any results
+                    # already produced rather than replacing them with errors.
+                    for task in tool_tasks:
+                        if not task.done():
+                            task.cancel()
+                    tool_call_results = await asyncio.gather(*tool_tasks, return_exceptions=True)
+                    for result in tool_call_results:
+                        if not isinstance(result, BaseException):
+                            tool_message, successful = result
+                            self.chat_history.add_message(tool_message)
 
                 # TODO: How to handle these are a little unclear given that now that we are running multiple tools at once
                 #   what happens when the loop controller state commands conflict.

@@ -647,8 +647,8 @@ class Agent:
             self.post_execute_task = None
         if self.post_execute_task is None:
             task = asyncio.create_task(self.post_execute())
-        task.add_done_callback(task_callback)
-        self.post_execute_task = task
+            task.add_done_callback(task_callback)
+            self.post_execute_task = task
 
         return result
 
