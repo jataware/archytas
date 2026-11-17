@@ -3,6 +3,7 @@ import pytest
 from archytas.react import ReActAgent
 from archytas.models.openai import OpenAIModel
 from archytas.models.anthropic import AnthropicModel
+from archytas.models.bedrock import BedrockModel
 from archytas.models.gemini import GeminiModel
 
 
@@ -12,7 +13,7 @@ def pytest_addoption(parser):
         "--model-provider",
         action="store",
         default="all",
-        help="Model provider to test: openai, anthropic, gemini, or all"
+        help="Model provider to test: openai, anthropic, gemini, bedrock, or all"
     )
     parser.addoption(
         "--openai-model",
@@ -31,6 +32,12 @@ def pytest_addoption(parser):
         action="store",
         default="gemini-3.6-flash",
         help="Comma-delimited list of Gemini models to test (default: gemini-3.6-flash)"
+    )
+    parser.addoption(
+        "--bedrock-model",
+        action="store",
+        default="openai:us.openai.gpt-6.1-terra,anthropic:us.anthropic.claude-sonnet-5-5",
+        help="Comma-delimited list of family-prefixed Bedrock model IDs to test"
     )
 
 
@@ -56,8 +63,13 @@ def pytest_generate_tests(metafunc):
             for model_name in gemini_models:
                 model_configs.append(f"gemini:{model_name.strip()}")
 
+        if provider_option in ["all", "bedrock"] and os.environ.get("ARCHYTAS_BEDROCK_TESTS_ENABLED") == "1":
+            bedrock_models = metafunc.config.getoption("--bedrock-model").split(",")
+            for model_name in bedrock_models:
+                model_configs.append(f"bedrock:{model_name.strip()}")
+
         if not model_configs:
-            pytest.skip(f"No API keys found for provider: {provider_option}")
+            pytest.skip(f"No enabled models found for provider: {provider_option}")
 
         metafunc.parametrize("model_fixture", model_configs, indirect=True)
 
@@ -131,6 +143,8 @@ def model_fixture(request):
         if not api_key:
             pytest.skip("GEMINI_API_KEY not set")
         return GeminiModel({"api_key": api_key, "model_name": model_name})
+    elif provider == "bedrock":
+        return BedrockModel({"model_name": model_name})
     else:
         pytest.fail(f"Unknown provider: {provider}")
 

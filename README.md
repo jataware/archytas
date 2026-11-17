@@ -85,5 +85,7 @@ share a conversation, and avoid direct history changes or calls to `query()` or
 `execute()` while a ReAct run is active.
 
 # Documentation
-See the [wiki docs](https://github.com/jataware/archytas/wiki) for details.
+See [model providers and families](docs/models.md) for model configuration and
+family overrides, and the [wiki docs](https://github.com/jataware/archytas/wiki)
+for more details.
 

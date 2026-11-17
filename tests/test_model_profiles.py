@@ -53,7 +53,8 @@ def test_initialization_uses_profile_to_configure_reasoning(monkeypatch, model_c
             self.profile = {"reasoning_effort_levels": ["low"]}
 
     target = "ChatOpenAI" if model_class is OpenAIModel else "ChatGoogleGenerativeAI"
-    monkeypatch.setattr(f"{module}.{target}", FakeChatModel)
+    provider_module = module.replace("archytas.models.", "archytas.models.providers.")
+    monkeypatch.setattr(f"{provider_module}.{target}", FakeChatModel)
     monkeypatch.setattr(f"{module}.REASONING_EFFORT_REQUEST", None)
     model = object.__new__(model_class)
     model.config = SimpleNamespace(model_name=model_name, model_extra=None, api_key="dummy")

@@ -11,6 +11,21 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export GEMINI_API_KEY="..."
 ```
 
+Bedrock live tests are opt-in. Configure AWS credentials using the standard AWS
+credential chain (for example, `AWS_PROFILE` or environment credentials), set
+`AWS_REGION` if needed, and enable them explicitly:
+
+```bash
+export ARCHYTAS_BEDROCK_TESTS_ENABLED=1
+```
+
+The Bedrock defaults include one OpenAI-family and one Anthropic-family model.
+Model access and available inference profile IDs depend on your AWS account and
+region; use `--bedrock-model` to select IDs available to you. Live requests can
+incur charges. A separate pair of simple live checks removes any explicit family
+prefix and tests Bedrock's family inference for the configured OpenAI and
+Anthropic IDs. If an ID is opaque, it cannot be used for that inference check.
+
 ## Running Tests
 
 Quick start:
@@ -22,7 +37,7 @@ uv run pytest tests/test_*.py -v -n auto --tb=auto
 Detailed options:
 
 ```bash
-# All providers with available API keys
+# Providers with available API keys, plus Bedrock if explicitly enabled
 pytest -n auto
 
 # Specific provider
@@ -32,6 +47,7 @@ pytest --model-provider=openai
 pytest --openai-model=gpt-4o,gpt-5
 pytest --anthropic-model=claude-3-5-sonnet-20241022,claude-opus-4-20250514
 pytest --gemini-model=gemini-2.0-flash-exp,gemini-2.5-flash
+pytest --model-provider=bedrock --bedrock-model='openai:OPENAI_MODEL_ID,anthropic:ANTHROPIC_MODEL_ID'
 
 # Combine filters
 pytest --model-provider=openai --openai-model=gpt-4o,gpt-5

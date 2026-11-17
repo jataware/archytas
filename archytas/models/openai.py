@@ -1,23 +1,10 @@
+"""Compatibility model wrapper and legacy OpenAI reasoning settings."""
 import os
-import re
-from functools import lru_cache
-from typing import Any, Optional, Annotated, TYPE_CHECKING
-from langchain_openai.chat_models import ChatOpenAI
-from langchain_openai.llms.base import OpenAI
-from langchain_core.messages import FunctionMessage, AIMessage
-from langchain_core.tools import StructuredTool
+from typing import Optional
 
-from openai import AuthenticationError as OpenAIAuthenticationError, APIError, APIConnectionError, RateLimitError, OpenAIError, BadRequestError
-from .base import BaseArchytasModel, ModelConfig, set_env_auth
-from ..exceptions import AuthenticationError, ExecutionError, ContextWindowExceededError
-
-if TYPE_CHECKING:
-    from ..agent import AgentResponse
-
-import logging
-logger = logging.getLogger(__name__)
-
-DEFERRED_TOKEN_VALUE = "***deferred***"
+from .base import BaseArchytasModel
+from .families.openai import OpenAIModelFamily
+from .providers.openai import DEFERRED_TOKEN_VALUE, OpenAIProvider
 
 # Reasoning effort levels supported by each model family, keyed by model prefix pattern.
 # Order within each list reflects what the model accepts.
@@ -30,168 +17,15 @@ REASONING_EFFORT_LEVELS: dict[str, list[str]] = {
     "gpt-5.4": ["none", "low", "medium", "high", "xhigh"],
     "gpt-5":   ["minimal", "low", "medium", "high"],
 }
-
-# Preferred effort levels in priority order — the first level that the model
-# supports will be selected.
 PREFERRED_EFFORT_ORDER: list[str] = ["medium", "high", "low", "xhigh", "none"]
-
 REASONING_EFFORT_REQUEST: Optional[str] = os.environ.get("LLM_REASONING_EFFORT", None)
 REASONING_SUMMARY_REQUEST: Optional[str] = os.environ.get("LLM_REASONING_SUMMARY_TYPE", "concise")
 
+
 class OpenAIModel(BaseArchytasModel):
     DEFAULT_MODEL = "gpt-4o"
+    DEFAULT_PROVIDER = OpenAIProvider
+    DEFAULT_FAMILY = OpenAIModelFamily
 
     def __init__(self, config, **kwargs):
         super().__init__(config, **kwargs)
-
-    def auth(self, **kwargs) -> None:
-        auth_token = None
-        if 'api_key' in kwargs:
-            auth_token = kwargs['api_key']
-        else:
-            auth_token = self.config.api_key
-        if not auth_token:
-            # No key configured: defer to the environment (e.g. a user-set
-            # OPENAI_API_KEY), without clobbering it.
-            set_env_auth(OPENAI_API_KEY=DEFERRED_TOKEN_VALUE)
-            auth_token = os.environ.get('OPENAI_API_KEY', DEFERRED_TOKEN_VALUE)
-        else:
-            # An explicit key wins over the environment -- including a value an
-            # earlier model instance wrote there -- so a new key takes effect now.
-            os.environ['OPENAI_API_KEY'] = auth_token
-
-        if auth_token != DEFERRED_TOKEN_VALUE:
-            self.config.api_key = auth_token
-        # Reset the openai client with the new value, if needed.
-        if getattr(self, "model", None):
-            self.model.openai_api_key._secret_value = auth_token
-            self.model.client = None
-            self.model.async_client = None
-
-            # This method reinitializes the clients
-            self.model.validate_environment()
-
-    def _get_supported_reasoning_efforts(self, model_name: str, profile: dict | None = None) -> list[str] | None:
-        """Return supported effort levels, falling back to known model families."""
-        if profile is not None:
-            if "reasoning_effort_levels" in profile:
-                return profile["reasoning_effort_levels"] or None
-            if profile.get("reasoning_output") is False:
-                return None
-        model_lower = model_name.lower()
-        # Check prefixes longest-first so "gpt-5.4" matches before "gpt-5".
-        for prefix in sorted(REASONING_EFFORT_LEVELS, key=len, reverse=True):
-            if model_lower.startswith(prefix):
-                return REASONING_EFFORT_LEVELS[prefix]
-        return None
-
-    def _get_reasoning_config(self, model_name: str, profile: dict | None = None) -> dict[str, str] | None:
-        """Build the reasoning config dict for a model, or None if reasoning is not supported."""
-        supported = self._get_supported_reasoning_efforts(model_name, profile)
-        if supported is None:
-            return None
-        if REASONING_EFFORT_REQUEST and REASONING_EFFORT_REQUEST in supported:
-                return {"effort": REASONING_EFFORT_REQUEST, "summary": REASONING_SUMMARY_REQUEST}
-        for effort in PREFERRED_EFFORT_ORDER:
-            if effort in supported:
-                return {"effort": effort, "summary": REASONING_SUMMARY_REQUEST}
-        return None
-
-    def initialize_model(self, **kwargs):
-        try:
-            model = self.config.model_name or self.DEFAULT_MODEL
-            titoken_model_name = "gpt-4o" if 'gpt-4.1' in model else model
-            model_kwargs: dict[str, Any] = dict(
-                model=model,
-                tiktoken_model_name=titoken_model_name,
-            )
-            # Optional custom endpoint (LiteLLM, an org gateway, or any other
-            # OpenAI-compatible server), configured per-provider like azure's
-            # `endpoint`.
-            if self.config.model_extra and self.config.model_extra.get("base_url"):
-                model_kwargs["base_url"] = self.config.model_extra["base_url"]
-            chat_model = ChatOpenAI(**model_kwargs)
-            reasoning = self._get_reasoning_config(model, getattr(chat_model, "profile", None))
-            if reasoning is not None:
-                model_kwargs["reasoning"] = reasoning
-                chat_model = ChatOpenAI(**model_kwargs)
-            return chat_model
-        except (APIConnectionError, OpenAIError) as err:
-            if not self.config.api_key:
-                raise AuthenticationError("OpenAI API Key not set")
-            else:
-                raise AuthenticationError("OpenAI Authentication Error") from err
-
-    def ainvoke(self, input, *, config=None, stop=None, **kwargs):
-        if self.model is None or not getattr(self.model, 'openai_api_key', None):
-            raise AuthenticationError("OpenAI API Key missing")
-        return super().ainvoke(input, config=config, stop=stop, **kwargs)
-
-    def process_result(self, response_message: "AIMessage") -> "AgentResponse":
-        from ..agent import AgentResponse
-        content = response_message.content
-        tool_calls = response_message.tool_calls
-
-        text = ""
-        metadata: dict[str, Any] = {}
-        if isinstance(content, str):
-            text = content
-        elif isinstance(content, list):
-            text_parts: list[str] = []
-            for item in content:
-                if not isinstance(item, dict):
-                    continue
-                block_type = item.get("type")
-                if block_type == "text" and len(item.get("text") or "") > 0:
-                    text_parts.append(str(item["text"]))
-                elif block_type == "reasoning":
-                    # Reasoning summary blocks contain a "summary" list of text items.
-                    summary_parts = []
-                    for summary_item in item.get("summary") or []:
-                        if isinstance(summary_item, dict) and summary_item.get("text"):
-                            summary_parts.append(summary_item["text"])
-                    if summary_parts:
-                        metadata["reasoning"] = "\n".join(summary_parts)
-            if text_parts:
-                text = "\n".join(text_parts)
-
-        # if not text and tool_calls:
-        #     tool_thoughts = [
-        #         tool_call["args"].pop("thought", f"Calling tool '{tool_call['name']}'")
-        #         for tool_call in tool_calls
-        #     ]
-        #     text = "\n".join(tool_thoughts)
-        # if not text:
-        #     text = "Thinking..."
-
-        return AgentResponse(text=text, tool_calls=tool_calls, metadata=metadata)
-
-    def handle_invoke_error(self, error: BaseException):
-        if isinstance(error, OpenAIAuthenticationError):
-            raise AuthenticationError("OpenAI Authentication Error") from error
-        elif isinstance(error, RateLimitError):
-            raise ExecutionError(error.message) from error
-        elif isinstance(error, (APIConnectionError, OpenAIError)) and not self.model.openai_api_key:
-            raise AuthenticationError("OpenAI Authentication Error") from error
-        elif isinstance(error, (BadRequestError)) and error.code == "context_length_exceeded":
-            raise ContextWindowExceededError(error.body.get('message', None)) from error
-        else:
-            raise error
-
-    @lru_cache()
-    def contextsize(self, model_name = None):
-        profile_size = self._profile_contextsize(model_name)
-        if profile_size is not None:
-            return profile_size
-        if model_name is None:
-            model_name = self.model_name
-        try:
-            return OpenAI.modelname_to_contextsize(model_name)
-        except ValueError as err:
-            if 'gpt-4.1' in model_name:
-                return 1_000_000
-            elif model_name.startswith(('o3', 'o4')):
-                return 200_000
-            elif 'gpt-5' in model_name.lower():
-                return 400_000
-            raise
