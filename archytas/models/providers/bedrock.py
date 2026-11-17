@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from typing import ClassVar
 
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -12,6 +13,15 @@ from ..families import ModelFamily, AnthropicModelFamily, LlamaModelFamily, Open
 from .base import ModelProvider
 
 DEFERRED_TOKEN_VALUE = "***deferred***"
+
+STOP_REASON_MESSAGES = {
+    "max_tokens": "The model reached its output token limit before completing its response.",
+    "guardrail_intervened": "The response was stopped by a Bedrock guardrail.",
+    "content_filtered": "The response was stopped by Bedrock content filtering.",
+    "malformed_model_output": "The model produced an invalid response and could not complete the request.",
+    "malformed_tool_use": "The model produced an invalid tool call and could not complete the request.",
+    "model_context_window_exceeded": "The conversation exceeded the model's context window.",
+}
 
 
 
@@ -127,6 +137,40 @@ class BedrockProvider(ModelProvider):
             if last_persisted_idx > 0:
                 output[last_persisted_idx] = _attach_cache_control(output[last_persisted_idx])
         return output
+
+    async def ainvoke(self, model, invoke, input, *, config=None, stop=None, **kwargs):
+        response = await invoke(input, config=config, stop=stop, **kwargs)
+        stop_reason = response.response_metadata.get("stopReason")
+        interrupted = stop_reason in STOP_REASON_MESSAGES
+        if interrupted or (stop_reason == "end_turn" and not response.tool_calls):
+            if isinstance(response.content, str):
+                text = response.content
+            else:
+                text = "\n".join(
+                    block["text"] for block in response.content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
+            if interrupted:
+                # Partial or malformed tool calls cannot be replayed or executed.
+                if isinstance(response.content, list):
+                    response.content = [
+                        block for block in response.content
+                        if not isinstance(block, dict) or (
+                            block.get("type") not in ("tool_use", "tool_call")
+                            and "toolUse" not in block
+                        )
+                    ]
+                response.tool_calls.clear()
+                response.invalid_tool_calls.clear()
+                if not text.strip():
+                    text = STOP_REASON_MESSAGES[stop_reason]
+                    response.content = text
+            response.tool_calls.append({
+                "id": uuid.uuid4().hex,
+                "name": "final_answer",
+                "args": {"response": text},
+            })
+        return response
 
     def handle_invoke_error(self, model, error: BaseException):
         # client error catches a lot of credentials errors like incorrect profile names
